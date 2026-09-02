@@ -103,7 +103,7 @@ func TestAVaultWrittenBeforeVersioningIsBaselined(t *testing.T) {
 
 // The failure this scheme exists to prevent. A database written by a build that
 // knows more than this one must be refused, because the damage from proceeding
-// is silent — reads that miss what they cannot see and writes that drop it, over
+// is silent: reads that miss what they cannot see and writes that drop it, over
 // the user's only local copy.
 func TestADatabaseFromANewerBuildIsRefused(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "newer.db")

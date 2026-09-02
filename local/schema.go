@@ -190,7 +190,7 @@ func addPreVersionColumns(ctx context.Context, conn *sql.Conn) error {
 //
 // IMMEDIATE rather than the default: a deferred transaction begins as a reader
 // and has to upgrade, which SQLite refuses outright if another connection wrote
-// in the meantime. busy_timeout does not rescue that — it covers waiting for a
+// in the meantime. busy_timeout does not rescue that: it covers waiting for a
 // lock, not being told the read the transaction already took is now stale. Two
 // processes opening the same vault at once is the ordinary case here, since
 // every MCP client launches its own.

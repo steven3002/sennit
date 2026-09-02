@@ -4,7 +4,7 @@
 -- lexical index, the read-location caches, the pending write queue and the
 -- session heads. Records already on the network survive and can be hydrated
 -- back; anything still sitting in the queue has not reached the network and is
--- lost with the table. Nothing in the shipped product calls this — it exists so
+-- lost with the table. Nothing in the shipped product calls this. It exists so
 -- that the migration sequence is reversible and so that the runner's stepping
 -- can be tested against a real database rather than asserted.
 --

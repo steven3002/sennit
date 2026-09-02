@@ -47,8 +47,8 @@ improves the ranking, and a tag you guessed wrongly costs a little ranking quali
 records that do not match are still returned, just lower. You cannot lose an answer by guessing, so
 guess.
 
-**Scope is different and it does exclude.** `scope` selects which class of record may answer
-— memory, session, or both. Use it when the user is asking for a container ("list my sessions"), never
+**Scope is different and it does exclude.** `scope` selects which class of record may answer:
+memory, session, or both. Use it when the user is asking for a container ("list my sessions"), never
 to narrow a question about a subject. A scope is a statement about what is being addressed; a filter
 is a guess about what the answer will be about.
 

@@ -363,7 +363,7 @@ func headValues(s *record.Session) map[string]string {
 
 func clip(s string, n int) string {
 	if s == "" {
-		return "—"
+		return "(none)"
 	}
 	runes := []rune(s)
 	if len(runes) <= n {
