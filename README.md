@@ -4,9 +4,11 @@
 
 Sennit gives an AI agent a long-term memory that belongs to **you** rather than to a vendor: encrypted on your device, stored on decentralized infrastructure that cannot read it, retrieved by meaning, and portable across apps, models and machines.
 
-> **Status: pre-alpha.** The substrate, the CLI and the MCP server are built and measured against the
-> live Sia network, and the [quickstart](#quickstart) below is tested end to end. There is no binary
-> release yet, so you build from source. See [Status](#status) for what is and is not proven.
+> **Status: beta.** The substrate, the CLI and the MCP server are built and measured against the live
+> Sia network, and the [quickstart](#quickstart) below is tested end to end. **Prebuilt binaries are
+> available**, see [`v0.1.0-beta-mvp`](https://github.com/steven3002/sennit/releases/tag/v0.1.0-beta-mvp).
+> It is beta because it works and is measured, and because it has been used by very few people. See
+> [Status](#status) for what is and is not proven.
 
 ---
 
@@ -50,13 +52,52 @@ Roughly ten minutes, most of it waiting for one download and one approval click.
 
 ### What you need
 
-- **Go 1.26.5 or newer** (`go.mod` sets it). `go version` should print it. If it doesn't, see
-  [Troubleshooting](#go-is-installed-but-go-version-fails).
-- **About 1 GB of free disk**: ~130 MB for the embedding model, the rest for the Go build cache.
+- **About 300 MB of free disk**, mostly the ~130 MB embedding model. Building from source instead
+  wants about 1 GB, for the Go build cache.
 - **A browser**, once, to approve this installation with an indexer.
+- **Go 1.26.5 or newer**, *only if you build from source* (`go.mod` sets it). If `go version` does
+  not print it, see [Troubleshooting](#go-is-installed-but-go-version-fails).
 - No Sia node. No wallet. No payment, the hosted indexer's free tier covers the quickstart.
 
-### 1. Build
+### 1. Install
+
+**Download a release.** Pick the archive for your machine from
+[`v0.1.0-beta-mvp`](https://github.com/steven3002/sennit/releases/tag/v0.1.0-beta-mvp). `amd64` is an
+ordinary Intel or AMD machine; `arm64` on macOS is any Apple Silicon Mac, an M1 or later.
+
+```sh
+tag=v0.1.0-beta-mvp
+file=sennit_0.1.0-beta-mvp_linux_amd64.tar.gz     # change to match your platform
+base=https://github.com/steven3002/sennit/releases/download/$tag
+
+curl -sSLO "$base/$file"
+curl -sSLO "$base/SHA256SUMS"
+sha256sum -c SHA256SUMS --ignore-missing          # macOS: shasum -a 256 -c
+
+tar xzf "$file"
+cd "${file%.tar.gz}"
+./sennit version
+```
+
+**Verify the checksum rather than skipping it.** These binaries derive and hold the keys to
+everything you store, so "it downloaded, it is probably fine" is not a good enough standard for
+them.
+
+> ⚠️ **macOS will refuse to open it the first time, and that is expected.** These binaries are
+> unsigned and un-notarized, so Gatekeeper quarantines anything downloaded from a browser and says
+> *"cannot be opened because the developer cannot be verified."* Nothing is wrong with the file.
+> Clear the flag:
+>
+> ```sh
+> xattr -d com.apple.quarantine ./sennit ./sennit-mcp
+> ```
+>
+> Signing this properly needs a paid Apple Developer ID, which is not worth it at beta.
+
+> ⚠️ **On Windows** the vault defaults to `C:\Users\<you>\.sennit`, which works but is a Unix
+> convention rather than a native one. Set `SENNIT_HOME` if you would rather it lived elsewhere.
+
+**Or build from source.** No cgo and no system libraries, so this works anywhere Go does:
 
 ```sh
 git clone https://github.com/steven3002/sennit
@@ -65,7 +106,8 @@ CGO_ENABLED=0 go build -o sennit ./cmd/sennit
 CGO_ENABLED=0 go build -o sennit-mcp ./cmd/sennit-mcp
 ```
 
-No cgo, no system libraries. The first build downloads dependencies and takes a few minutes.
+The first build downloads dependencies and takes a few minutes. A binary you built yourself reports
+`built from source` rather than a commit, because it is not claiming a provenance anyone can check.
 
 ### 2. Get a recovery phrase
 
@@ -342,6 +384,26 @@ and retryable; nothing is lost, because a failed flush leaves the records queued
 - [Sia](https://sia.tech), decentralized storage with client-side encryption and user-held keys
 - [`go.sia.tech/siastorage`](https://pkg.go.dev/go.sia.tech/siastorage), the first-party Go SDK
 - [Model Context Protocol](https://modelcontextprotocol.io), the open standard for connecting data to AI applications
+
+## Reporting a problem in the beta
+
+This is the point of a beta, so a report of something being confusing is as useful as a report of
+something crashing. **Include the output of `sennit version`**, because a bug report that cannot name
+a build cannot be reproduced:
+
+```
+sennit 0.1.0-beta-mvp (3615850, 2026-09-04)
+```
+
+⚠️ **Never paste your recovery phrase into an issue.** It is the key to every memory in the vault.
+Nothing in this project ever needs it in order to help you, and no output here prints it.
+
+**Two checks are worth more than any bug report**, because they cover the two things automated tests
+cannot reach. Both are scripted in [`docs/host-checks.md`](docs/host-checks.md) and take about ten
+minutes: whether the `/resume` prompt shows up as a slash command in your MCP host, and **whether an
+agent reading only the tool descriptions supplies usable tags.** The second one decides whether this
+project's retrieval quality claim survives contact with a real agent, and it has never been run by
+anyone who did not write the code.
 
 ## Contributing
 
