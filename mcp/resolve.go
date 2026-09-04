@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/steven3002/mnemosia/local"
-	"github.com/steven3002/mnemosia/manifest"
-	"github.com/steven3002/mnemosia/record"
-	"github.com/steven3002/mnemosia/vault"
+	"github.com/steven3002/sennit/local"
+	"github.com/steven3002/sennit/manifest"
+	"github.com/steven3002/sennit/record"
+	"github.com/steven3002/sennit/vault"
 )
 
 // ErrNoRecord reports that the vault holds nothing at an address.

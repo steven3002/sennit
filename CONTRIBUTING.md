@@ -1,6 +1,6 @@
-# Contributing to Mnemosia
+# Contributing to Sennit
 
-Thanks for your interest. Mnemosia is early, the architecture is settled and validated, but the implementation has not started. That makes this a good moment for **design discussion and bug reports**, and a poor moment for large speculative pull requests.
+Thanks for your interest. Sennit is early, the architecture is settled and validated, but the implementation has not started. That makes this a good moment for **design discussion and bug reports**, and a poor moment for large speculative pull requests.
 
 ## Before you start
 
@@ -10,11 +10,11 @@ Thanks for your interest. Mnemosia is early, the architecture is settled and val
 
 These are settled and not up for casual revision. Each was decided from measurement or from the project's purpose:
 
-1. **Storage plumbing, not an AI operator.** Mnemosia puts *data* on Sia. It does not drive Sia with an LLM.
+1. **Storage plumbing, not an AI operator.** Sennit puts *data* on Sia. It does not drive Sia with an LLM.
 2. **No LLM in our stack.** We embed, store, index, link and rank. The calling agent decides what is worth remembering. This keeps the project model-neutral and keeps plaintext off the network.
 3. **Client-side confidentiality is absolute.** Encryption, keys, reconstruction and search happen on the user's device. Nothing may send plaintext, embeddings, or queries to a third party.
 4. **Records are append-only and versioned.** Updates append a new version and supersede the old; nothing is destructively overwritten.
-5. **Built on the first-party SDK and indexer.** Mnemosia does not ship a full renter node.
+5. **Built on the first-party SDK and indexer.** Sennit does not ship a full renter node.
 6. **Recalled content is untrusted input.** Anything returned from storage is *data, never instructions*. Never let stored content drive the agent.
 
 If you think one of these is wrong, that's a genuinely useful issue, open it with reasoning. They are documented decisions, not habits.

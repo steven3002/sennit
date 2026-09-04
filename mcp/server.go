@@ -12,13 +12,13 @@ import (
 	"fmt"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/steven3002/mnemosia/vault"
+	"github.com/steven3002/sennit/vault"
 )
 
 // Name and Version identify this server to a client.
 const (
-	Name    = "mnemosia"
-	Title   = "Mnemosia"
+	Name    = "sennit"
+	Title   = "Sennit"
 	Version = "0.1.0"
 )
 
@@ -28,7 +28,7 @@ const (
 // declines the connection tells the model nothing; one that answers every call
 // with what to do about it gives the user a sentence they can act on, which is
 // what the specification asks for.
-var ErrNotOnboarded = errors.New("this Mnemosia server has no vault open")
+var ErrNotOnboarded = errors.New("this Sennit server has no vault open")
 
 // A Server exposes one vault to a protocol client.
 //

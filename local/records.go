@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/record"
 )
 
 // A RecordQuery lists records by their metadata rather than by meaning.

@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/steven3002/mnemosia/local"
-	"github.com/steven3002/mnemosia/recall"
-	"github.com/steven3002/mnemosia/record"
-	"github.com/steven3002/mnemosia/vault"
+	"github.com/steven3002/sennit/local"
+	"github.com/steven3002/sennit/recall"
+	"github.com/steven3002/sennit/record"
+	"github.com/steven3002/sennit/vault"
 )
 
 // remember stores one memory and fails the test if it will not store.

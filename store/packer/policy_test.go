@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/steven3002/mnemosia/store/packer"
+	"github.com/steven3002/sennit/store/packer"
 )
 
 // The cadence is a slab budget: flushing twice as often costs twice the quota

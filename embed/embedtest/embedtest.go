@@ -27,19 +27,19 @@ import (
 	"sync"
 	"unicode"
 
-	"github.com/steven3002/mnemosia/embed"
+	"github.com/steven3002/sennit/embed"
 )
 
 // ModelDirEnv points at an already-downloaded model. Nothing here downloads
 // one: an ordinary test run touches no network.
-const ModelDirEnv = "MNEMOSIA_MODELS"
+const ModelDirEnv = "SENNIT_MODELS"
 
 // ModelDir is where the real model is expected to be.
 func ModelDir() string {
 	if root := os.Getenv(ModelDirEnv); root != "" {
 		return root
 	}
-	return filepath.Join(os.Getenv("HOME"), ".cache", "mnemosia", "models")
+	return filepath.Join(os.Getenv("HOME"), ".cache", "sennit", "models")
 }
 
 // ModelPresent reports whether the real model is on this machine.
@@ -89,7 +89,7 @@ func OpenModel(ctx context.Context) (*embed.Embedder, func(), error) {
 // scope that matters is one test run: `go test ./...` gives every package's
 // binary the same temporary directory, and two unrelated runs on one machine
 // have no reason to wait for each other.
-const modelSlot = "mnemosia-model-slot.lock"
+const modelSlot = "sennit-model-slot.lock"
 
 var slotOnce sync.Mutex
 

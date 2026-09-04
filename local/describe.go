@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/record"
 )
 
 // Described is the ranking metadata for a set of candidates, plus which of them

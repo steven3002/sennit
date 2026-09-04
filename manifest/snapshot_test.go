@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/steven3002/mnemosia/manifest"
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/manifest"
+	"github.com/steven3002/sennit/record"
 )
 
 // A snapshot must be a faithful replacement for the log it folds in: the

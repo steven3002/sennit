@@ -33,3 +33,7 @@ vendor/
 # Demo captures are point-in-time: they hard-code timings, protocol revisions and
 # record ids that go stale on the next change. Record one when you need it.
 demo/recordings/
+
+# Built binaries (were committed once, 81.5 MB, never again)
+/sennit
+/sennit-mcp

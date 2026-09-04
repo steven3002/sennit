@@ -20,7 +20,7 @@ much you have pinned and how much remains.
 
 | | Records that fit in the free tier |
 |---|---|
-| Mnemosia, packed and reclaimed | **~57,000,000** |
+| Sennit, packed and reclaimed | **~57,000,000** |
 | The same data written one record per object | **1,250** |
 
 That 45,000× gap is the whole reason this project has a packer and a repack command,see §4.
@@ -82,7 +82,7 @@ A hundred eager flushes is a hundred slabs,about **$0.014 per month** for data t
 one.
 
 That is still trivially cheap in absolute terms, but it is the only cost lever in the system, and it
-is why Mnemosia batches writes rather than sending them one at a time, and why `mnemosia reclaim
+is why Sennit batches writes rather than sending them one at a time, and why `sennit reclaim
 -repack` exists. On the free tier it is the difference between 57 million records and 1,250.
 
 ## 5. Stopping costs nothing, and nothing is locked in

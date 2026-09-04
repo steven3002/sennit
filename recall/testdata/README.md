@@ -56,12 +56,12 @@ were.
 
 ```sh
 go test ./recall/...                                    # skips without a model
-MNEMOSIA_MODELS=/path/to/models go test ./recall/...    # runs, ~2 minutes
+SENNIT_MODELS=/path/to/models go test ./recall/...    # runs, ~2 minutes
 ```
 
 The harness never downloads the model. An ordinary `go test ./...` has to touch
 no network, so a run without one **skips and stays green**; continuous
-integration fetches the model as a setup step and points `MNEMOSIA_MODELS` at it.
+integration fetches the model as a setup step and points `SENNIT_MODELS` at it.
 
 The corpus is embedded **once for the whole package**. Producing 82 vectors costs
 about thirty seconds on the pure-Go backend, and rebuilding per test pushed the

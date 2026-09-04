@@ -12,7 +12,7 @@
 # Run:
 #   source your credentials, then  ./demo/two-machines.sh
 #
-# It needs MNEMOSIA_PHRASE and MNEMOSIA_APP_KEY in the environment. Neither is
+# It needs SENNIT_PHRASE and SENNIT_APP_KEY in the environment. Neither is
 # ever printed, passed as an argument, or written to a file by this script.
 #
 # ⚠ Nothing here prints the recovery phrase. `set -x` would, which is why this
@@ -22,12 +22,12 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-work="${MNEMOSIA_DEMO_DIR:-$(mktemp -d -t mnemosia-demo-XXXXXX)}"
+work="${SENNIT_DEMO_DIR:-$(mktemp -d -t sennit-demo-XXXXXX)}"
 bin="$work/bin"
-keep="${MNEMOSIA_DEMO_KEEP:-}"
+keep="${SENNIT_DEMO_KEEP:-}"
 
-: "${MNEMOSIA_PHRASE:?set MNEMOSIA_PHRASE in the environment (never as an argument)}"
-: "${MNEMOSIA_APP_KEY:?set MNEMOSIA_APP_KEY, it is issued by \`mnemosia connect\`}"
+: "${SENNIT_PHRASE:?set SENNIT_PHRASE in the environment (never as an argument)}"
+: "${SENNIT_APP_KEY:?set SENNIT_APP_KEY, it is issued by \`sennit connect\`}"
 
 bold() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 note() { printf '  \033[2m%s\033[0m\n' "$*"; }
@@ -41,21 +41,21 @@ cleanup() {
   # Forgetting comes first and reclaiming second, and the order is not a
   # preference: a slab is billed whole and comes back only once nothing live is
   # left in it, so reclaiming without forgetting frees exactly nothing.
-  MNEMOSIA_HOME="$work/a" "$bin/agent" -server "$bin/mnemosia-mcp" -forget-all 2>&1 | sed 's/^/  /' || true
-  MNEMOSIA_HOME="$work/a" "$bin/mnemosia" reclaim 2>&1 | sed 's/^/  /' || true
+  SENNIT_HOME="$work/a" "$bin/agent" -server "$bin/sennit-mcp" -forget-all 2>&1 | sed 's/^/  /' || true
+  SENNIT_HOME="$work/a" "$bin/sennit" reclaim 2>&1 | sed 's/^/  /' || true
   rm -rf "$work"
 }
 trap cleanup EXIT
 
 bold "Building"
 mkdir -p "$bin"
-( cd "$root" && CGO_ENABLED=0 go build -o "$bin/mnemosia" ./cmd/mnemosia )
-( cd "$root" && CGO_ENABLED=0 go build -o "$bin/mnemosia-mcp" ./cmd/mnemosia-mcp )
+( cd "$root" && CGO_ENABLED=0 go build -o "$bin/sennit" ./cmd/sennit )
+( cd "$root" && CGO_ENABLED=0 go build -o "$bin/sennit-mcp" ./cmd/sennit-mcp )
 ( cd "$root" && CGO_ENABLED=0 go build -o "$bin/agent" ./demo/agent )
 if [ ! -d "$root/demo/cross-agent/node_modules" ]; then
   ( cd "$root/demo/cross-agent" && npm install --silent )
 fi
-note "mnemosia, mnemosia-mcp and two MCP clients"
+note "sennit, sennit-mcp and two MCP clients"
 
 # The clock starts here. Building is not the demo, and neither is installing a
 # client's dependencies; both are one-time and neither says anything about
@@ -63,29 +63,29 @@ note "mnemosia, mnemosia-mcp and two MCP clients"
 # ── Machine A ────────────────────────────────────────────────────────────────
 bold "Machine A, an agent stores a memory and a conversation"
 start=$SECONDS
-MNEMOSIA_HOME="$work/a" "$bin/agent" \
-  -server "$bin/mnemosia-mcp" \
+SENNIT_HOME="$work/a" "$bin/agent" \
+  -server "$bin/sennit-mcp" \
   -remember "The one-hour flush cap bounds the durability window, not cost; repack is what controls cost." \
   -context "Settled while working out the packer's flush policy, after measuring that a partially filled slab can never be extended." \
   -tags "storage,flush,decisions" \
   -session "Deciding the flush cadence" \
   -summary "Worked out why the one-hour cap exists: it bounds how long a turn lives only on the device. Cost is controlled by repack instead."
 
-MNEMOSIA_HOME="$work/a" "$bin/mnemosia" flush 2>&1 | sed 's/^/  /'
+SENNIT_HOME="$work/a" "$bin/sennit" flush 2>&1 | sed 's/^/  /'
 wrote=$(( SECONDS - start ))
 note "on Sia after ${wrote}s"
 
 # ── Machine B ────────────────────────────────────────────────────────────────
 bold "Machine B, a directory that has never held this vault"
 note "$work/b, no catalog, no index, no bodies, no session heads"
-MNEMOSIA_HOME="$work/b" "$bin/mnemosia" hydrate -depth index 2>&1 | sed 's/^/  /'
+SENNIT_HOME="$work/b" "$bin/sennit" hydrate -depth index 2>&1 | sed 's/^/  /'
 hydrated=$(( SECONDS - start ))
 
 bold "Machine B, read back, with a different MCP client"
 note "TypeScript MCP SDK, talking to the same stdio server the Go client used"
-MNEMOSIA_HOME="$work/b" \
+SENNIT_HOME="$work/b" \
 CROSS_AGENT_QUERY="why is there a one hour cap on flushing" \
-MNEMOSIA_MCP_BIN="$bin/mnemosia-mcp" \
+SENNIT_MCP_BIN="$bin/sennit-mcp" \
   node "$root/demo/cross-agent/read-vault.mjs"
 
 total=$(( SECONDS - start ))

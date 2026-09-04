@@ -6,10 +6,10 @@ import (
 	"testing"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/steven3002/mnemosia/embed/embedtest"
-	"github.com/steven3002/mnemosia/mcp"
-	"github.com/steven3002/mnemosia/record"
-	"github.com/steven3002/mnemosia/vault"
+	"github.com/steven3002/sennit/embed/embedtest"
+	"github.com/steven3002/sennit/mcp"
+	"github.com/steven3002/sennit/record"
+	"github.com/steven3002/sennit/vault"
 )
 
 const testPhrase = "abandon abandon abandon abandon abandon abandon " +
@@ -59,7 +59,7 @@ func connect(t *testing.T, server *mcp.Server) *sdk.ClientSession {
 	}
 	t.Cleanup(func() { serverSession.Wait() })
 
-	client := sdk.NewClient(&sdk.Implementation{Name: "mnemosia-test", Version: "0"}, nil)
+	client := sdk.NewClient(&sdk.Implementation{Name: "sennit-test", Version: "0"}, nil)
 	session, err := client.Connect(context.Background(), clientSide, nil)
 	if err != nil {
 		t.Fatalf("connect client: %v", err)

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/record"
 )
 
 // corpusPath is the committed regression fixture. It is wholly invented, see

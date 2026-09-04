@@ -1,8 +1,8 @@
 package recall
 
 import (
-	"github.com/steven3002/mnemosia/index"
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/index"
+	"github.com/steven3002/sennit/record"
 )
 
 // A Lexical ranks records by the words they use.

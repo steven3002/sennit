@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/steven3002/mnemosia/local"
-	"github.com/steven3002/mnemosia/record"
-	"github.com/steven3002/mnemosia/sia"
-	"github.com/steven3002/mnemosia/store/reclaim"
+	"github.com/steven3002/sennit/local"
+	"github.com/steven3002/sennit/record"
+	"github.com/steven3002/sennit/sia"
+	"github.com/steven3002/sennit/store/reclaim"
 )
 
 func refs(n int) map[sia.ObjectRef]struct{} {

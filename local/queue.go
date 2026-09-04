@@ -6,7 +6,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/record"
 )
 
 // A QueuedBlob is one sealed record waiting to be written to the network.

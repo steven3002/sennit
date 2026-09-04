@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/steven3002/mnemosia/local"
-	"github.com/steven3002/mnemosia/manifest"
-	"github.com/steven3002/mnemosia/record"
-	"github.com/steven3002/mnemosia/seal"
-	"github.com/steven3002/mnemosia/store"
-	"github.com/steven3002/mnemosia/store/packer"
+	"github.com/steven3002/sennit/local"
+	"github.com/steven3002/sennit/manifest"
+	"github.com/steven3002/sennit/record"
+	"github.com/steven3002/sennit/seal"
+	"github.com/steven3002/sennit/store"
+	"github.com/steven3002/sennit/store/packer"
 )
 
 // A SaveSessionRequest is one conversation, or the next part of one.

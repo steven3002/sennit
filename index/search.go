@@ -4,7 +4,7 @@ import (
 	"container/heap"
 	"fmt"
 
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/record"
 )
 
 // A Match is one record and how close it sits to the query.

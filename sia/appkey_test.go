@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/steven3002/mnemosia/keys"
+	"github.com/steven3002/sennit/keys"
 )
 
 // Connect converts the app key to types.PrivateKey, a byte slice whose size the

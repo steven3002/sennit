@@ -4,7 +4,7 @@ package recall
 import (
 	"time"
 
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/record"
 )
 
 // A Tier names where a record's body came from.

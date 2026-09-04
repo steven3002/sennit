@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/steven3002/mnemosia/mcp"
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/mcp"
+	"github.com/steven3002/sennit/record"
 )
 
 func TestParseRoundTripsEveryAddressableForm(t *testing.T) {
@@ -41,16 +41,16 @@ func TestParseRejectsMalformedAddresses(t *testing.T) {
 	for _, uri := range []string{
 		"",
 		"https://example.com/memory/" + id.String(),
-		"mnemosia://memory",
-		"mnemosia://skill/" + id.String(),
-		"mnemosia://memory/not-an-id",
-		"mnemosia://memory/" + id.String() + "ff",
+		"sennit://memory",
+		"sennit://skill/" + id.String(),
+		"sennit://memory/not-an-id",
+		"sennit://memory/" + id.String() + "ff",
 		// A memory has no addressable parts, and a session's only one is the
 		// transcript. Accepting either silently would give a caller an address
 		// that resolves to something it did not ask for.
-		"mnemosia://memory/" + id.String() + "/transcript",
-		"mnemosia://session/" + id.String() + "/messages",
-		"mnemosia://vault/" + id.String(),
+		"sennit://memory/" + id.String() + "/transcript",
+		"sennit://session/" + id.String() + "/messages",
+		"sennit://vault/" + id.String(),
 	} {
 		if _, err := mcp.Parse(uri); err == nil {
 			t.Fatalf("%q was accepted", uri)

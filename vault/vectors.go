@@ -3,8 +3,8 @@ package vault
 import (
 	"fmt"
 
-	"github.com/steven3002/mnemosia/index"
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/index"
+	"github.com/steven3002/sennit/record"
 )
 
 // putVector adds a vector to the searchable index and to the durable one.

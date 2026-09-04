@@ -12,7 +12,7 @@ import (
 // later build can tell whether it understands the transcript before it starts
 // replaying one. No ratified standard for a stored conversation exists, so the
 // format is ours and has to say which version of itself it is.
-const MessageSchema = "mnemosia.session/1"
+const MessageSchema = "sennit.session/1"
 
 // A Role is who produced a message.
 //

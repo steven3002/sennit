@@ -4,7 +4,7 @@
   "properties": {
     "session": {
       "type": "string",
-      "description": "The address of a conversation to append to, as mnemosia://session/{id}. Omit to create a new one."
+      "description": "The address of a conversation to append to, as sennit://session/{id}. Omit to create a new one."
     },
     "title": {
       "type": "string",
@@ -17,7 +17,7 @@
     "tags": {
       "type": "array",
       "items": {"type": "string"},
-      "description": "Two to four specific tags, reused from the vault's existing vocabulary where they fit. Read mnemosia://vault for it."
+      "description": "Two to four specific tags, reused from the vault's existing vocabulary where they fit. Read sennit://vault for it."
     },
     "messages": {
       "type": "array",

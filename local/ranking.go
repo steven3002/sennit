@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/record"
 )
 
 // RankingMeta is everything ranking needs to know about a record before it has

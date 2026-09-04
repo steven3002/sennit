@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/steven3002/mnemosia/record"
-	"github.com/steven3002/mnemosia/sia"
-	"github.com/steven3002/mnemosia/store"
+	"github.com/steven3002/sennit/record"
+	"github.com/steven3002/sennit/sia"
+	"github.com/steven3002/sennit/store"
 )
 
 // A Held record is one live record at its current location, which repack reads

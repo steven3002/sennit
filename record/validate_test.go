@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/record"
 )
 
 func valid(t *testing.T) *record.Memory {

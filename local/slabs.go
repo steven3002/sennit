@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/record"
 )
 
 // A SlabOrigin says how a slab came to be in this device's ledger, which is

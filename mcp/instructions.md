@@ -1,4 +1,4 @@
-Mnemosia is the user's own encrypted store of memories and past conversations, held on the Sia
+Sennit is the user's own encrypted store of memories and past conversations, held on the Sia
 network. The user owns it: the keys are on their device and nothing here is readable by anyone else.
 
 WHEN TO USE IT
@@ -24,13 +24,13 @@ THE ADDRESS SPACE
 
 Everything in this vault has an address, and `open` reads any of them:
 
-  mnemosia://vault                        what this vault holds, and the tags it already uses
-  mnemosia://guide                        how to use this server, in full
-  mnemosia://memory/{id}                  one memory
-  mnemosia://session/{id}                 one conversation: title, summary, counts, links
-  mnemosia://session/{id}/transcript      that conversation's turns
+  sennit://vault                        what this vault holds, and the tags it already uses
+  sennit://guide                        how to use this server, in full
+  sennit://memory/{id}                  one memory
+  sennit://session/{id}                 one conversation: title, summary, counts, links
+  sennit://session/{id}/transcript      that conversation's turns
 
-Read mnemosia://vault before your first write in a session: it lists the tags this vault already
+Read sennit://vault before your first write in a session: it lists the tags this vault already
 uses, and reusing an existing tag rather than coining a synonym for it is what keeps related records
 findable together.
 

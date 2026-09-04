@@ -9,8 +9,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/steven3002/mnemosia/local"
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/local"
+	"github.com/steven3002/sennit/record"
 )
 
 func lexID(b byte) record.ID {
@@ -306,7 +306,7 @@ func runLexWriter(t *testing.T) {
 }
 
 const (
-	lexWriterEnv = "MNEMOSIA_TEST_LEX_WRITER"
-	lexPathEnv   = "MNEMOSIA_TEST_LEX_DB"
-	lexRowsEnv   = "MNEMOSIA_TEST_LEX_ROWS"
+	lexWriterEnv = "SENNIT_TEST_LEX_WRITER"
+	lexPathEnv   = "SENNIT_TEST_LEX_DB"
+	lexRowsEnv   = "SENNIT_TEST_LEX_ROWS"
 )

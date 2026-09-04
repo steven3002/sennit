@@ -1,8 +1,8 @@
 package vault
 
 import (
-	"github.com/steven3002/mnemosia/local"
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/local"
+	"github.com/steven3002/sennit/record"
 )
 
 // A BrowseRequest lists what the vault holds, by metadata rather than by

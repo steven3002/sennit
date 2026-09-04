@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/steven3002/mnemosia/local"
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/local"
+	"github.com/steven3002/sennit/record"
 )
 
 // A FieldOrigin says where one field of a rebuilt session head came from.

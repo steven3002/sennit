@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/record"
 )
 
 // The catalog's durable form is one sealed entry per line. The log and the

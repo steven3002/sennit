@@ -3,8 +3,8 @@ package vault
 import (
 	"testing"
 
-	"github.com/steven3002/mnemosia/index"
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/index"
+	"github.com/steven3002/sennit/record"
 )
 
 func vectorFrom(t *testing.T, model string, dim int) index.Entry {

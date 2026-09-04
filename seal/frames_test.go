@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/steven3002/mnemosia/record"
-	"github.com/steven3002/mnemosia/seal"
+	"github.com/steven3002/sennit/record"
+	"github.com/steven3002/sennit/seal"
 )
 
 // packed builds a blob of framed records the way a flush does, and returns the

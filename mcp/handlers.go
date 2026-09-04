@@ -7,10 +7,10 @@ import (
 	"strings"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/steven3002/mnemosia/local"
-	"github.com/steven3002/mnemosia/recall"
-	"github.com/steven3002/mnemosia/record"
-	"github.com/steven3002/mnemosia/vault"
+	"github.com/steven3002/sennit/local"
+	"github.com/steven3002/sennit/recall"
+	"github.com/steven3002/sennit/record"
+	"github.com/steven3002/sennit/vault"
 )
 
 // SnippetBytes is how much of a record a concise result carries.
@@ -303,7 +303,7 @@ type RememberIn struct {
 	Statement  string   `json:"statement" jsonschema:"one self-contained proposition, in a single sentence, that will still make sense to someone who never saw this conversation"`
 	Context    string   `json:"context" jsonschema:"what makes the statement resolvable on its own: where it came from, what was being decided, what it contrasts with. Required, and the single largest thing deciding whether this record is ever found again"`
 	Type       string   `json:"type" jsonschema:"exactly one of fact, preference, insight, doc, profile, correction"`
-	Tags       []string `json:"tags" jsonschema:"two to four lowercase tags, no spaces. Prefer the specific over the general and reuse the vault's existing tags rather than coining synonyms; read mnemosia://vault for the vocabulary"`
+	Tags       []string `json:"tags" jsonschema:"two to four lowercase tags, no spaces. Prefer the specific over the general and reuse the vault's existing tags rather than coining synonyms; read sennit://vault for the vocabulary"`
 	Supersedes string   `json:"supersedes,omitempty" jsonschema:"the address of a record this one replaces because the world changed. The old record is kept as history. Use a correction type instead when something was never true"`
 	Links      []string `json:"links,omitempty" jsonschema:"addresses of related records, for provenance and navigation"`
 	Importance float64  `json:"importance,omitempty" jsonschema:"your own judgement, 0 to 1; the vault runs no model and will not infer it"`

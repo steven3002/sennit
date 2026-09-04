@@ -1,4 +1,4 @@
-// Command agent drives a Mnemosia MCP server the way a host would.
+// Command agent drives a Sennit MCP server the way a host would.
 //
 // It exists for the two-machine demo, where something has to play the part of
 // the agent on machine A: write a memory, save a conversation, and leave. A host
@@ -25,7 +25,7 @@ import (
 )
 
 func main() {
-	binary := flag.String("server", "", "path to the mnemosia-mcp binary (required)")
+	binary := flag.String("server", "", "path to the sennit-mcp binary (required)")
 	statement := flag.String("remember", "", "a memory to store")
 	memoryContext := flag.String("context", "", "what makes the memory resolvable once it is out of this conversation")
 	tags := flag.String("tags", "", "comma-separated tags")
@@ -55,7 +55,7 @@ type options struct {
 }
 
 func run(ctx context.Context, binary string, opts options) error {
-	client := sdk.NewClient(&sdk.Implementation{Name: "mnemosia-demo-agent", Version: "1.0.0"}, nil)
+	client := sdk.NewClient(&sdk.Implementation{Name: "sennit-demo-agent", Version: "1.0.0"}, nil)
 
 	// The server inherits this process's environment, which is where both
 	// secrets live. Neither is ever an argument: a flag lands in the process
@@ -141,7 +141,7 @@ func vaultAddresses(result *sdk.CallToolResult) []string {
 		}
 		for field := range strings.FieldsSeq(text.Text) {
 			field = strings.TrimRight(field, ".,)")
-			if !strings.HasPrefix(field, "mnemosia://") || seen[field] {
+			if !strings.HasPrefix(field, "sennit://") || seen[field] {
 				continue
 			}
 			seen[field] = true

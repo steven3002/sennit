@@ -2,7 +2,7 @@ package sia
 
 import "go.sia.tech/core/types"
 
-// appID identifies Mnemosia to an indexer.
+// appID identifies Sennit to an indexer.
 //
 // It is a build-time constant and must never change: an app key is issued
 // against an app id, so a new id invalidates every key already approved and

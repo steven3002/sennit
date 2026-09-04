@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/steven3002/mnemosia/mcp"
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/mcp"
+	"github.com/steven3002/sennit/record"
 )
 
 // saveConversation stores a conversation through the protocol.
@@ -36,7 +36,7 @@ func TestAConversationSurvivesTheProtocolWithItsToolCallsCorrelated(t *testing.T
 		Summary:  "Counted the stations reporting hourly and found the registry stale.",
 		Tags:     []string{"stations", "registry"},
 		Messages: conversation("wire"),
-		Agent:    mcp.AgentIn{Name: "mnemosia-test", Version: "0"},
+		Agent:    mcp.AgentIn{Name: "sennit-test", Version: "0"},
 	})
 	if saved.Messages != 4 {
 		t.Fatalf("save_session stored %d turns, want 4", saved.Messages)

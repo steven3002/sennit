@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/steven3002/mnemosia/keys"
-	"github.com/steven3002/mnemosia/record"
-	"github.com/steven3002/mnemosia/sia"
-	"github.com/steven3002/mnemosia/vault"
+	"github.com/steven3002/sennit/keys"
+	"github.com/steven3002/sennit/record"
+	"github.com/steven3002/sennit/sia"
+	"github.com/steven3002/sennit/vault"
 )
 
 // The child half of the under-load measurement runs from the same test binary,
@@ -24,9 +24,9 @@ import (
 // launches its own, and the catalog they share is an append-only log whose
 // mutex is in-process only.
 const (
-	loadHomeEnv    = "MNEMOSIA_TEST_LOAD_HOME"
-	loadBatchEnv   = "MNEMOSIA_TEST_LOAD_BATCH"
-	loadFlushesEnv = "MNEMOSIA_TEST_LOAD_FLUSHES"
+	loadHomeEnv    = "SENNIT_TEST_LOAD_HOME"
+	loadBatchEnv   = "SENNIT_TEST_LOAD_BATCH"
+	loadFlushesEnv = "SENNIT_TEST_LOAD_FLUSHES"
 )
 
 // releaseByLedger returns everything a repack measurement pinned.
@@ -170,7 +170,7 @@ func TestLiveRepackUnderLoad(t *testing.T) {
 	// The idle arm runs the identical path with no second process, so that a
 	// difference between the two arms is attributable to the load and not to
 	// anything else about the measurement.
-	idle := os.Getenv("MNEMOSIA_TEST_IDLE_ARM") != ""
+	idle := os.Getenv("SENNIT_TEST_IDLE_ARM") != ""
 
 	// The writer starts first and keeps going for the whole repack, so the
 	// overlap is real rather than a race that may or may not happen.
@@ -507,7 +507,7 @@ func TestLiveRepackInterrupted(t *testing.T) {
 	}
 }
 
-const repackChildEnv = "MNEMOSIA_TEST_DOOMED_REPACK"
+const repackChildEnv = "SENNIT_TEST_DOOMED_REPACK"
 
 // interruptDelay is when the child is killed, measured from its launch.
 //
@@ -525,7 +525,7 @@ func interruptDelay() time.Duration {
 }
 
 const (
-	interruptDelayEnv = "MNEMOSIA_TEST_INTERRUPT_AFTER"
+	interruptDelayEnv = "SENNIT_TEST_INTERRUPT_AFTER"
 	// repackStartMarker is printed by the child immediately before it calls
 	// Repack, so the parent can time the kill from the operation rather than
 	// from the process.

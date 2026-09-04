@@ -8,17 +8,17 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/steven3002/mnemosia/embed"
-	"github.com/steven3002/mnemosia/index"
-	"github.com/steven3002/mnemosia/keys"
-	"github.com/steven3002/mnemosia/local"
-	"github.com/steven3002/mnemosia/manifest"
-	"github.com/steven3002/mnemosia/recall"
-	"github.com/steven3002/mnemosia/seal"
-	"github.com/steven3002/mnemosia/sia"
-	"github.com/steven3002/mnemosia/store"
-	"github.com/steven3002/mnemosia/store/packer"
-	"github.com/steven3002/mnemosia/store/reclaim"
+	"github.com/steven3002/sennit/embed"
+	"github.com/steven3002/sennit/index"
+	"github.com/steven3002/sennit/keys"
+	"github.com/steven3002/sennit/local"
+	"github.com/steven3002/sennit/manifest"
+	"github.com/steven3002/sennit/recall"
+	"github.com/steven3002/sennit/seal"
+	"github.com/steven3002/sennit/sia"
+	"github.com/steven3002/sennit/store"
+	"github.com/steven3002/sennit/store/packer"
+	"github.com/steven3002/sennit/store/reclaim"
 )
 
 // ErrWrongPhrase reports that the recovery phrase does not match the one this

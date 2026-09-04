@@ -9,7 +9,7 @@ import (
 )
 
 // PhraseEnv is the environment variable carrying the recovery phrase.
-const PhraseEnv = "MNEMOSIA_PHRASE"
+const PhraseEnv = "SENNIT_PHRASE"
 
 // ErrNoPhrase reports that no recovery phrase was supplied.
 var ErrNoPhrase = fmt.Errorf("no recovery phrase: set %s or pipe it on stdin", PhraseEnv)

@@ -1,8 +1,8 @@
-# Mnemosia
+# Sennit
 
 The user's own store of memories and past conversations, encrypted with keys that never leave their
 device and held on the Sia network. You are reading its guide because you asked for
-`mnemosia://guide`.
+`sennit://guide`.
 
 ## What is in here
 
@@ -30,7 +30,7 @@ adding it moved retrieval more than every model choice available put together.
 
 - prefer the specific to the general, in a vault about one project, tagging everything with that
   project's name tells nothing apart
-- reuse the vault's existing tags rather than coining a synonym; `mnemosia://vault` lists them
+- reuse the vault's existing tags rather than coining a synonym; `sennit://vault` lists them
 - one tag naming the subject and one naming the aspect beats two words for the same idea
 
 The response to a write tells you how many records already carry each tag you used, and names any tag

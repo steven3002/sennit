@@ -1,8 +1,8 @@
-# Mnemosia
+# Sennit
 
 **User-owned storage for an AI's memory, sessions, and skills, encrypted, on the [Sia](https://sia.tech) network.**
 
-Mnemosia gives an AI agent a long-term memory that belongs to **you** rather than to a vendor: encrypted on your device, stored on decentralized infrastructure that cannot read it, retrieved by meaning, and portable across apps, models and machines.
+Sennit gives an AI agent a long-term memory that belongs to **you** rather than to a vendor: encrypted on your device, stored on decentralized infrastructure that cannot read it, retrieved by meaning, and portable across apps, models and machines.
 
 > **Status: pre-alpha.** The substrate, the CLI and the MCP server are built and measured against the
 > live Sia network, and the [quickstart](#quickstart) below is tested end to end. There is no binary
@@ -14,7 +14,7 @@ Mnemosia gives an AI agent a long-term memory that belongs to **you** rather tha
 
 An AI assistant's memory is trapped. It lives inside one provider, it can't move with you, and you can't inspect, own, or truly export it. To have it available everywhere, you normally hand it to a cloud that can read it.
 
-Mnemosia takes the other path:
+Sennit takes the other path:
 
 - **You own it.** Keys are derived from your recovery phrase and never leave your device.
 - **Nobody can read it.** Records are encrypted client-side before they touch the network; storage providers and the coordinating indexer see only ciphertext.
@@ -59,10 +59,10 @@ Roughly ten minutes, most of it waiting for one download and one approval click.
 ### 1. Build
 
 ```sh
-git clone https://github.com/steven3002/mnemosia
-cd mnemosia
-CGO_ENABLED=0 go build -o mnemosia ./cmd/mnemosia
-CGO_ENABLED=0 go build -o mnemosia-mcp ./cmd/mnemosia-mcp
+git clone https://github.com/steven3002/sennit
+cd sennit
+CGO_ENABLED=0 go build -o sennit ./cmd/sennit
+CGO_ENABLED=0 go build -o sennit-mcp ./cmd/sennit-mcp
 ```
 
 No cgo, no system libraries. The first build downloads dependencies and takes a few minutes.
@@ -70,7 +70,7 @@ No cgo, no system libraries. The first build downloads dependencies and takes a 
 ### 2. Get a recovery phrase
 
 ```sh
-./mnemosia init -new-phrase
+./sennit init -new-phrase
 ```
 
 It prints twelve words and stores nothing. Yours will differ from every example in this file,
@@ -87,7 +87,7 @@ the words below stand in for a real phrase and are not a working one:
 Put it in your environment. It is read on every run and never written to disk:
 
 ```sh
-export MNEMOSIA_PHRASE="<the twelve words init printed>"
+export SENNIT_PHRASE="<the twelve words init printed>"
 ```
 
 ### 3. Approve this installation
@@ -95,7 +95,7 @@ export MNEMOSIA_PHRASE="<the twelve words init printed>"
 Storing on Sia needs an **app key**, which an indexer issues after you approve it in a browser.
 
 ```sh
-./mnemosia connect -out mnemosia.key
+./sennit connect -out sennit.key
 ```
 
 It prints a link. Open it, approve, and come back:
@@ -113,7 +113,7 @@ minutes; a fresh one is issued automatically until you approve or the budget run
 Then load the key it wrote:
 
 ```sh
-export MNEMOSIA_APP_KEY="$(cat mnemosia.key)"
+export SENNIT_APP_KEY="$(cat sennit.key)"
 ```
 
 **Two things about this step are worth knowing in advance**, because both look like failures:
@@ -124,16 +124,16 @@ export MNEMOSIA_APP_KEY="$(cat mnemosia.key)"
   **~16 s** when we measured it. `connect` waits for that on your behalf. If you skip `connect` and
   write immediately, the write fails with an error about *hosts*, which says nothing about waiting.
 
-`mnemosia.key` is a secret. It is written `0600` and it belongs in `.gitignore`.
+`sennit.key` is a secret. It is written `0600` and it belongs in `.gitignore`.
 
 ### 4. Prepare the vault
 
 ```sh
-./mnemosia init
+./sennit init
 ```
 
 ```
-preparing vault in /home/you/.mnemosia
+preparing vault in /home/you/.sennit
   keys derived, model loaded, device store ready in 9.00 s
   connected: https://sia.storage
   quota:     40.00 MiB used of 46.57 GiB (46.53 GiB free)
@@ -144,7 +144,7 @@ The first run downloads the embedding model (~130 MB, once).
 ### 5. Remember something
 
 ```sh
-./mnemosia remember \
+./sennit remember \
   -context "Recorded while checking the README quickstart from a clean environment." \
   -tags "sia,storage" \
   "Sia bills a slab whole, so packing many records into one slab is a cost decision rather than an optimisation."
@@ -168,7 +168,7 @@ The first run downloads the embedding model (~130 MB, once).
 ### 6. Recall it by meaning
 
 ```sh
-./mnemosia recall "how is storage billed"
+./sennit recall "how is storage billed"
 ```
 
 ```
@@ -182,13 +182,13 @@ Note the query shares no words with the record beyond "billed"/"bills", the matc
 
 ### 7. Connect an MCP client
 
-`mnemosia-mcp` speaks MCP over stdio. For Claude Code:
+`sennit-mcp` speaks MCP over stdio. For Claude Code:
 
 ```sh
-claude mcp add mnemosia \
-  -e MNEMOSIA_PHRASE="$MNEMOSIA_PHRASE" \
-  -e MNEMOSIA_APP_KEY="$MNEMOSIA_APP_KEY" \
-  -- /absolute/path/to/mnemosia-mcp
+claude mcp add sennit \
+  -e SENNIT_PHRASE="$SENNIT_PHRASE" \
+  -e SENNIT_APP_KEY="$SENNIT_APP_KEY" \
+  -- /absolute/path/to/sennit-mcp
 ```
 
 Other hosts take a JSON config naming the same binary and the same two environment variables. We
@@ -204,9 +204,9 @@ Every command takes `-offline`, which uses the device's own copy and contacts no
 no app key and no approval, so it is the fastest way to see recall working:
 
 ```sh
-./mnemosia init -offline
-./mnemosia remember -offline -context "..." "..."
-./mnemosia recall -offline "..."
+./sennit init -offline
+./sennit remember -offline -context "..." "..."
+./sennit recall -offline "..."
 ```
 
 Records written offline stay on the device until a connected run flushes them.
@@ -215,14 +215,14 @@ Records written offline stay on the device until a connected run flushes them.
 
 ## "Saved" is not "on Sia"
 
-Mnemosia distinguishes the two everywhere, because the gap between them is real and can be up to an
+Sennit distinguishes the two everywhere, because the gap between them is real and can be up to an
 hour under the standing flush cadence:
 
 - **On this device**, the record is sealed and durable locally the moment `remember` returns.
 - **On Sia**, the record is on the network, and only a completed flush puts it there.
 
 `remember` says which it achieved (`on Sia 420 B in 1 object(s)` versus `on Sia not yet, held on
-this device, 1 record(s) queued`), `mnemosia status` reports what is still queued, and `mnemosia
+this device, 1 record(s) queued`), `sennit status` reports what is still queued, and `sennit
 flush` closes the gap on demand. **No output claims durability on Sia before a flush has
 completed.**
 
@@ -233,9 +233,9 @@ slab can never be extended. So every flush strands a slab, and an account fills 
 matter how little you actually store.
 
 ```sh
-./mnemosia status          # what is held, what is queued, what is billed
-./mnemosia reclaim         # release storage nothing points at any more
-./mnemosia reclaim -repack # rewrite live records into fewer slabs first
+./sennit status          # what is held, what is queued, what is billed
+./sennit reclaim         # release storage nothing points at any more
+./sennit reclaim -repack # rewrite live records into fewer slabs first
 ```
 
 `status` warns you once reclaimable storage has built up, rather than leaving you to find out when a
@@ -306,18 +306,18 @@ export TMPDIR="$HOME/.tmp" && mkdir -p "$TMPDIR"
 
 #### "no recovery phrase"
 
-Set `MNEMOSIA_PHRASE`, or pipe the phrase on stdin. If you do not have one, `mnemosia init
+Set `SENNIT_PHRASE`, or pipe the phrase on stdin. If you do not have one, `sennit init
 -new-phrase` prints one and stores nothing.
 
 #### "no Sia app key"
 
-You have not completed step 3, or the key is not in the environment. Run `mnemosia connect -out
-mnemosia.key` and `export MNEMOSIA_APP_KEY="$(cat mnemosia.key)"`. To work without an indexer
+You have not completed step 3, or the key is not in the environment. Run `sennit connect -out
+sennit.key` and `export SENNIT_APP_KEY="$(cat sennit.key)"`. To work without an indexer
 entirely, pass `-offline`.
 
 #### An error about hosts, or "not enough hosts"
 
-The indexer has not finished funding host accounts. `mnemosia connect` waits for this; if you
+The indexer has not finished funding host accounts. `sennit connect` waits for this; if you
 skipped it, wait a minute and retry. The first write of any process waits for readiness on its own.
 
 #### "not found" or a 502 from the indexer
@@ -327,11 +327,11 @@ and retryable; nothing is lost, because a failed flush leaves the records queued
 
 ## Design principles
 
-1. **Storage consumer, not AI operator**, Mnemosia puts data *on* Sia; it does not drive Sia with an LLM.
+1. **Storage consumer, not AI operator**, Sennit puts data *on* Sia; it does not drive Sia with an LLM.
 2. **Client-side confidentiality**, encryption, keys and search stay on the device.
 3. **User-owned and portable**, memory follows the user across apps, models and devices.
 4. **With the grain of Sia**, built on the first-party SDK and indexer.
-5. **No LLM in our stack**, Mnemosia embeds, stores, indexes and ranks. The calling agent decides what is worth remembering.
+5. **No LLM in our stack**, Sennit embeds, stores, indexes and ranks. The calling agent decides what is worth remembering.
 
 ## Built on
 
@@ -346,7 +346,7 @@ welcome; please open an issue before a large pull request.
 
 ## Security
 
-Mnemosia handles encryption keys and personal data. Please report vulnerabilities responsibly, see [SECURITY.md](SECURITY.md). Do not open public issues for security problems.
+Sennit handles encryption keys and personal data. Please report vulnerabilities responsibly, see [SECURITY.md](SECURITY.md). Do not open public issues for security problems.
 
 ## License
 

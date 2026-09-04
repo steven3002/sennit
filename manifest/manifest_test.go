@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/steven3002/mnemosia/keys"
-	"github.com/steven3002/mnemosia/manifest"
-	"github.com/steven3002/mnemosia/record"
-	"github.com/steven3002/mnemosia/seal"
+	"github.com/steven3002/sennit/keys"
+	"github.com/steven3002/sennit/manifest"
+	"github.com/steven3002/sennit/record"
+	"github.com/steven3002/sennit/seal"
 )
 
 func openCatalog(t *testing.T, dir string) *manifest.Manifest {

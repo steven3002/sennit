@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/steven3002/mnemosia/record"
-	"github.com/steven3002/mnemosia/vault"
+	"github.com/steven3002/sennit/record"
+	"github.com/steven3002/sennit/vault"
 )
 
 // TestAHeadRebuiltFromChunksIsMeasuredFieldByField answers M18.
@@ -41,7 +41,7 @@ func TestAHeadRebuiltFromChunksIsMeasuredFieldByField(t *testing.T) {
 		Title:   "Why the packer budgets in ciphertext",
 		Summary: "Worked out that a slab is billed whole, so a flush of one record costs the same as a flush of a thousand.",
 		Tags:    []string{"storage", "packing"},
-		Project: record.Project{CWD: "/home/u/mnemosia", Repo: "steven3002/mnemosia", Branch: "main"},
+		Project: record.Project{CWD: "/home/u/sennit", Repo: "steven3002/sennit", Branch: "main"},
 		Agent:   record.Agent{Name: "claude-code", Version: "2.1.223"},
 		Models:  []string{"claude-opus-5"},
 		Kind:    record.SessionSubagent,

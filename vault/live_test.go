@@ -8,15 +8,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/steven3002/mnemosia/keys"
-	"github.com/steven3002/mnemosia/recall"
-	"github.com/steven3002/mnemosia/record"
-	"github.com/steven3002/mnemosia/vault"
+	"github.com/steven3002/sennit/keys"
+	"github.com/steven3002/sennit/recall"
+	"github.com/steven3002/sennit/record"
+	"github.com/steven3002/sennit/vault"
 )
 
 // LiveEnv opts a run in to writing to a real indexer. It is off by default so
 // the ordinary test run touches no network and spends no storage quota.
-const LiveEnv = "MNEMOSIA_LIVE"
+const LiveEnv = "SENNIT_LIVE"
 
 func liveVault(t *testing.T) *vault.Vault {
 	t.Helper()

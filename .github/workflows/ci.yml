@@ -11,7 +11,7 @@ permissions:
 env:
   # The model lives outside the vault directory so the cache key is about the
   # model and nothing else.
-  MNEMOSIA_MODELS: ${{ github.workspace }}/.models
+  SENNIT_MODELS: ${{ github.workspace }}/.models
 
 jobs:
   build:
@@ -49,7 +49,7 @@ jobs:
           fi
 
       # Nothing here touches the network or spends storage quota. The live
-      # measurements are opt-in behind MNEMOSIA_LIVE and deliberately absent.
+      # measurements are opt-in behind SENNIT_LIVE and deliberately absent.
       - name: test
         run: go test ./...
 
@@ -77,18 +77,18 @@ jobs:
         id: model
         uses: actions/cache@v4
         with:
-          path: ${{ env.MNEMOSIA_MODELS }}
+          path: ${{ env.SENNIT_MODELS }}
           key: bge-small-en-v1.5-fp32
 
       - name: fetch the embedding model
         if: steps.model.outputs.cache-hit != 'true'
         run: |
-          go build -o ./mnemosia ./cmd/mnemosia
-          phrase="$(./mnemosia init -new-phrase | head -1)"
-          MNEMOSIA_PHRASE="$phrase" \
-          MNEMOSIA_HOME="$(mktemp -d)" \
-          MNEMOSIA_MODEL_DIR="$MNEMOSIA_MODELS" \
-            ./mnemosia init -offline
+          go build -o ./sennit ./cmd/sennit
+          phrase="$(./sennit init -new-phrase | head -1)"
+          SENNIT_PHRASE="$phrase" \
+          SENNIT_HOME="$(mktemp -d)" \
+          SENNIT_MODEL_DIR="$SENNIT_MODELS" \
+            ./sennit init -offline
 
       # The numbers, printed. hit@1/3/5/10 on the committed synthetic corpus,
       # broken out by corpus density, so a change in ranking quality shows up as

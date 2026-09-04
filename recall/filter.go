@@ -3,7 +3,7 @@ package recall
 import (
 	"strings"
 
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/record"
 )
 
 // A Filter narrows a recall by preference.

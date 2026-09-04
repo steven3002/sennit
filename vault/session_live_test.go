@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/steven3002/mnemosia/record"
-	"github.com/steven3002/mnemosia/vault"
+	"github.com/steven3002/sennit/record"
+	"github.com/steven3002/sennit/vault"
 )
 
 // TestLiveSessionChunksRideThePackerAndComeBack is the session half of the
@@ -36,7 +36,7 @@ func TestLiveSessionChunksRideThePackerAndComeBack(t *testing.T) {
 		Title:    "Live session round trip",
 		Summary:  "A conversation written to Sia and read back off the network.",
 		Tags:     []string{"sia", "sessions"},
-		Agent:    record.Agent{Name: "mnemosia-test"},
+		Agent:    record.Agent{Name: "sennit-test"},
 		Messages: messages,
 		Durable:  true,
 	})

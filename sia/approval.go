@@ -8,7 +8,7 @@ import (
 
 	"go.sia.tech/siastorage"
 
-	"github.com/steven3002/mnemosia/keys"
+	"github.com/steven3002/sennit/keys"
 )
 
 // ApprovalBudget is how long an onboarding run keeps a live approval URL

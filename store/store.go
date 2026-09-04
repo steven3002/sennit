@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/steven3002/mnemosia/sia"
+	"github.com/steven3002/sennit/sia"
 )
 
 // DefaultSlabPayloadSize is how many payload bytes one slab holds at the

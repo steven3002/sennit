@@ -5,8 +5,8 @@ is yours and follows you. It runs the real binaries against live Sia, with a sec
 client reading what the first one wrote.
 
 ```sh
-export MNEMOSIA_PHRASE=...      # your recovery phrase; never a flag, never on screen
-export MNEMOSIA_APP_KEY=...     # issued by `mnemosia connect`
+export SENNIT_PHRASE=...      # your recovery phrase; never a flag, never on screen
+export SENNIT_APP_KEY=...     # issued by `sennit connect`
 ./demo/two-machines.sh
 ```
 
@@ -19,7 +19,7 @@ installing the second client's dependencies happen before the clock starts; both
 | Step | What is being demonstrated |
 |---|---|
 | **A**, an MCP client stores a memory and a four-turn conversation, then flushes | Ordinary use. The transcript carries a tool call correlated to its result by id, and a provider field this build has never heard of. |
-| **B**, a directory that has never existed runs `mnemosia hydrate` | Everything B has is the recovery phrase. No catalog, no index, no record bodies, no session heads. |
+| **B**, a directory that has never existed runs `sennit hydrate` | Everything B has is the recovery phrase. No catalog, no index, no record bodies, no session heads. |
 | **B**, a *second, different* MCP client reads the vault | The TypeScript MCP SDK, against the same stdio server the Go client used. The memory is not bound to the tool that wrote it. |
 
 ## What it does not show, and says so on screen
@@ -31,7 +31,7 @@ a plaintext. A genuinely separate machine would additionally exercise a differen
 different route to the network.
 
 **The approval round is not re-run.** A new device needs the phrase *and* one approval in a browser,
-because the app key is derived from the phrase together with a secret the indexer issues. `mnemosia
+because the app key is derived from the phrase together with a secret the indexer issues. `sennit
 connect` walks that path, it auto-renews the request when the indexer's ten-minute expiry beats the
 human to it, and waits for the account to become writable afterwards, but it needs a person at a
 browser, so the demo starts after it. **Do not describe this as seed-only recovery.**
@@ -66,7 +66,7 @@ scriptreplay --timing demo/recordings/run.timing demo/recordings/run.typescript
 
 ⚠️ **Before recording anything, check that the phrase is not on screen.** The script never prints it,
 never passes it as an argument and never writes it to a file, but a shell prompt showing
-`MNEMOSIA_PHRASE=...` from an earlier command, or a `set -x`, would put it in the recording
+`SENNIT_PHRASE=...` from an earlier command, or a `set -x`, would put it in the recording
 permanently. Read the capture before you share it, a terminal recording keeps whatever was on the
 screen, and a phrase is the key to the whole vault.
 
@@ -74,7 +74,7 @@ screen, and a phrase is the key to the whole vault.
 
 The demo releases its own storage on exit: it forgets what it wrote and then reclaims, in that order.
 The order is not a preference, a slab is billed whole and comes back only once nothing live is left
-in it, so reclaiming without forgetting frees exactly nothing. Set `MNEMOSIA_DEMO_KEEP=1` to leave
+in it, so reclaiming without forgetting frees exactly nothing. Set `SENNIT_DEMO_KEEP=1` to leave
 the vaults in place for inspection, and remember that each run then costs 40 MiB of quota until you
 reclaim it yourself.
 

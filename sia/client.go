@@ -18,7 +18,7 @@ import (
 	"go.sia.tech/indexd/api/app"
 	"go.sia.tech/siastorage"
 
-	"github.com/steven3002/mnemosia/keys"
+	"github.com/steven3002/sennit/keys"
 )
 
 // DefaultIndexer is the hosted indexer. The URL is a parameter throughout: the
@@ -127,9 +127,9 @@ type SlabID string
 func metadata() siastorage.AppMetadata {
 	return siastorage.AppMetadata{
 		ID:          appID,
-		Name:        "Mnemosia",
+		Name:        "Sennit",
 		Description: "User-owned encrypted storage for an AI's memory, sessions and skills",
 		LogoURL:     "https://sia.tech/favicon.ico",
-		ServiceURL:  "https://github.com/steven3002/mnemosia",
+		ServiceURL:  "https://github.com/steven3002/sennit",
 	}
 }

@@ -3,7 +3,7 @@ package mcp
 import (
 	"strings"
 
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/record"
 )
 
 // The tool descriptions are product surface, not documentation.
@@ -215,17 +215,17 @@ var OpenTool = Tool{
 Read anything in this vault by its address. One opener for the whole namespace: you never need to
 know which part of the system owns an address.
 
-  mnemosia://vault                        what this vault holds, and the tags it already uses
-  mnemosia://guide                        how to use this vault well
-  mnemosia://memory/{id}                  one memory, in full
-  mnemosia://session/{id}                 one conversation: title, summary, counts, links
-  mnemosia://session/{id}/transcript      that conversation's turns
+  sennit://vault                        what this vault holds, and the tags it already uses
+  sennit://guide                        how to use this vault well
+  sennit://memory/{id}                  one memory, in full
+  sennit://session/{id}                 one conversation: title, summary, counts, links
+  sennit://session/{id}/transcript      that conversation's turns
 
 NEVER GUESS AN ADDRESS. Every result from "recall", "browse", "remember" and "save_session" carries
 addresses, and those are the only ones that exist. An id you assembled yourself will not resolve, and
 inventing one that looks plausible is worse than saying you do not have it.
 
-Read mnemosia://vault before your first write in a conversation. It lists the tags this vault already
+Read sennit://vault before your first write in a conversation. It lists the tags this vault already
 uses, and reusing one rather than coining a synonym for it is what keeps related records findable
 together, tags are matched exactly, so "cache-invalidation" and "cache_invalidation" are two
 different tags holding half the answer each.

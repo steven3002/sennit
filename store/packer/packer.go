@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/steven3002/mnemosia/local"
-	"github.com/steven3002/mnemosia/record"
-	"github.com/steven3002/mnemosia/store"
+	"github.com/steven3002/sennit/local"
+	"github.com/steven3002/sennit/record"
+	"github.com/steven3002/sennit/store"
 )
 
 // ErrOffline reports that there is no connection to write a flush through.

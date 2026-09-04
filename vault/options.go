@@ -6,21 +6,21 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/steven3002/mnemosia/embed"
-	"github.com/steven3002/mnemosia/keys"
-	"github.com/steven3002/mnemosia/sia"
-	"github.com/steven3002/mnemosia/store/packer"
+	"github.com/steven3002/sennit/embed"
+	"github.com/steven3002/sennit/keys"
+	"github.com/steven3002/sennit/sia"
+	"github.com/steven3002/sennit/store/packer"
 )
 
 // HomeEnv overrides where a vault keeps its files.
-const HomeEnv = "MNEMOSIA_HOME"
+const HomeEnv = "SENNIT_HOME"
 
 // IndexerEnv overrides which indexer the vault talks to.
-const IndexerEnv = "MNEMOSIA_INDEXER"
+const IndexerEnv = "SENNIT_INDEXER"
 
 // ModelDirEnv overrides where embedding models are kept, so several vaults on
 // one machine can share a single copy.
-const ModelDirEnv = "MNEMOSIA_MODEL_DIR"
+const ModelDirEnv = "SENNIT_MODEL_DIR"
 
 // Options configure a vault.
 type Options struct {
@@ -68,9 +68,9 @@ func DefaultHome() string {
 		return home
 	}
 	if dir, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(dir, ".mnemosia")
+		return filepath.Join(dir, ".sennit")
 	}
-	return ".mnemosia"
+	return ".sennit"
 }
 
 // DefaultIndexer is the indexer a vault uses unless told otherwise.

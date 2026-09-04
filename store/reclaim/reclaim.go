@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/steven3002/mnemosia/local"
-	"github.com/steven3002/mnemosia/sia"
+	"github.com/steven3002/sennit/local"
+	"github.com/steven3002/sennit/sia"
 )
 
 // ErrNotOursToRelease reports that an operation would have unpinned storage

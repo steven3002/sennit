@@ -82,7 +82,7 @@ func TestAnIndexerErrorDoesNotQuoteTheResponseBody(t *testing.T) {
 			name:   "an installation that was never approved",
 			raw:    errors.New("unexpected status code 403: forbidden"),
 			status: 403,
-			says:   "mnemosia connect",
+			says:   "sennit connect",
 		},
 		{
 			name:      "rate limiting",

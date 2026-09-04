@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/record"
 )
 
 // An Index is a flat matrix of unit vectors with the record ids beside them.

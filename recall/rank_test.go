@@ -3,8 +3,8 @@ package recall
 import (
 	"testing"
 
-	"github.com/steven3002/mnemosia/index"
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/index"
+	"github.com/steven3002/sennit/record"
 )
 
 func id(t *testing.T, b byte) record.ID {

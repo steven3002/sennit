@@ -1,6 +1,6 @@
 # Security Policy
 
-Mnemosia handles **encryption keys, recovery phrases, and personal data**. Security reports are taken seriously.
+Sennit handles **encryption keys, recovery phrases, and personal data**. Security reports are taken seriously.
 
 ## Reporting a vulnerability
 
@@ -24,7 +24,7 @@ Especially interested in:
 ## Out of scope
 
 - Vulnerabilities in Sia, `indexd`, or storage providers themselves, please report those to the [Sia Foundation](https://github.com/SiaFoundation). We will happily help route a report.
-- Anything requiring an already-compromised device. Mnemosia assumes the local machine is trusted; that is a stated design boundary, not a defect.
+- Anything requiring an already-compromised device. Sennit assumes the local machine is trusted; that is a stated design boundary, not a defect.
 
 ## Design boundaries (not vulnerabilities)
 

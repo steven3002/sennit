@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/steven3002/mnemosia/index"
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/index"
+	"github.com/steven3002/sennit/record"
 )
 
 // xorSealer stands in for the vault's AEAD. The persistence being tested is

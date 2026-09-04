@@ -7,10 +7,10 @@ import (
 	"strings"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/steven3002/mnemosia/local"
-	"github.com/steven3002/mnemosia/recall"
-	"github.com/steven3002/mnemosia/record"
-	"github.com/steven3002/mnemosia/vault"
+	"github.com/steven3002/sennit/local"
+	"github.com/steven3002/sennit/recall"
+	"github.com/steven3002/sennit/record"
+	"github.com/steven3002/sennit/vault"
 )
 
 // ResumePrompt is the name a host renders as a slash command.
@@ -43,13 +43,13 @@ func (s *Server) registerPrompts() {
 	s.sdk.AddPrompt(&sdk.Prompt{
 		Name:  ResumePrompt,
 		Title: "Resume a stored conversation",
-		Description: "Bring back a conversation stored in Mnemosia, its summary, its most recent " +
+		Description: "Bring back a conversation stored in Sennit, its summary, its most recent " +
 			"turns, and the memories drawn from it, so you can carry on where you left off, " +
 			"including in a different agent from the one it happened in.",
 		Arguments: []*sdk.PromptArgument{
 			{
 				Name: "session",
-				Description: "The address of the conversation to resume, as mnemosia://session/{id}. " +
+				Description: "The address of the conversation to resume, as sennit://session/{id}. " +
 					"Leave empty for the most recent one.",
 			},
 			{
@@ -154,7 +154,7 @@ func resumeFraming(loaded vault.LoadedSession, replayed []record.Message, skippe
 	session := loaded.Session
 	var text strings.Builder
 
-	fmt.Fprintf(&text, "Resume this conversation from the user's own Mnemosia vault.\n")
+	fmt.Fprintf(&text, "Resume this conversation from the user's own Sennit vault.\n")
 	// How it was chosen, because /resume with a topic picks the nearest
 	// conversation rather than only an exact one. If this is not the
 	// conversation the user meant, that is visible here rather than three turns

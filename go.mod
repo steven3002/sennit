@@ -1,4 +1,4 @@
-module github.com/steven3002/mnemosia
+module github.com/steven3002/sennit
 
 go 1.26.5
 

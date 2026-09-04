@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/record"
 )
 
 // The portable message schema exists so a conversation written by one agent can
@@ -32,7 +32,7 @@ import (
 
 // TranscriptDirEnv points the round trip at a directory of real agent
 // transcripts, as newline-delimited JSON.
-const TranscriptDirEnv = "MNEMOSIA_TRANSCRIPTS"
+const TranscriptDirEnv = "SENNIT_TRANSCRIPTS"
 
 // logRecord is one line of a stored agent log, kept as raw JSON so that a field
 // this adapter has never heard of is still there to be carried or counted.

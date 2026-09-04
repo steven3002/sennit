@@ -68,7 +68,7 @@ func (s *Store) migrate() error {
 	if have > latest {
 		return fmt.Errorf(
 			"vault schema is version %d and this build understands %d: it was written by a "+
-				"newer mnemosia, and opening it here would read and write it as though the "+
+				"newer sennit, and opening it here would read and write it as though the "+
 				"difference were not there", have, latest)
 	}
 

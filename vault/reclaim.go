@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/steven3002/mnemosia/manifest"
-	"github.com/steven3002/mnemosia/record"
-	"github.com/steven3002/mnemosia/sia"
-	"github.com/steven3002/mnemosia/store/reclaim"
+	"github.com/steven3002/sennit/manifest"
+	"github.com/steven3002/sennit/record"
+	"github.com/steven3002/sennit/sia"
+	"github.com/steven3002/sennit/store/reclaim"
 )
 
 // Reclaim releases storage nothing in the catalog points at any more.

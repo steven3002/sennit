@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/steven3002/mnemosia/local"
-	"github.com/steven3002/mnemosia/record"
-	"github.com/steven3002/mnemosia/store"
-	"github.com/steven3002/mnemosia/store/packer"
+	"github.com/steven3002/sennit/local"
+	"github.com/steven3002/sennit/record"
+	"github.com/steven3002/sennit/store"
+	"github.com/steven3002/sennit/store/packer"
 )
 
 func deviceStore(t *testing.T, dir string) *local.Store {

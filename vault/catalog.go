@@ -1,9 +1,9 @@
 package vault
 
 import (
-	"github.com/steven3002/mnemosia/local"
-	"github.com/steven3002/mnemosia/recall"
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/local"
+	"github.com/steven3002/sennit/recall"
+	"github.com/steven3002/sennit/record"
 )
 
 // Describe answers the ranking pipeline's questions about a candidate pool.

@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/steven3002/mnemosia/recall"
-	"github.com/steven3002/mnemosia/record"
-	"github.com/steven3002/mnemosia/vault"
+	"github.com/steven3002/sennit/recall"
+	"github.com/steven3002/sennit/record"
+	"github.com/steven3002/sennit/vault"
 )
 
 // TestLiveAVaultFollowsItsPhraseToASecondEnvironment is S6's pass marks 1 to 4
@@ -63,7 +63,7 @@ func TestLiveAVaultFollowsItsPhraseToASecondEnvironment(t *testing.T) {
 		Title:    "Working out what a second device can and cannot get back",
 		Summary:  "Established that the transcript travels and the head does not.",
 		Tags:     []string{"portability", "sessions"},
-		Project:  record.Project{Repo: "steven3002/mnemosia", Branch: "main"},
+		Project:  record.Project{Repo: "steven3002/sennit", Branch: "main"},
 		Agent:    record.Agent{Name: "claude-code", Version: "2.1.223"},
 		Messages: append(conversation("s6a"), conversation("s6b")...),
 	})

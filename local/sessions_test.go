@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/steven3002/mnemosia/local"
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/local"
+	"github.com/steven3002/sennit/record"
 
 	_ "modernc.org/sqlite"
 )

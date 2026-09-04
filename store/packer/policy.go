@@ -4,7 +4,7 @@ package packer
 import (
 	"time"
 
-	"github.com/steven3002/mnemosia/local"
+	"github.com/steven3002/sennit/local"
 )
 
 // A Policy decides when a queue of records becomes a flush.

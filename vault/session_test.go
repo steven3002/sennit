@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/steven3002/mnemosia/embed/embedtest"
-	"github.com/steven3002/mnemosia/local"
-	"github.com/steven3002/mnemosia/recall"
-	"github.com/steven3002/mnemosia/record"
-	"github.com/steven3002/mnemosia/vault"
+	"github.com/steven3002/sennit/embed/embedtest"
+	"github.com/steven3002/sennit/local"
+	"github.com/steven3002/sennit/recall"
+	"github.com/steven3002/sennit/record"
+	"github.com/steven3002/sennit/vault"
 )
 
 // conversation is a short transcript with the two things a flat chat log cannot

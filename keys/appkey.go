@@ -13,7 +13,7 @@ import (
 //
 // It is never a flag or a tool argument: flags land in shell history and in the
 // process table, and a tool argument would let a calling model read or forge it.
-const AppKeyEnv = "MNEMOSIA_APP_KEY"
+const AppKeyEnv = "SENNIT_APP_KEY"
 
 // ErrNoAppKey reports that the environment carries no app key.
 var ErrNoAppKey = fmt.Errorf("%s is not set", AppKeyEnv)

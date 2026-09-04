@@ -5,7 +5,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/record"
 )
 
 // LexicalText is the text the lexical index holds for one record.

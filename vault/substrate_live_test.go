@@ -9,13 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/steven3002/mnemosia/keys"
-	"github.com/steven3002/mnemosia/local"
-	"github.com/steven3002/mnemosia/manifest"
-	"github.com/steven3002/mnemosia/recall"
-	"github.com/steven3002/mnemosia/record"
-	"github.com/steven3002/mnemosia/sia"
-	"github.com/steven3002/mnemosia/vault"
+	"github.com/steven3002/sennit/keys"
+	"github.com/steven3002/sennit/local"
+	"github.com/steven3002/sennit/manifest"
+	"github.com/steven3002/sennit/recall"
+	"github.com/steven3002/sennit/record"
+	"github.com/steven3002/sennit/sia"
+	"github.com/steven3002/sennit/vault"
 )
 
 // liveVaultAt opens a live vault in a caller-chosen directory, so a test can

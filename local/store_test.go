@@ -9,8 +9,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/steven3002/mnemosia/local"
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/local"
+	"github.com/steven3002/sennit/record"
 )
 
 func TestBodyRoundTrip(t *testing.T) {
@@ -192,7 +192,7 @@ func runWriter(t *testing.T) {
 }
 
 const (
-	writerEnv = "MNEMOSIA_TEST_WRITER"
-	pathEnv   = "MNEMOSIA_TEST_DB"
-	rowsEnv   = "MNEMOSIA_TEST_ROWS"
+	writerEnv = "SENNIT_TEST_WRITER"
+	pathEnv   = "SENNIT_TEST_DB"
+	rowsEnv   = "SENNIT_TEST_ROWS"
 )

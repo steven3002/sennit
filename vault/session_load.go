@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/record"
 )
 
 // A LoadSessionRequest asks for a stored conversation.

@@ -121,8 +121,8 @@ func adviceFor(status int, indexer string) string {
 		return fmt.Sprintf("Check that %s is the right address and that this machine has a network. "+
 			"Nothing was lost: records stay on this device until a run that reaches the indexer", indexer)
 	case status == 401 || status == 403:
-		return "This installation is not authorized. Run `mnemosia connect -out <file>` to approve it " +
-			"and set MNEMOSIA_APP_KEY to the key it writes"
+		return "This installation is not authorized. Run `sennit connect -out <file>` to approve it " +
+			"and set SENNIT_APP_KEY to the key it writes"
 	case status == 404:
 		return fmt.Sprintf("That address answered but is not an indexer. Check %s, or leave it unset "+
 			"to use the default", indexer)

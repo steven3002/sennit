@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/steven3002/mnemosia/record"
-	"github.com/steven3002/mnemosia/seal"
+	"github.com/steven3002/sennit/record"
+	"github.com/steven3002/sennit/seal"
 )
 
 // The files a catalog is kept in. The snapshot holds one line per live record;

@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/steven3002/mnemosia/embed"
-	"github.com/steven3002/mnemosia/embed/embedtest"
-	"github.com/steven3002/mnemosia/recall"
-	"github.com/steven3002/mnemosia/record"
-	"github.com/steven3002/mnemosia/vault"
+	"github.com/steven3002/sennit/embed"
+	"github.com/steven3002/sennit/embed/embedtest"
+	"github.com/steven3002/sennit/recall"
+	"github.com/steven3002/sennit/record"
+	"github.com/steven3002/sennit/vault"
 )
 
 const testPhrase = "abandon abandon abandon abandon abandon abandon " +

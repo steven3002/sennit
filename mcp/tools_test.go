@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/steven3002/mnemosia/mcp"
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/mcp"
+	"github.com/steven3002/sennit/record"
 )
 
 // The descriptions are the product surface recall quality rests on, so the

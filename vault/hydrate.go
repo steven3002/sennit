@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/steven3002/mnemosia/manifest"
-	"github.com/steven3002/mnemosia/record"
-	"github.com/steven3002/mnemosia/seal"
-	"github.com/steven3002/mnemosia/sia"
+	"github.com/steven3002/sennit/manifest"
+	"github.com/steven3002/sennit/record"
+	"github.com/steven3002/sennit/seal"
+	"github.com/steven3002/sennit/sia"
 )
 
 // A HydrateDepth says how much of a vault is put back before the call returns.

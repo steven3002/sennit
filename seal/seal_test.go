@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/steven3002/mnemosia/keys"
-	"github.com/steven3002/mnemosia/record"
-	"github.com/steven3002/mnemosia/seal"
+	"github.com/steven3002/sennit/keys"
+	"github.com/steven3002/sennit/record"
+	"github.com/steven3002/sennit/seal"
 )
 
 func testSealer(t *testing.T) *seal.Sealer {

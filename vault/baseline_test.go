@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/steven3002/mnemosia/recall"
-	"github.com/steven3002/mnemosia/record"
-	"github.com/steven3002/mnemosia/vault"
+	"github.com/steven3002/sennit/recall"
+	"github.com/steven3002/sennit/record"
+	"github.com/steven3002/sennit/vault"
 )
 
 // TestLiveBaseline records what each stage of a write and a read costs, so a

@@ -2,8 +2,8 @@
 package manifest
 
 import (
-	"github.com/steven3002/mnemosia/record"
-	"github.com/steven3002/mnemosia/seal"
+	"github.com/steven3002/sennit/record"
+	"github.com/steven3002/sennit/seal"
 )
 
 // An Entry is the catalog's record of where one record version lives.

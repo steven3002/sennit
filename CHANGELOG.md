@@ -82,7 +82,7 @@ Everything below has been exercised against the live Sia network unless it says 
   about what an answer will be about and must never cost an answer, while asking for sessions is a
   statement about what is being looked at and is honoured exactly, with the count of what it set
   aside reported alongside.
-- **An MCP server**, `mnemosia-mcp`, over stdio, no listening socket, and both secrets read from the
+- **An MCP server**, `sennit-mcp`, over stdio, no listening socket, and both secrets read from the
   environment rather than from a flag or a tool argument. Six tools: `recall`, `remember`, `browse`,
   `open`, `save_session`, `forget`. Every one returns a structured result against a declared schema
   *and* a mirrored text block, and links to records by address rather than by bare id.
@@ -109,13 +109,13 @@ Everything below has been exercised against the live Sia network unless it says 
   part. The vocabulary is now open on write.
 - **Commands:** `init`, `connect`, `remember`, `recall`, `flush`, `status`, `reclaim`, `recover`,
   `hydrate`.
-- **`mnemosia connect`,** the whole onboarding path in one command: it holds a live approval link
+- **`sennit connect`,** the whole onboarding path in one command: it holds a live approval link
   open across the roughly ten minutes each one lasts and reissues on expiry, writes the issued app
   key to a file at `0600`, **reads that file back and confirms it carries the key the indexer
   issued**, and then waits for the account to become writable, because approval is not readiness,
   and a write before the indexer has funded host accounts fails with a message about hosts that says
   nothing about waiting.
-- **`mnemosia hydrate`,** which rebuilds a vault on a machine that has never held it, in three
+- **`sennit hydrate`,** which rebuilds a vault on a machine that has never held it, in three
   stages whose costs are three orders of magnitude apart, so the vault is usable before it is
   complete.
 - **Continuous integration**: build without cgo, vet, gofmt, the full test suite, a race-detector
@@ -196,8 +196,8 @@ Everything below has been exercised against the live Sia network unless it says 
 - **An interrupted repack loses no data and can strand one slab.** Killed inside its write phase, it
   leaves the records readable at their old locations and the catalog untouched, and may leave a slab
   pinned that the device's ledger never learned about, the network answers with the slab id after
-  the process is gone. `mnemosia reclaim` cannot see it, `mnemosia reclaim -orphans` releases it, and
-  `mnemosia status` now reports storage billed to the account that the ledger does not know.
+  the process is gone. `sennit reclaim` cannot see it, `sennit reclaim -orphans` releases it, and
+  `sennit status` now reports storage billed to the account that the ledger does not know.
 - **Retrieval quality depends on what else is in the vault.** A vault where nearly everything
   concerns one subject is measurably harder to search than a varied one, because the records
   competing with the right answer share its tags and the filter cannot tell them apart. Quoted
@@ -259,4 +259,4 @@ slabs, one 2-vCPU Linux host, 2026-08-07. A number without its configuration is 
   peak** it needs rather than on the steady state it would end at, since an account can be under its
   limit both before and after a repack and unable to afford the moment in between.
 
-[0.1.0]: https://github.com/steven3002/mnemosia
+[0.1.0]: https://github.com/steven3002/sennit

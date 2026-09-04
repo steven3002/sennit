@@ -3,7 +3,7 @@ package recall
 import (
 	"testing"
 
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/record"
 )
 
 // mixed builds a pool of alternating memories and sessions with the metadata a

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/record"
 )
 
 // ErrNotFound reports that the device has no copy of a record.

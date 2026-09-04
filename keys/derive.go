@@ -12,10 +12,10 @@ const KeySize = 32
 // The derivation labels. Each key has exactly one purpose: reusing one key for
 // two purposes is what turns a weakness in either into a weakness in both.
 const (
-	labelRecord   = "mnemosia/v1/record-aead"
-	labelContent  = "mnemosia/v1/content-address"
-	labelManifest = "mnemosia/v1/manifest-aead"
-	labelCheck    = "mnemosia/v1/phrase-check"
+	labelRecord   = "sennit/v1/record-aead"
+	labelContent  = "sennit/v1/content-address"
+	labelManifest = "sennit/v1/manifest-aead"
+	labelCheck    = "sennit/v1/phrase-check"
 )
 
 // A Key is a 32-byte symmetric key derived from the vault seed.

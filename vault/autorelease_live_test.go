@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/steven3002/mnemosia/keys"
-	"github.com/steven3002/mnemosia/record"
-	"github.com/steven3002/mnemosia/sia"
-	"github.com/steven3002/mnemosia/vault"
+	"github.com/steven3002/sennit/keys"
+	"github.com/steven3002/sennit/record"
+	"github.com/steven3002/sennit/sia"
+	"github.com/steven3002/sennit/vault"
 )
 
 // TestLiveDoesDeletingObjectsReleaseTheSlab asks whether the indexer now gives

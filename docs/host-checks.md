@@ -1,6 +1,6 @@
-# Connecting Mnemosia to an MCP host, and checking it works
+# Connecting Sennit to an MCP host, and checking it works
 
-Mnemosia's automated tests drive the server with a real MCP client over a real stdio transport, so
+Sennit's automated tests drive the server with a real MCP client over a real stdio transport, so
 the protocol surface is covered. **Two things they cannot cover**, because both live above the wire:
 
 1. **Does the `/resume` prompt render as a slash command** in a host's user interface?
@@ -14,7 +14,7 @@ and there is a results table at the end to fill in.
 ## 0. Build and configure
 
 ```bash
-CGO_ENABLED=0 go build -o ~/bin/mnemosia-mcp ./cmd/mnemosia-mcp
+CGO_ENABLED=0 go build -o ~/bin/sennit-mcp ./cmd/sennit-mcp
 ```
 
 The server takes **no arguments**. Both secrets come from its environment, never from a flag or a
@@ -22,12 +22,12 @@ tool argument:
 
 | Variable | What it is |
 |---|---|
-| `MNEMOSIA_PHRASE` | Your BIP-39 recovery phrase. Keys are derived from it on every run and never stored. |
-| `MNEMOSIA_APP_KEY` | The Sia app key issued when you approved this installation with your indexer. |
-| `MNEMOSIA_HOME` | Optional. The vault directory (default `~/.mnemosia`). |
-| `MNEMOSIA_MODEL_DIR` | Optional. Where the embedding model is kept. |
+| `SENNIT_PHRASE` | Your BIP-39 recovery phrase. Keys are derived from it on every run and never stored. |
+| `SENNIT_APP_KEY` | The Sia app key issued when you approved this installation with your indexer. |
+| `SENNIT_HOME` | Optional. The vault directory (default `~/.sennit`). |
+| `SENNIT_MODEL_DIR` | Optional. Where the embedding model is kept. |
 
-> The phrase cannot be piped in here, unlike the `mnemosia` command line. **stdin carries the
+> The phrase cannot be piped in here, unlike the `sennit` command line. **stdin carries the
 > protocol**, so a phrase on stdin would be read as the client's first message.
 
 Check it runs before involving a host. This writes nothing and spends no storage:
@@ -37,11 +37,11 @@ printf '%s\n' \
   '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","clientInfo":{"name":"probe","version":"1"},"capabilities":{}}}' \
   '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
   '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' \
-| ~/bin/mnemosia-mcp | head -2
+| ~/bin/sennit-mcp | head -2
 ```
 
 A working server prints one line naming the negotiated protocol version and one listing six tools,
-and writes `mnemosia-mcp: serving a vault on …` to stderr. If it reports having no vault, it will
+and writes `sennit-mcp: serving a vault on …` to stderr. If it reports having no vault, it will
 still start and every tool will tell you what is missing, that is deliberate, so a misconfigured
 server explains itself instead of failing to launch.
 
@@ -53,13 +53,13 @@ variables. The mechanism differs per host and each one's own documentation is au
 **Claude Code**, verified on this machine against **2.1.223**:
 
 ```bash
-claude mcp add mnemosia \
-  -e MNEMOSIA_PHRASE="…" \
-  -e MNEMOSIA_APP_KEY="…" \
-  -- ~/bin/mnemosia-mcp
+claude mcp add sennit \
+  -e SENNIT_PHRASE="…" \
+  -e SENNIT_APP_KEY="…" \
+  -- ~/bin/sennit-mcp
 
-claude mcp list          # should show mnemosia as connected
-claude mcp get mnemosia  # health-checks it
+claude mcp list          # should show sennit as connected
+claude mcp get sennit  # health-checks it
 ```
 
 **Claude Desktop, Cursor, VS Code**, each takes a JSON entry of the same shape. Use the host's own
@@ -67,11 +67,11 @@ current documentation for the file's location and exact key names; the entry its
 
 ```json
 {
-  "command": "/absolute/path/to/mnemosia-mcp",
+  "command": "/absolute/path/to/sennit-mcp",
   "args": [],
   "env": {
-    "MNEMOSIA_PHRASE": "…",
-    "MNEMOSIA_APP_KEY": "…"
+    "SENNIT_PHRASE": "…",
+    "SENNIT_APP_KEY": "…"
   }
 }
 ```
@@ -92,7 +92,7 @@ the agent can call `recall` scoped to sessions and then `open`, but it stops bei
 and stops being the user's own decision. The surface is deliberately not built so that anything
 depends on the prompt rendering; this check decides how the demo is framed, not whether it works.
 
-**Give it something to resume first.** In any host that has Mnemosia connected, in a fresh session:
+**Give it something to resume first.** In any host that has Sennit connected, in a fresh session:
 
 > Save this conversation to my memory with the title "Host check" and a one-line summary.
 
@@ -101,8 +101,8 @@ Then:
 ### In each host, in a **new** session
 
 1. Type `/` and look for **`resume`** in the command list. It may be namespaced, hosts commonly
-   prefix MCP prompts with the server name, so look for `resume`, `mnemosia:resume`, or
-   `/mcp__mnemosia__resume`.
+   prefix MCP prompts with the server name, so look for `resume`, `sennit:resume`, or
+   `/mcp__sennit__resume`.
 2. Run it **with no arguments**. It should resume the most recent conversation.
 3. Run it again with a topic, e.g. `resume host check`.
 
@@ -110,7 +110,7 @@ Then:
 
 - The prompt appears in the list without being typed out in full.
 - Running it fills the input with, or sends, a block that begins
-  *"Resume this conversation from the user's own Mnemosia vault"* and names how the conversation was
+  *"Resume this conversation from the user's own Sennit vault"* and names how the conversation was
   chosen.
 - The assistant answers as though it had been in that conversation, it can say what the
   conversation was about without calling a tool first.
@@ -134,7 +134,7 @@ server connected. Record what the host *does* show.
 
 ## Check 2, does a real agent supply usable tags?
 
-**Why it matters, and this is the more important of the two.** Mnemosia's retrieval quality rests on
+**Why it matters, and this is the more important of the two.** Sennit's retrieval quality rests on
 the agent emitting two or three accurate tags at both ends: on the write, so the record is
 reachable, and on the query, so the mechanism has something to prefer. On the shipped pipeline that
 soft filter is worth about five points of hit@5 and the lexical pass is worth nothing at all, which

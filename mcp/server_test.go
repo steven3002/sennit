@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/steven3002/mnemosia/mcp"
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/mcp"
+	"github.com/steven3002/sennit/record"
 )
 
 // Pass mark 1, the half that does not need a person. A real MCP client

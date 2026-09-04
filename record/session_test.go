@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/record"
 )
 
 // The whole point of the message schema is that it survives being written down

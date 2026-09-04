@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/steven3002/mnemosia/keys"
+	"github.com/steven3002/sennit/keys"
 )
 
 func TestSeedFromPhraseIsDeterministic(t *testing.T) {

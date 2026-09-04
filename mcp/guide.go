@@ -25,7 +25,7 @@ var Instructions = strings.TrimSpace(instructionsMD)
 //go:embed guide.md
 var guideMD string
 
-// Guide is the mnemosia://guide resource: the long form of the above, for a
+// Guide is the sennit://guide resource: the long form of the above, for a
 // model that wants more than the connect-time summary.
 //
 // It exists because instructions are read once and are competing for context

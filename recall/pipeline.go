@@ -6,8 +6,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/steven3002/mnemosia/index"
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/index"
+	"github.com/steven3002/sennit/record"
 )
 
 // An Embedder turns a query into a vector.

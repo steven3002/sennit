@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/record"
 )
 
 // Scheme is the vault's URI scheme. Memory and sessions are two kinds in one
 // address space, not two endpoints, so one scheme addresses all of them and one
 // function resolves them.
-const Scheme = "mnemosia://"
+const Scheme = "sennit://"
 
 // The vault's whole namespace. Everything a caller can reach has an address
 // here, and every address is named in Instructions, a resource a host fetches
@@ -95,7 +95,7 @@ func TranscriptURI(id record.ID) string { return URI(record.KindSession, id) + "
 // it, the tool that opens a record and the protocol's own resource reads alike.
 // Two entry points into one address space drift, and they drift quietly, because
 // each looks correct on its own. Measured once already: an `open` tool answered
-// "no record at mnemosia://guide" for a resource sitting in the server's own
+// "no record at sennit://guide" for a resource sitting in the server's own
 // resource listing, within four hundred lines of the claim that one opener
 // resolves everything.
 func Parse(uri string) (Address, error) {

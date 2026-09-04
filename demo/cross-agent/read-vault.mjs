@@ -12,9 +12,9 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
-const binary = process.env.MNEMOSIA_MCP_BIN;
+const binary = process.env.SENNIT_MCP_BIN;
 if (!binary) {
-  console.error("set MNEMOSIA_MCP_BIN to the mnemosia-mcp binary");
+  console.error("set SENNIT_MCP_BIN to the sennit-mcp binary");
   process.exit(2);
 }
 
@@ -29,17 +29,17 @@ const transport = new StdioClientTransport({
   env: {
     PATH: process.env.PATH,
     HOME: process.env.HOME,
-    MNEMOSIA_PHRASE: process.env.MNEMOSIA_PHRASE,
-    MNEMOSIA_APP_KEY: process.env.MNEMOSIA_APP_KEY,
-    MNEMOSIA_HOME: process.env.MNEMOSIA_HOME,
-    MNEMOSIA_MODEL_DIR: process.env.MNEMOSIA_MODEL_DIR,
-    MNEMOSIA_INDEXER: process.env.MNEMOSIA_INDEXER ?? "",
+    SENNIT_PHRASE: process.env.SENNIT_PHRASE,
+    SENNIT_APP_KEY: process.env.SENNIT_APP_KEY,
+    SENNIT_HOME: process.env.SENNIT_HOME,
+    SENNIT_MODEL_DIR: process.env.SENNIT_MODEL_DIR,
+    SENNIT_INDEXER: process.env.SENNIT_INDEXER ?? "",
   },
   stderr: "pipe",
 });
 
 const client = new Client(
-  { name: "mnemosia-cross-agent-check", version: "1.0.0" },
+  { name: "sennit-cross-agent-check", version: "1.0.0" },
   { capabilities: {} },
 );
 
@@ -104,8 +104,8 @@ check(!memories.isError, "recall returned a result rather than an error");
 // The address space, read as a resource rather than through a tool. Both doors
 // go through one resolver on the server; a second client is where that stops
 // being an internal claim.
-const vaultResource = await client.readResource({ uri: "mnemosia://vault" });
-check(vaultResource.contents.length > 0, "mnemosia://vault reads as a resource");
+const vaultResource = await client.readResource({ uri: "sennit://vault" });
+check(vaultResource.contents.length > 0, "sennit://vault reads as a resource");
 check(vaultResource.cacheScope === "private",
   `resources/read is cacheable as ${JSON.stringify(vaultResource.cacheScope)}, want "private"`);
 

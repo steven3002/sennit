@@ -9,13 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/steven3002/mnemosia/keys"
-	"github.com/steven3002/mnemosia/sia"
+	"github.com/steven3002/sennit/keys"
+	"github.com/steven3002/sennit/sia"
 )
 
 // LiveEnv opts a run in to talking to a real indexer. It is off by default so
 // the ordinary test run touches no network and spends no storage quota.
-const LiveEnv = "MNEMOSIA_LIVE"
+const LiveEnv = "SENNIT_LIVE"
 
 func liveClient(t *testing.T) *sia.Client {
 	t.Helper()

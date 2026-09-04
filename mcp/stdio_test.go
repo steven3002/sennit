@@ -14,7 +14,7 @@ import (
 	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/steven3002/mnemosia/mcp"
+	"github.com/steven3002/sennit/mcp"
 )
 
 // The two pass marks that cannot be answered in one process.
@@ -30,7 +30,7 @@ import (
 // process over the real stdio transport and adds nothing to the product.
 
 // serverModeEnv makes this test binary run as a server instead of as tests.
-const serverModeEnv = "MNEMOSIA_TEST_SERVE_HOME"
+const serverModeEnv = "SENNIT_TEST_SERVE_HOME"
 
 func TestMain(m *testing.M) {
 	if home := os.Getenv(serverModeEnv); home != "" {

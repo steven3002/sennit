@@ -12,12 +12,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/steven3002/mnemosia/embed"
-	"github.com/steven3002/mnemosia/embed/embedtest"
-	"github.com/steven3002/mnemosia/index"
-	"github.com/steven3002/mnemosia/local"
-	"github.com/steven3002/mnemosia/recall"
-	"github.com/steven3002/mnemosia/record"
+	"github.com/steven3002/sennit/embed"
+	"github.com/steven3002/sennit/embed/embedtest"
+	"github.com/steven3002/sennit/index"
+	"github.com/steven3002/sennit/local"
+	"github.com/steven3002/sennit/recall"
+	"github.com/steven3002/sennit/record"
 )
 
 // This is the one package that measures the embedding model, so it is one of
@@ -80,7 +80,7 @@ var lexicalDir string
 // is built once for the whole package, so its store has to outlive the first
 // test that asks for it, which rules out t.TempDir.
 func TestMain(m *testing.M) {
-	dir, err := os.MkdirTemp("", "mnemosia-recall-")
+	dir, err := os.MkdirTemp("", "sennit-recall-")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "recall harness: %v\n", err)
 		os.Exit(1)

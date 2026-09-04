@@ -10,7 +10,7 @@ import (
 	"github.com/klauspost/compress/zstd"
 	"golang.org/x/crypto/chacha20poly1305"
 
-	"github.com/steven3002/mnemosia/keys"
+	"github.com/steven3002/sennit/keys"
 )
 
 // Sizes of the authenticated-encryption envelope. The nonce is 24 bytes
