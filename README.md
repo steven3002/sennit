@@ -272,10 +272,14 @@ statement of what has and has not actually been paid for are in [`docs/cost.md`]
 
 - **A conversation comes back exactly. The label on it does not.** Replayed on a second machine, every
   message is byte for byte what was saved, including each tool call and the result it was correlated
-  with. What is *not* on Sia is the head that described the conversation, so of its 26 fields **11 are
-  restored, 3 are reconstructed from the transcript itself, and 12 are gone**,the summary, tags,
-  project and lineage among them. **The vault reports the origin of every field it returns**, rather
-  than handing back a rebuilt head as though it were the original.
+  with. What is *not* on Sia is the head that described the conversation. Of its 26 fields, **11 come
+  back from the transcript itself**, and where the rest land depends on the rebuild rather than on
+  the schema: a rebuild at index depth with no memory linking back to the conversation reconstructs
+  **4** and loses **11**, the summary, tags, project and lineage among them. A linked memory restores
+  `links.memories` through the other record's edge, and a catalog-depth rebuild leaves the embedding
+  unset, so **do not read those two numbers as fixed.** Measured on a live two-machine run,
+  2026-09-04. **The vault reports the origin of every field it returns**, rather than handing back a
+  rebuilt head as though it were the original.
 - **Opening a vault on a second machine needs the phrase *and* one browser approval.** The phrase
   alone is not sufficient, and we do not claim seed-only recovery.
 - **Cost figures we quote are advertised rates, not invoices.** The free tier has covered everything

@@ -41,8 +41,24 @@ cleanup() {
   # Forgetting comes first and reclaiming second, and the order is not a
   # preference: a slab is billed whole and comes back only once nothing live is
   # left in it, so reclaiming without forgetting frees exactly nothing.
+  #
+  # -release-all is required and its absence was a real bug. Forgetting every
+  # record is precisely what empties the catalog, and a sweep refuses an empty
+  # catalog while a slab is still pinned because that is indistinguishable from
+  # a catalog it failed to load. The guard is right; this caller simply has the
+  # one piece of knowledge the guard cannot have, which is that the vault was
+  # emptied on purpose a moment ago.
   SENNIT_HOME="$work/a" "$bin/agent" -server "$bin/sennit-mcp" -forget-all 2>&1 | sed 's/^/  /' || true
-  SENNIT_HOME="$work/a" "$bin/sennit" reclaim 2>&1 | sed 's/^/  /' || true
+  if SENNIT_HOME="$work/a" "$bin/sennit" reclaim -release-all 2>&1 | sed 's/^/  /'; then
+    note "storage released"
+  else
+    # Never silent. A demo that quietly leaks a 40 MiB slab per run teaches the
+    # opposite of what this project claims about reclamation.
+    printf '\n  \033[1mWARNING: this run did NOT release its storage.\033[0m\n'
+    printf '  A slab stays billed to your account. Check with:  sennit status\n'
+    printf '  The vault is at %s and is about to be deleted, so recover it with\n' "$work/a"
+    printf '  a fresh hydrate before reclaiming if you need to.\n'
+  fi
   rm -rf "$work"
 }
 trap cleanup EXIT

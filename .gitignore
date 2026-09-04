@@ -37,3 +37,6 @@ demo/recordings/
 # Built binaries (were committed once, 81.5 MB, never again)
 /sennit
 /sennit-mcp
+
+# Release artifacts
+/dist/

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 
+	"github.com/steven3002/sennit/build"
 	"github.com/steven3002/sennit/keys"
 )
 
@@ -42,6 +43,9 @@ func run() int {
 		err = runRecover(ctx, os.Args[2:])
 	case "hydrate":
 		err = runHydrate(ctx, os.Args[2:])
+	case "version", "-version", "--version":
+		fmt.Printf("sennit %s\n", build.String())
+		return 0
 	case "help", "-h", "--help":
 		usage()
 		return 0

@@ -37,13 +37,19 @@ human to it, and waits for the account to become writable afterwards, but it nee
 browser, so the demo starts after it. **Do not describe this as seed-only recovery.**
 
 **A rebuilt conversation is not the conversation that was saved.** The messages are exact. The head
-that named them is not on Sia at all, so B reconstructs it from the transcript:
+that named them is not on Sia at all, so B reconstructs it from the transcript.
+
+⚠️ **The four groups below are not fixed sizes.** Two fields move between them depending on the run,
+not on the schema: `links.memories` is restored through the other record's edge **if some memory
+links back**, and the embedding is invented **only if the rebuild embeds**, which a catalog-depth
+hydrate does not. The live run on 2026-09-04 was index depth with no backlink and scored
+**11 restored, 4 invented, 11 gone**. Quote the grouping with the conditions attached.
 
 - **comes back exactly**, the record id, the schema, the chunk list, the message and chunk counts,
   the byte count, the last message
 - **read out of the messages**, when it started and ended, which models spoke
-- **invented here**, the title (taken from the first thing the user said), the head version, and the
-  session's class
+- **invented here**, the title (taken from the first thing the user said), the head version, the
+  session's class, and, when the rebuild embeds, the embedding
 - **gone**, the summary, the tags, the project, the archived flag, the agent that wrote it, the
   token counts, the duration, the lineage, the preserved tail
 

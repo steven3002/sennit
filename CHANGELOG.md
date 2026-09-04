@@ -4,6 +4,55 @@ All notable changes to this project are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.0-beta-mvp], 2026-09-04
+
+**First package anyone else can run.** Same substrate as 0.1.0, now released as prebuilt binaries
+for Linux, macOS and Windows, on amd64 and arm64, with checksums. Tagged beta because it works end
+to end and is measured, and because it has been used by about one person.
+
+### Verified end to end against live Sia on 2026-09-04
+- **The two-machine demo passes with 0 problems in 56 s**: 28 s to write and put on Sia, 18 s to
+  rebuild on a directory that has never held the vault, 10 s to read it back with a **different MCP
+  client in a different language**.
+- **Data written to Sia is byte exact after 30.3 days.** Checked at 0 h, 18 h, 28.3 d and 30.3 d.
+  The span between 18 h and 28.3 d was not observed, so this is readability at those ages and not
+  continuous readability.
+- Semantic recall works across a rebuild, on a query sharing almost no words with its answer.
+- The cold path works: a 128 MB embedding model downloads into an empty model directory in 6 s.
+
+### Added
+- **`sennit version`**, and a `build` package so the command line and the MCP server cannot disagree
+  about what they are. Binaries built by `scripts/release.sh` are stamped with their commit and
+  date; a binary you build yourself says "built from source" rather than claiming a provenance it
+  does not have.
+- **`scripts/release.sh`**, which cross-compiles every supported platform, stamps the build, and
+  writes `SHA256SUMS`. No cgo, so every target builds from any host.
+
+### Fixed
+- **The two-machine demo stranded 40 MiB of quota on every run and said nothing.** Its cleanup
+  forgot every record and then called plain `sennit reclaim`, but forgetting everything is precisely
+  what empties the catalog, and a sweep refuses an empty catalog while a slab is still pinned,
+  because that is indistinguishable from a catalog it failed to load. The guard was right and the
+  caller was wrong. Cleanup now passes `-release-all`, and a cleanup that fails says so loudly
+  instead of being swallowed by `|| true`.
+
+### Changed
+- **The head-rebuild claim was corrected, and the correction is that it was never a fixed number.**
+  The README described a rebuilt session head as 11 fields restored, 3 reconstructed and 12 gone, as
+  though that were a property of the schema. Two fields move depending on the run: `links.memories`
+  comes back through another record's edge only if some memory links back, and the embedding is
+  invented only if the rebuild embeds, which a catalog-depth hydrate does not. A live run at index
+  depth with no backlink scores 11, 4 and 11. Both are right for their conditions, so the conditions
+  now travel with the numbers.
+
+### Known limitations
+- The `skill` record type, the local viewer, the graph map and session forking are not built.
+- Opening a vault on a second machine needs the phrase **and** one browser approval. This is not
+  seed-only recovery.
+- The `/resume` prompt is verified in Claude Code only.
+- Recall quality figures come from synthetic corpora, not a real personal vault.
+- Cost figures are advertised rates. No bill has ever been paid.
+
 ## [0.1.0], 2026-08-07
 
 **First release.** Pre-alpha, and complete enough that someone else can clone the repository and run

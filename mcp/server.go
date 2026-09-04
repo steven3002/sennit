@@ -12,6 +12,7 @@ import (
 	"fmt"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	buildinfo "github.com/steven3002/sennit/build"
 	"github.com/steven3002/sennit/vault"
 )
 
@@ -19,7 +20,7 @@ import (
 const (
 	Name    = "sennit"
 	Title   = "Sennit"
-	Version = "0.1.0"
+	Version = buildinfo.Version
 )
 
 // ErrNotOnboarded reports that this process has no usable vault.
