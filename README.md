@@ -76,12 +76,27 @@ sha256sum -c SHA256SUMS --ignore-missing          # macOS: shasum -a 256 -c
 
 tar xzf "$file"
 cd "${file%.tar.gz}"
-./sennit version
+
+mkdir -p ~/.local/bin
+mv sennit sennit-mcp ~/.local/bin/
+sennit version
 ```
 
 **Verify the checksum rather than skipping it.** These binaries derive and hold the keys to
 everything you store, so "it downloaded, it is probably fine" is not a good enough standard for
 them.
+
+If `sennit version` reports *command not found*, `~/.local/bin` is not on your `PATH`. Add it, and
+keep it for new shells:
+
+```sh
+export PATH="$HOME/.local/bin:$PATH"
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc     # or ~/.zshrc
+```
+
+Anywhere on your `PATH` works; `/usr/local/bin` is the other usual choice and needs `sudo`. On
+Windows, put the two `.exe` files in a folder of your choosing and add that folder to `Path` under
+*Edit environment variables for your account*.
 
 > ⚠️ **macOS will refuse to open it the first time, and that is expected.** These binaries are
 > unsigned and un-notarized, so Gatekeeper quarantines anything downloaded from a browser and says
@@ -89,7 +104,7 @@ them.
 > Clear the flag:
 >
 > ```sh
-> xattr -d com.apple.quarantine ./sennit ./sennit-mcp
+> xattr -d com.apple.quarantine ~/.local/bin/sennit ~/.local/bin/sennit-mcp
 > ```
 >
 > Signing this properly needs a paid Apple Developer ID, which is not worth it at beta.
@@ -102,8 +117,8 @@ them.
 ```sh
 git clone https://github.com/steven3002/sennit
 cd sennit
-CGO_ENABLED=0 go build -o sennit ./cmd/sennit
-CGO_ENABLED=0 go build -o sennit-mcp ./cmd/sennit-mcp
+CGO_ENABLED=0 go build -o ~/.local/bin/sennit ./cmd/sennit
+CGO_ENABLED=0 go build -o ~/.local/bin/sennit-mcp ./cmd/sennit-mcp
 ```
 
 The first build downloads dependencies and takes a few minutes. A binary you built yourself reports
@@ -112,7 +127,7 @@ The first build downloads dependencies and takes a few minutes. A binary you bui
 ### 2. Get a recovery phrase
 
 ```sh
-./sennit init -new-phrase
+sennit init -new-phrase
 ```
 
 It prints twelve words and stores nothing. Yours will differ from every example in this file,
@@ -137,7 +152,7 @@ export SENNIT_PHRASE="<the twelve words init printed>"
 Storing on Sia needs an **app key**, which an indexer issues after you approve it in a browser.
 
 ```sh
-./sennit connect -out sennit.key
+sennit connect -out sennit.key
 ```
 
 It prints a link. Open it, approve, and come back:
@@ -171,7 +186,7 @@ export SENNIT_APP_KEY="$(cat sennit.key)"
 ### 4. Prepare the vault
 
 ```sh
-./sennit init
+sennit init
 ```
 
 ```
@@ -186,7 +201,7 @@ The first run downloads the embedding model (~130 MB, once).
 ### 5. Remember something
 
 ```sh
-./sennit remember \
+sennit remember \
   -context "Recorded while checking the README quickstart from a clean environment." \
   -tags "sia,storage" \
   "Sia bills a slab whole, so packing many records into one slab is a cost decision rather than an optimisation."
@@ -210,7 +225,7 @@ The first run downloads the embedding model (~130 MB, once).
 ### 6. Recall it by meaning
 
 ```sh
-./sennit recall "how is storage billed"
+sennit recall "how is storage billed"
 ```
 
 ```
@@ -230,14 +245,18 @@ Note the query shares no words with the record beyond "billed"/"bills", the matc
 claude mcp add sennit \
   -e SENNIT_PHRASE="$SENNIT_PHRASE" \
   -e SENNIT_APP_KEY="$SENNIT_APP_KEY" \
-  -- /absolute/path/to/sennit-mcp
+  -- "$(command -v sennit-mcp)"
 ```
+
+**An MCP host needs the absolute path even though the binary is on your `PATH`**, because a host does
+not launch the server from your shell and will not resolve `~` or search your `PATH`.
+`command -v sennit-mcp` prints the full path, which is what to paste anywhere a config wants one.
 
 Other hosts take a JSON config naming the same binary and the same two environment variables. We
 have verified the command above on Claude Code 2.1.223; **we have not verified the config file
 locations for Cursor, VS Code or Claude Desktop**, so this README does not guess at them.
 
-The server exposes `remember`, `recall`, `open`, `forget`, `save_session`, `resume_session` and a
+The server exposes `remember`, `recall`, `browse`, `open`, `save_session` and `forget`, plus a
 `/resume` prompt. Two clients can run against one vault at once, each in its own process.
 
 ### Trying it without Sia
@@ -246,9 +265,9 @@ Every command takes `-offline`, which uses the device's own copy and contacts no
 no app key and no approval, so it is the fastest way to see recall working:
 
 ```sh
-./sennit init -offline
-./sennit remember -offline -context "..." "..."
-./sennit recall -offline "..."
+sennit init -offline
+sennit remember -offline -context "..." "..."
+sennit recall -offline "..."
 ```
 
 Records written offline stay on the device until a connected run flushes them.
@@ -275,9 +294,9 @@ slab can never be extended. So every flush strands a slab, and an account fills 
 matter how little you actually store.
 
 ```sh
-./sennit status          # what is held, what is queued, what is billed
-./sennit reclaim         # release storage nothing points at any more
-./sennit reclaim -repack # rewrite live records into fewer slabs first
+sennit status          # what is held, what is queued, what is billed
+sennit reclaim         # release storage nothing points at any more
+sennit reclaim -repack # rewrite live records into fewer slabs first
 ```
 
 `status` warns you once reclaimable storage has built up, rather than leaving you to find out when a
