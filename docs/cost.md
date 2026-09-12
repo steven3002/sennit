@@ -23,15 +23,15 @@ much you have pinned and how much remains.
 | Sennit, packed and reclaimed | **~57,000,000** |
 | The same data written one record per object | **1,250** |
 
-That 45,000× gap is the whole reason this project has a packer and a repack command,see §4.
+That 45,000× gap is the whole reason this project has a packer and a repack command. See §4.
 
-## 2. If you outgrow it,hosted
+## 2. If you outgrow it, the hosted tiers
 
 `sia.storage`'s own tiers, read from their pricing page:
 
 | Tier | Price | Storage |
 |---|---|---|
-| Free |,| 50 GB |
+| Free | No charge | 50 GB |
 | Plus | $7.99 / month | 500 GB |
 | Pro | $14.99 / month | 5 TB |
 | Ultimate | $19.99 / month | 10 TB |
@@ -71,15 +71,15 @@ At the measured mean sealed record size of 857 bytes:
 
 ## 4. The number that actually matters
 
-**Per-record cost is not a real quantity.** Storage is billed in **slabs**,40 MiB, charged whole,
+**Per-record cost is not a real quantity.** Storage is billed in **slabs** of 40 MiB, charged whole,
 and a slab can never be extended after it is written. One slab holds roughly **48,900 records**.
 
 > **Until you exceed ~48,900 memories, your storage bill is one slab: about $0.0017 per year.**
 
 So the cost driver is not how much you remember. It is **how many partially-filled slabs are left
 lying around.** Every time the packer flushes, whatever it flushes occupies a full slab forever.
-A hundred eager flushes is a hundred slabs,about **$0.014 per month** for data that would fit in
-one.
+A hundred eager flushes is a hundred slabs, which is about **$0.014 per month** for data that would
+fit in one.
 
 That is still trivially cheap in absolute terms, but it is the only cost lever in the system, and it
 is why Sennit batches writes rather than sending them one at a time, and why `sennit reclaim
@@ -89,7 +89,7 @@ is why Sennit batches writes rather than sending them one at a time, and why `se
 
 Storage is metered, not prepaid. Sia's RHP4 protocol has an explicit release mechanism, and the
 indexer runs it automatically on a maintenance loop. Freeing a 30-sector slab costs **$0.000000058**
-against **$0.000133 per month** to keep it,it pays for itself in about thirty seconds.
+against **$0.000133 per month** to keep it, so it pays for itself in about thirty seconds.
 
 **Your cost at any moment is what you currently have pinned.** There is no reusable storage
 allocation to hand back and no term to run out. Delete records and the meter stops.
@@ -98,7 +98,7 @@ allocation to hand back and no term to run out. Delete records and the meter sto
 
 ## ⚠️ What these numbers are, and what they are not
 
-**They are arithmetic over live price sheets, not invoices. We have never paid for storage**,the
+**They are arithmetic over live price sheets, not invoices. We have never paid for storage.** The
 free tier has covered every byte this project has written. Read them as *quoted rates*, the same way
 you would read any published price, and not as a bill anyone has received.
 

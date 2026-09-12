@@ -4,6 +4,23 @@ All notable changes to this project are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Verified end to end against live Sia
+
+- **The same object is still byte exact at 38.0 days.** The durability marker written on
+  2026-08-05, 6,191 B of plaintext, was re-read twice after the release went out: at 834.3 h
+  (34.8 d) on 2026-09-09 and at 912.3 h (38.0 d) on 2026-09-12, byte exact both times. These are
+  two more readings at two more ages and nothing more. The spans between checks are still
+  unobserved, so this remains readability at those ages and not continuous readability.
+
+### Fixed
+
+- **The durability figure in the 0.1.0-beta-mvp entry was corrected from 30.3 days to 28.3 days.**
+  No check at 30.3 days exists in the evidence ledger, and the checks that back that entry are 0 h,
+  18 h and 28.3 d. The published release notes for `v0.1.0-beta-mvp` still carry the original
+  wording and will disagree with this file until the release page itself is edited.
+
 ## [0.1.0-beta-mvp], 2026-09-04
 
 **First package anyone else can run.** Same substrate as 0.1.0, now released as prebuilt binaries
@@ -14,7 +31,7 @@ to end and is measured, and because it has been used by about one person.
 - **The two-machine demo passes with 0 problems in 56 s**: 28 s to write and put on Sia, 18 s to
   rebuild on a directory that has never held the vault, 10 s to read it back with a **different MCP
   client in a different language**.
-- **Data written to Sia is byte exact after 30.3 days.** Checked at 0 h, 18 h, 28.3 d and 30.3 d.
+- **Data written to Sia is byte exact after 28.3 days.** Checked at 0 h, 18 h and 28.3 d.
   The span between 18 h and 28.3 d was not observed, so this is readability at those ages and not
   continuous readability.
 - Semantic recall works across a rebuild, on a query sharing almost no words with its answer.
@@ -194,11 +211,12 @@ Everything below has been exercised against the live Sia network unless it says 
   run, not a reason to call this one failed.
 - **A damaged app key is refused with a sentence instead of a stack trace.** An app key is an
   ed25519 private key, and `types.PrivateKey` is a byte slice whose length the compiler cannot
-  enforce, so anything but 64 bytes panicked when it went to sign,measured at 4 and 31 bytes on a
-  slice bound, at 32 and 63 inside `crypto/ed25519`. Only "non-empty hex" was ever checked. The
-  length is now checked where the key is read *and* on the line above the conversion, so no caller
-  can reach the panic, and a truncated key,the likely way this happens, a copy that dropped
-  characters,gets its own instruction rather than the one for a key that was never set.
+  enforce, so anything but 64 bytes panicked when it went to sign. The panic was measured at 4 and
+  31 bytes on a slice bound, and at 32 and 63 inside `crypto/ed25519`. Only "non-empty hex" was ever
+  checked. The length is now checked where the key is read *and* on the line above the conversion,
+  so no caller can reach the panic. A truncated key, which is the likely way this happens because a
+  copy dropped characters, gets its own instruction rather than the one for a key that was never
+  set.
 - **An already-released slab no longer fails a reclamation.** The code intended to treat a slab the
   indexer had released on its own as success, and the check never matched: the sentinel is
   `slab not found`, and the service sends `slab <id> not found`, with the id in the middle. The
