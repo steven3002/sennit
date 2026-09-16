@@ -73,7 +73,7 @@ to end and is measured, and because it has been used by about one person.
 ## [0.1.0], 2026-08-07
 
 **First release.** Pre-alpha, and complete enough that someone else can clone the repository and run
-it: the [README quickstart](README.md#quickstart) is tested end to end from a fresh clone in an
+it: the [README quickstart](docs/quickstart.md) is tested end to end from a fresh clone in an
 environment that has never seen this project. The storage substrate, a command-line interface and an
 MCP server over it exist; the viewer and the `skill` record type do not.
 
