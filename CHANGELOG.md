@@ -8,6 +8,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Verified end to end against live Sia
 
+- **An interrupted flush leaves storage that can be found and released again.** A flush of 320
+  records was cancelled 642 ms into the 1.9 s its object pinning takes, on a throwaway vault. It
+  left one 40 MiB slab billed and holding **136 of the 320 objects**, and this device's ledger named
+  it, so `sennit status` reported it as this installation's rather than another's, and a plain
+  `sennit reclaim` deleted those 136 objects and released the slab. The account read 83,886,080 B
+  before the run, 209,715,200 B at its peak across three slabs, and 83,886,080 B afterwards, holding
+  the same two slabs it started with. The flush had been told that 121 pins succeeded and 16 failed,
+  and the slab held 136: fifteen of the pins reported as failures had already been applied by the
+  indexer, which is why a write records its slab rather than trying to undo itself.
+- **Releasing a slab that never existed is not an error.** The indexer answers `slab <id> not found`
+  for an id it has never seen, the same wording it uses for one it has released, so an entry left by
+  a write whose very first pin failed is dropped by the next reclamation rather than blocking it.
 - **The upload percentage is real.** One live flush of a single record on a throwaway vault moved
   the progress through 24 distinct percentages over 9.2 s of uploading, from the SDK's own
   per-shard callback, and the storage it used was released again: the account read 80.00 MiB
@@ -82,6 +94,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- **A flush interrupted while it is pinning no longer strands storage nothing can release.** A write
+  uploads its records, registers the slab, then registers each record's location, one round trip per
+  record and sixteen at a time, which for a large flush is seconds of pinning. The slab was written
+  into this device's ledger only once all of that had succeeded, so an interrupt part way through
+  left a slab that was billed, that held part of the flush, that `sennit status` blamed on another
+  installation of the vault, and that no command could release: an ordinary `sennit reclaim` is
+  bounded by the ledger, `--orphans` reaches only slabs holding nothing, and `--take-ownership` only
+  rewrites entries the ledger already has. Each slab is now recorded before it is pinned, so an
+  interrupt anywhere in the pinning leaves a slab this device knows about, `sennit status` describes
+  it correctly, and `sennit flush` followed by `sennit reclaim` returns it. The same applies to
+  `sennit reclaim --repack`, which writes through the same path. What this costs is that
+  `sennit status` counts such a slab among those this device has pinned until the next reclaim, and
+  a ledger entry for a slab that never got pinned is harmless, because releasing a slab that is not
+  there already counts as success.
 - **A tag used for the first time is reported as new.** `remember` reports how well each tag
   separates the new record from the rest of the vault, and a tag nobody had used before was always
   reported as already sitting on one record, because the record being written was counted before
