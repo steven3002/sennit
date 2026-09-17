@@ -183,19 +183,27 @@ sennit remember \
 ```
 
 ```
-✓ Remembered, and stored on Sia (24.4s)
+✓ Remembered on this device, queued for Sia (0.8s)
 <record id>
 ```
 
-The line above the id counts up while the write happens, and shows a percentage while the upload
-runs. The id is the only thing on stdout, so `id=$(sennit remember ...)` captures it and nothing
-else. `--verbose` adds the content id, the tag counts and the upload timings.
+**The memory is on this device, and it is not on Sia yet.** `remember` seals the record here and
+returns; the upload happens later. Sia bills a slab whole, 40 MiB, so uploading one memory of a few
+hundred bytes on its own would buy a whole slab for it. `sennit status` says how much is waiting and
+`sennit flush` uploads it, which is the subject of [Storage](storage.md).
 
-**Only that first wording means the record is on Sia.** A write that could not reach the network
-says so instead, and the record waits on this device:
+A connected run takes longer than the time above: every online command first contacts the indexer,
+and that is most of the wall time you see in the next step.
+
+The line above the id counts up while the write happens. The id is the only thing on stdout, so
+`id=$(sennit remember ...)` captures it and nothing else. `--verbose` adds the content id and the
+tag counts.
+
+To wait for the upload on one write, add `--flush`. It shows a percentage while the upload runs and
+ends with the only wording that means the record is on Sia:
 
 ```
-✓ Remembered on this device, queued for Sia (0.4s)
+✓ Remembered, and stored on Sia (24.4s)
 ```
 
 > **`--context` is required, and flags come before the text.** The context is what makes a statement

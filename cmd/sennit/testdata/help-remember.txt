@@ -10,9 +10,8 @@ FLAGS
   --tags list        Comma-separated tags; prefer specific ones, and reuse the
                      vault's existing vocabulary
   --supersedes id    The id of a record this one replaces
-  --flush            Write to Sia before returning instead of leaving the
-                     record queued (default true; --flush=false leaves it
-                     queued)
+  --flush            Wait for the record to reach Sia instead of leaving it
+                     queued (default false; the next flush uploads it)
 
 VAULT FLAGS
   --home dir         Vault directory (default ~/.sennit)

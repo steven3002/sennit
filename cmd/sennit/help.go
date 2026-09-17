@@ -179,7 +179,7 @@ var commandHelps = map[string]commandHelp{
 			{"type", "--type type", "(default fact)"},
 			{"tags", "--tags list", ""},
 			{"supersedes", "--supersedes id", ""},
-			{"flush", "--flush", "(default true; --flush=false leaves it queued)"},
+			{"flush", "--flush", "(default false; the next flush uploads it)"},
 		},
 		vault: true, verbose: true,
 		examples: []string{

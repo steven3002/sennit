@@ -13,9 +13,5 @@ changes it, not before, so the quickstart never describes a command your binary 
   name instead of holding the phrase. `SENNIT_PHRASE`, `SENNIT_APP_KEY`, `SENNIT_HOME` and
   `SENNIT_INDEXER` keep working for the release that introduces profiles, with a warning each time
   one is used, and are removed in the release after it. **This replaces quickstart steps 2, 3 and 7.**
-- **`remember` stops waiting for the upload.** It will return once the record is sealed on your
-  device, and the record reaches Sia on the regular flush or when you run `sennit flush`. The
-  distinction in ["Saved" is not "on Sia"](storage.md#saved-is-not-on-sia) is exactly what makes this safe,
-  and the output keeps saying which of the two happened.
 - **Signed and notarized macOS binaries**, so the Gatekeeper step goes away.
 - **Long memories** stop failing at the embedding model's limit.

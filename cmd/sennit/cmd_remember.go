@@ -94,12 +94,20 @@ func runRemember(ctx context.Context, out *session, args []string) error {
 }
 
 // rememberFlags is what sennit remember takes.
+//
+// --flush defaults to false because Sia bills a slab whole and a flush mints a
+// new one, so waiting for the upload buys one 40 MiB slab for one memory of a
+// few hundred bytes, and costs the whole upload before the command returns. The
+// queue on the device is what the packer exists for: the record is sealed and
+// durable here when this returns, and a later flush carries it, either the one
+// a later write makes due or an explicit `sennit flush`. Nothing uploads on a
+// timer at the command line. The flag stays for a caller that wants the wait.
 func rememberFlags(cmd *invocation) (statementContext, memType, tags, supersedes *string, flush *bool) {
 	return cmd.set.String("context", "", "what makes the statement resolvable on its own"),
 		cmd.set.String("type", string(record.TypeFact), "one of "+strings.Join(record.TypeNames(), ", ")),
 		cmd.set.String("tags", "", "comma-separated tags; prefer specific ones, and reuse the vault's existing vocabulary"),
 		cmd.set.String("supersedes", "", "the id of a record this one replaces"),
-		cmd.set.Bool("flush", true, "write to Sia before returning instead of leaving the record queued")
+		cmd.set.Bool("flush", false, "wait for the record to reach Sia instead of leaving it queued")
 }
 
 // A writeOutcome is what one remember achieved, in the terms the output needs:

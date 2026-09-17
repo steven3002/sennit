@@ -4,8 +4,8 @@
 
 ## "Saved" is not "on Sia"
 
-Sennit distinguishes the two everywhere, because the gap between them is real and can be up to an
-hour under the standing flush cadence:
+Sennit distinguishes the two everywhere, because the gap between them is real and, at the command
+line, lasts until you close it:
 
 - **On this device**, the record is sealed and durable locally the moment `remember` returns.
 - **On Sia**, the record is on the network, and only a completed flush puts it there.
@@ -13,14 +13,27 @@ hour under the standing flush cadence:
 `remember` says which it achieved on the line it ends with, in one of three wordings:
 
 ```
+✓ Remembered on this device, queued for Sia (0.8s)
 ✓ Remembered, and stored on Sia (24.4s)
-✓ Remembered on this device, queued for Sia (0.4s)
 ! Remembered on this device only: the indexer did not answer, the next connected flush uploads it (0.6s)
 ```
 
-Only the first says the record is on Sia. `sennit status` reports what is still queued, and
-`sennit flush` closes the gap on demand. **No output claims durability on Sia before a flush has
-completed.**
+The first is what a plain `remember` does, and only the second says the record is on Sia. `sennit
+status` reports what is still queued, and `sennit flush` closes the gap on demand. **No output
+claims durability on Sia before a flush has completed.**
+
+## When a queued record actually reaches Sia
+
+Nothing uploads on a clock. The packer decides whether a flush is due each time a record is added,
+by the age of the oldest queued record and by whether the queue would still fit one slab, so at the
+command line a queued record waits for a later `remember` that tips it over, or for `sennit flush`.
+A vault you write to once and then leave alone keeps that record on the device until you flush it.
+
+That is a deliberate trade, and it is the same one the slab economics force on everything else here:
+a flush mints a new 40 MiB slab whatever it carries, so flushing per memory would spend a slab on
+each one. **Run `sennit flush` when you want the gap closed**, and `sennit status` to see what is
+waiting. An MCP host is a long-running process rather than a command, so it also flushes on the
+deadlines above without being asked.
 
 ## Storage, quota and reclaiming
 

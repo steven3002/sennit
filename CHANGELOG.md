@@ -46,6 +46,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- **`sennit remember` no longer waits for the upload.** `--flush` now defaults to false, so a write
+  returns once the record is sealed on the device, in well under a second rather than the tens of
+  seconds a slab takes on the wire. Sia bills a slab whole, 40 MiB, so waiting bought an entire
+  slab for one memory of a few hundred bytes, which is what the packer exists to avoid.
+  `sennit remember --flush` still waits and still reports the upload. Nothing about what the
+  command claims has changed: it has always said whether a record is on this device or on Sia, and
+  a queued write says so. **Worth knowing:** at the command line nothing uploads on a clock. The
+  queue is flushed when a later write makes one due, or when you run `sennit flush`, which
+  `sennit status` will tell you is owed.
 - **Results go to stdout and everything a person watches goes to stderr.** `sennit status` used to
   print its whole report to stderr; the report is now on stdout, so it can be read by a script
   while the progress stays out of the way.

@@ -4,9 +4,11 @@ import (
 	"flag"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/steven3002/sennit/cmd/sennit/internal/ui"
 	"github.com/steven3002/sennit/cmd/sennit/internal/ui/uitest"
+	"github.com/steven3002/sennit/vault"
 )
 
 func rendered(s *screen, lines []ui.Line) string {
@@ -49,6 +51,41 @@ func TestHelpIsStyledOnlyWhereItWasApproved(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("the top-level screen is missing %q", want)
 		}
+	}
+}
+
+// remember does not wait for the upload unless it is asked to.
+//
+// A flush mints a whole 40 MiB slab whatever it carries, so a default of true
+// bought one slab per memory: measured live, 1,018 bytes of payload took 22.8 s
+// and moved the account from 40.00 MiB to 80.00 MiB. The default is the defect,
+// so the default is what is pinned here, and the help screen that states it is
+// checked alongside, because a wrong promise about durability is the one thing
+// this interface may not make.
+func TestRememberDoesNotWaitForTheUploadByDefault(t *testing.T) {
+	flush := flagsOf(t, "remember").Lookup("flush")
+	if flush == nil {
+		t.Fatal("remember has no --flush flag")
+	}
+	if flush.DefValue != "false" {
+		t.Errorf("--flush defaults to %q: a bare remember pays a whole slab and the upload's wall time "+
+			"for one record", flush.DefValue)
+	}
+	screen := uitest.Strip(rendered(terminal(t, 80), commandHelpLines("remember", flagsOf(t, "remember"))))
+	if !strings.Contains(screen, "default false") {
+		t.Errorf("the help screen does not say the flag is off by default:\n%s", screen)
+	}
+
+	// A fast return must not be readable as a completed upload, so the line a
+	// default write ends on names the device and never claims the network.
+	out := ended(t, 80, 800*time.Millisecond)
+	reportRemembered(out.out, writeOutcome{result: vault.RememberResult{ID: id(t, "4083dbdd9e9f0f816c797080eed61fba")}})
+	said := out.text()
+	if !strings.Contains(said, "Remembered on this device, queued for Sia") {
+		t.Errorf("a write that did not reach Sia ended on %q", said)
+	}
+	if strings.Contains(said, "stored on Sia") {
+		t.Errorf("a write that did not reach Sia said it was stored there: %q", said)
 	}
 }
 
