@@ -86,6 +86,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   No check at 30.3 days exists in the evidence ledger, and the checks that back that entry are 0 h,
   18 h and 28.3 d. The published release notes for `v0.1.0-beta-mvp` still carry the original
   wording and will disagree with this file until the release page itself is edited.
+- **`reclaim --repack` reports everything it freed.** The quota line took its readings from the
+  sweep, which runs after the repack, so everything the repack released fell outside the window
+  being measured and did not appear. A repack that recovered a gigabyte and a sweep that recovered
+  nothing reported nothing recovered, on the headline as well as in the quota line. The figure now
+  covers every stage that ran, and the repack and the sweep each name their own share so the two
+  can be told apart. Nothing about what is released or retained changed.
 
 ## [0.1.0-beta-mvp], 2026-09-04
 

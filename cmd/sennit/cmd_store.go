@@ -347,9 +347,9 @@ func runReclaim(ctx context.Context, out *session, args []string) error {
 		}
 		rows = append(rows, ownedRow(taken))
 	}
+	var packed reclaim.Repack
 	if *repack {
-		packed, err := repackNow(ctx, v)
-		if err != nil {
+		if packed, err = repackNow(ctx, v); err != nil {
 			return err
 		}
 		rows = append(rows, repackRow(packed))
@@ -366,7 +366,7 @@ func runReclaim(ctx context.Context, out *session, args []string) error {
 	if err != nil {
 		return err
 	}
-	rows = append(rows, sweptRow(sweep))
+	rows = append(rows, sweptRow(sweep, len(packed.Records) > 0))
 	detail = append(detail, fmt.Sprintf("swept     %d object(s), deleted %d, released %d slab(s) in %s",
 		sweep.ObjectsSeen, sweep.ObjectsDeleted, sweep.SlabsReleased, took(sweep.Elapsed)))
 	if sweep.SlabsHeld > 0 {
@@ -395,8 +395,7 @@ func runReclaim(ctx context.Context, out *session, args []string) error {
 		rows = append(rows, droppedRow(len(dropped)))
 	}
 
-	freed := sweep.Freed()
-	before, after := sweep.Before, sweep.After
+	var orphaned *reclaim.Sweep
 	if *orphans {
 		found, err := v.Orphans(ctx, opts)
 		if err != nil {
@@ -414,14 +413,15 @@ func runReclaim(ctx context.Context, out *session, args []string) error {
 		}
 		rows = append(rows, orphansRow(len(found), stranded, released.SlabsReleased))
 		detail = append(detail, fmt.Sprintf("          released %d slab(s) in %s", released.SlabsReleased, took(released.Elapsed)))
-		freed += released.Freed()
-		after = released.After
+		orphaned = &released
 	}
-	rows = append(rows, quotaRow(before, after, freed))
+
+	quota := reclaimQuota(packed, sweep, orphaned)
+	rows = append(rows, quotaRow(quota.before, quota.after, quota.freed))
 
 	final := "Nothing to release"
-	if freed > 0 {
-		final = "Released " + humanBytes(freed)
+	if quota.freed > 0 {
+		final = "Released " + humanBytes(quota.freed)
 	}
 	out.done(ui.MarkSuccess, final)
 	out.report(rows)
@@ -430,6 +430,56 @@ func runReclaim(ctx context.Context, out *session, args []string) error {
 		out.note(note)
 	}
 	return nil
+}
+
+// A quotaWindow is what a whole reclaim returned, and the span it is measured
+// over.
+//
+// Every stage reads the account either side of itself, so the readings chain:
+// a repack's after-reading is what the sweep behind it sees before it starts.
+// Reporting only the sweep's end of that chain, which is what this command used
+// to do, leaves everything the repack released outside the window, and on a run
+// whose whole purpose was the repack that is all of it.
+//
+// The total is accumulated from what each stage returned rather than taken as
+// the difference between the ends of the window, so a record another process
+// wrote part way through is not reported as space this command gave back.
+type quotaWindow struct {
+	before, after sia.Account
+	freed         uint64
+	// measured records whether any stage has reported yet, so the first one to
+	// do so sets where the window opens.
+	measured bool
+}
+
+// add folds one stage's readings in. Stages are added in the order they ran,
+// and a stage that did nothing and took no reading is not added at all.
+func (w *quotaWindow) add(before, after sia.Account, freed uint64) {
+	if !w.measured {
+		w.before, w.measured = before, true
+	}
+	w.after = after
+	w.freed += freed
+}
+
+// reclaimQuota adds up what one run of reclaim returned, in the order its
+// stages ran.
+//
+// It is a function of the stage reports rather than a few lines inside
+// runReclaim because the order is the whole content of the answer, and nothing
+// about that order is observable from a report only a live indexer can produce.
+// A repack with nothing to move never read the account and so contributes
+// neither a reading nor a release; orphans is nil unless the run asked for it.
+func reclaimQuota(packed reclaim.Repack, sweep reclaim.Sweep, orphans *reclaim.Sweep) quotaWindow {
+	var window quotaWindow
+	if len(packed.Records) > 0 {
+		window.add(packed.Before, packed.After, packed.Freed())
+	}
+	window.add(sweep.Before, sweep.After, sweep.Freed())
+	if orphans != nil {
+		window.add(orphans.Before, orphans.After, orphans.Freed())
+	}
+	return window
 }
 
 // The lines of a reclaim's report. Each says what was released and what was
@@ -444,13 +494,22 @@ func repackRow(packed reclaim.Repack) [2]string {
 	if len(packed.Records) == 0 {
 		return [2]string{"Repack", "nothing to move"}
 	}
-	return [2]string{"Repack", fmt.Sprintf("%s, %s into %d, peak %d",
-		plural(len(packed.Records), "record"), plural(packed.SlabsBefore, "slab"), packed.SlabsAfter, packed.Peak)}
+	return [2]string{"Repack", fmt.Sprintf("%s, %s into %d, peak %d, freed %s",
+		plural(len(packed.Records), "record"), plural(packed.SlabsBefore, "slab"),
+		packed.SlabsAfter, packed.Peak, humanBytes(packed.Freed()))}
 }
 
-func sweptRow(sweep reclaim.Sweep) [2]string {
-	return [2]string{"Swept", fmt.Sprintf("%s, deleted %d, released %s",
-		plural(sweep.ObjectsSeen, "object"), sweep.ObjectsDeleted, plural(sweep.SlabsReleased, "slab"))}
+// sweptRow names the sweep's own share of the quota when a repack ran first,
+// because the two releases are otherwise one figure on the quota row and a
+// reader cannot tell which operation returned what. On a run with no repack
+// there is nothing to tell apart, and the row is the one it has always been.
+func sweptRow(sweep reclaim.Sweep, afterRepack bool) [2]string {
+	swept := fmt.Sprintf("%s, deleted %d, released %s",
+		plural(sweep.ObjectsSeen, "object"), sweep.ObjectsDeleted, plural(sweep.SlabsReleased, "slab"))
+	if afterRepack {
+		swept += ", freed " + humanBytes(sweep.Freed())
+	}
+	return [2]string{"Swept", swept}
 }
 
 func heldRow(slabs int) [2]string {

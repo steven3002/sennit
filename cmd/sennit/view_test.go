@@ -253,31 +253,44 @@ func TestWhatReclaimSays(t *testing.T) {
 	t.Run("nothing to release", func(t *testing.T) {
 		s := ended(t, 80, 21800*time.Millisecond)
 		s.out.done(ui.MarkSuccess, "Nothing to release")
-		s.out.report([][2]string{sweptRow(swept), quotaRow(before, after, 0)})
+		s.out.report([][2]string{sweptRow(swept, false), quotaRow(before, after, 0)})
 		s.assert(t, "nothing", fixture(t, "reclaim-nothing.txt"))
 	})
 
+	// Driven through the accounting rather than with the figures written out,
+	// because the figures are what the accounting used to get wrong.
 	t.Run("after a repack", func(t *testing.T) {
 		s := ended(t, 80, 35700*time.Millisecond)
-		packed := reclaim.Repack{Records: make([]reclaim.Moved, 60), SlabsBefore: 4, SlabsAfter: 1, Peak: 5}
-		s.out.done(ui.MarkSuccess, "Released "+humanBytes(120*mib))
+		packed := reclaim.Repack{
+			Records: make([]reclaim.Moved, 60), SlabsBefore: 4, SlabsAfter: 1, Peak: 5,
+			Before: account(200*mib, 46*gib), After: account(80*mib, 46*gib),
+		}
+		sweep := reclaim.Sweep{ObjectsSeen: 60, Before: packed.After, After: packed.After}
+		quota := reclaimQuota(packed, sweep, nil)
+		s.out.done(ui.MarkSuccess, "Released "+humanBytes(quota.freed))
 		s.out.report([][2]string{
 			repackRow(packed),
-			sweptRow(reclaim.Sweep{ObjectsSeen: 60}),
-			quotaRow(account(200*mib, 46*gib), account(80*mib, 46*gib), 120*mib),
+			sweptRow(sweep, true),
+			quotaRow(quota.before, quota.after, quota.freed),
 		})
 		s.assert(t, "repack", fixture(t, "reclaim-repack.txt"))
 	})
 
 	t.Run("every optional release at once", func(t *testing.T) {
 		s := ended(t, 80, 31200*time.Millisecond)
-		s.out.done(ui.MarkSuccess, "Released "+humanBytes(120*mib))
+		sweep := reclaim.Sweep{
+			ObjectsSeen: 12, ObjectsDeleted: 4, SlabsReleased: 1,
+			Before: account(240*mib, 46*gib), After: account(160*mib, 46*gib),
+		}
+		released := reclaim.Sweep{SlabsReleased: 2, Before: sweep.After, After: account(120*mib, 46*gib)}
+		quota := reclaimQuota(reclaim.Repack{}, sweep, &released)
+		s.out.done(ui.MarkSuccess, "Released "+humanBytes(quota.freed))
 		s.out.report([][2]string{
 			ownedRow(3),
-			sweptRow(reclaim.Sweep{ObjectsSeen: 12, ObjectsDeleted: 4, SlabsReleased: 1}),
+			sweptRow(sweep, false),
 			droppedRow(1),
-			orphansRow(2, 1, 2),
-			quotaRow(account(240*mib, 46*gib), account(120*mib, 46*gib), 120*mib),
+			orphansRow(2, 1, released.SlabsReleased),
+			quotaRow(quota.before, quota.after, quota.freed),
 		})
 		s.assert(t, "everything", fixture(t, "reclaim-everything.txt"))
 	})
@@ -285,12 +298,81 @@ func TestWhatReclaimSays(t *testing.T) {
 	t.Run("what it did not touch", func(t *testing.T) {
 		s := ended(t, 80, 22100*time.Millisecond)
 		s.out.done(ui.MarkSuccess, "Nothing to release")
-		s.out.report([][2]string{sweptRow(swept), heldRow(1), quotaRow(before, after, 0)})
+		s.out.report([][2]string{sweptRow(swept, false), heldRow(1), quotaRow(before, after, 0)})
 		s.out.note(ui.Message{Kind: ui.KindHint, Text: "2 objects cannot be opened; `--unreadable` removes them"})
 		s.out.note(ui.Message{Kind: ui.KindHint, Text: "3 slabs billed to this account are not in this device's " +
 			"ledger and were not swept; `--orphans` releases the 2 that hold nothing"})
 		s.assert(t, "hints", fixture(t, "reclaim-hints.txt"))
 	})
+}
+
+// What a reclaim reports having freed covers the repack as well as the sweep.
+//
+// The repack runs first and releases as it goes, so by the time the sweep reads
+// the account for itself the repack's release has already happened and sits
+// outside anything measured from there. Reclaiming space is the only operation
+// here that costs money to get wrong, and a figure that understates it invites
+// running the whole thing again.
+func TestTheQuotaAReclaimReportsCoversEveryStageThatRan(t *testing.T) {
+	var (
+		start    = account(240*mib, 46*gib)
+		repacked = account(120*mib, 46*gib)
+		swept    = account(80*mib, 46*gib)
+		orphaned = account(40*mib, 46*gib)
+	)
+	moved := make([]reclaim.Moved, 60)
+
+	for _, c := range []struct {
+		name          string
+		packed        reclaim.Repack
+		sweep         reclaim.Sweep
+		orphans       *reclaim.Sweep
+		before, after sia.Account
+		freed         uint64
+	}{
+		{
+			name:   "a repack frees and the sweep finds nothing left",
+			packed: reclaim.Repack{Records: moved, Before: start, After: repacked},
+			sweep:  reclaim.Sweep{Before: repacked, After: repacked},
+			before: start, after: repacked, freed: 120 * mib,
+		},
+		{
+			name:   "both of them free something",
+			packed: reclaim.Repack{Records: moved, Before: start, After: repacked},
+			sweep:  reclaim.Sweep{Before: repacked, After: swept},
+			before: start, after: swept, freed: 160 * mib,
+		},
+		{
+			name:    "a repack, a sweep and an orphan release",
+			packed:  reclaim.Repack{Records: moved, Before: start, After: repacked},
+			sweep:   reclaim.Sweep{Before: repacked, After: swept},
+			orphans: &reclaim.Sweep{Before: swept, After: orphaned},
+			before:  start, after: orphaned, freed: 200 * mib,
+		},
+		{
+			name:   "a repack with nothing to move took no reading of its own",
+			packed: reclaim.Repack{},
+			sweep:  reclaim.Sweep{Before: start, After: swept},
+			before: start, after: swept, freed: 160 * mib,
+		},
+		{
+			name:   "no repack at all reports exactly the sweep",
+			sweep:  reclaim.Sweep{Before: start, After: swept},
+			before: start, after: swept, freed: 160 * mib,
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			quota := reclaimQuota(c.packed, c.sweep, c.orphans)
+			if quota.freed != c.freed {
+				t.Errorf("freed %s, want %s", humanBytes(quota.freed), humanBytes(c.freed))
+			}
+			if quota.before != c.before || quota.after != c.after {
+				t.Errorf("window %s to %s, want %s to %s",
+					humanBytes(quota.before.PinnedData), humanBytes(quota.after.PinnedData),
+					humanBytes(c.before.PinnedData), humanBytes(c.after.PinnedData))
+			}
+		})
+	}
 }
 
 func TestWhatRecoverSays(t *testing.T) {
