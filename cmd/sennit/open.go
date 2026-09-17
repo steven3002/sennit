@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/steven3002/sennit/cmd/sennit/internal/ui"
@@ -64,7 +63,7 @@ func (f *vaultFlags) bind(fs *flag.FlagSet) {
 // argument is visible in the process table and lands in shell history, which
 // would make every other precaution in the design decorative.
 func (f *vaultFlags) open(ctx context.Context, out *session, phases phaseNamer) (*vault.Vault, error) {
-	phrase, err := keys.ReadPhrase(os.Stdin)
+	phrase, err := out.readPhrase()
 	if err != nil {
 		return nil, err
 	}

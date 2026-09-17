@@ -31,6 +31,10 @@ export TMPDIR="$HOME/.tmp" && mkdir -p "$TMPDIR"
         stores nothing
 ```
 
+**At a terminal you should not see this**, because a command with no phrase asks for one instead.
+It appears when there is nobody to ask: stdin or stderr is redirected, which is the normal shape of
+a script, a cron job or a CI step. Set `SENNIT_PHRASE` for those, or pipe the phrase in on stdin.
+
 Every error is shaped like this: the problem, then what to do about it. Piped or redirected, the
 same text arrives as `error:` and `hint:` lines with no colour.
 

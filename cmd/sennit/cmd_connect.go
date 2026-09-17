@@ -40,7 +40,7 @@ func runConnect(ctx context.Context, out *session, args []string) error {
 
 	// The phrase is read once, used twice, to register and to derive the vault
 	// keys, and never written anywhere.
-	phrase, err := keys.ReadPhrase(os.Stdin)
+	phrase, err := out.readPhrase()
 	if err != nil {
 		return err
 	}

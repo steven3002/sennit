@@ -40,6 +40,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   `FORCE_COLOR`, and **`SENNIT_NO_PROGRESS=1`** turns the live line into plain lines.
 - **`SENNIT_GLYPHS=full|basic|ascii`**, for a terminal whose font draws boxes instead of the
   progress glyphs. Without it the set is chosen from the locale and the console.
+- **The recovery phrase can be typed when a command asks for it.** A command that finds no phrase
+  and has a terminal to ask at now prompts, with the terminal's echo turned off, so the words do
+  not reach the screen, the scrollback, the shell's history or the process table. `SENNIT_PHRASE`
+  and a piped phrase both still work and both still come first, and a run with no terminal to ask
+  at refuses exactly as it did before, so nothing scripted behaves differently. ctrl+c at the
+  prompt ends the command and leaves the terminal as it found it.
 - **Progress events on the Go SDK surface**: an optional `OnProgress` on `vault.Options` reports
   the phase an operation is in and, for an upload, how many shards of how many are written. A nil
   callback is exactly the behaviour of a vault opened before it existed.

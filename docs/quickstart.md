@@ -101,11 +101,30 @@ this file; the words below stand in for a real phrase and are not a working one:
 > data, there is no reset, because nobody else ever has the key. Write it down somewhere durable
 > before continuing.
 
-Put it in your environment. It is read on every run and never written to disk:
+Every command needs it, and it is read afresh on every run and never written to disk. **At a
+terminal you do not have to supply it in advance:** a command that finds no phrase asks for one,
+and nothing you type is echoed.
+
+```
+Recovery phrase:
+```
+
+To run without being asked, in a script or anywhere the typing would get in the way, put it in the
+environment instead:
 
 ```sh
 export SENNIT_PHRASE="<the twelve words init printed>"
 ```
+
+Piping it in works too, and both take precedence over the prompt:
+
+```sh
+sennit status < phrase.txt
+```
+
+The environment is the least private of the three, because every child process a command starts
+inherits it. Typing it when asked keeps it out of your shell's history and out of the process
+table.
 
 ## 3. Approve this installation
 

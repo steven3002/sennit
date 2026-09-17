@@ -31,6 +31,9 @@ type session struct {
 	status             *ui.Status
 	verbose            bool
 	interrupted        <-chan struct{}
+	// phrases is where a recovery phrase may come from on this run, and it is
+	// the only part of the session that reads rather than writes.
+	phrases phraseSource
 	// clock reads the time the status line measures with. Nil means the real
 	// one.
 	clock func() time.Time
@@ -65,6 +68,7 @@ func newSession(interrupted <-chan struct{}) (*session, func()) {
 		outWidth:    func() int { return columnsOf(os.Stdout) },
 		errWidth:    func() int { return columnsOf(os.Stderr) },
 		interrupted: interrupted,
+		phrases:     terminalPhrases(interrupted),
 	}
 	s.probe = ui.Probe{
 		StdoutTerminal: outEscapes && term.IsTerminal(int(os.Stdout.Fd())),
