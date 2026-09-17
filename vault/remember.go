@@ -127,6 +127,7 @@ func (v *Vault) Remember(ctx context.Context, req RememberRequest) (RememberResu
 	}
 
 	start := time.Now()
+	v.progress(Progress{Phase: PhaseEmbed})
 	vector, err := v.embedder.EmbedOne(ctx, memory.IndexText())
 	if err != nil {
 		return RememberResult{}, err

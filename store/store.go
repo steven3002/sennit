@@ -4,6 +4,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/steven3002/sennit/sia"
@@ -40,11 +41,48 @@ type Written struct {
 // slab. Making the batch the only unit means the expensive mistake cannot be
 // made by accident from a layer above.
 type Store struct {
-	client *sia.Client
+	client   *sia.Client
+	observer func(Event)
 }
 
 // New builds a store over an authorized Sia client.
 func New(client *sia.Client) *Store { return &Store{client: client} }
+
+// An EventKind names the stage a write has reached.
+type EventKind int
+
+const (
+	// Uploading covers writing the shards, the one stage with a count.
+	Uploading EventKind = iota
+	// PinningSlabs registers the slabs with the indexer, once per batch.
+	PinningSlabs
+	// PinningObjects records where each record sits, which is what makes it
+	// retrievable.
+	PinningObjects
+)
+
+// An Event is a write reporting where it has got to, for a caller that shows it.
+type Event struct {
+	Kind EventKind
+	// Done and Total count shard uploads while Uploading. Total is known before
+	// the first shard is written and never changes, so a percentage of it is
+	// exact rather than an estimate.
+	Done, Total int64
+}
+
+// Observe registers a function called as a write moves through its stages.
+//
+// It may be called from several goroutines at once, because shards are uploaded
+// in parallel, and it must not block: holding one shard's goroutine up costs
+// the whole upload's throughput. A nil function reports nothing, which is the
+// default and exactly today's behaviour.
+func (s *Store) Observe(fn func(Event)) { s.observer = fn }
+
+func (s *Store) report(event Event) {
+	if s.observer != nil {
+		s.observer(event)
+	}
+}
 
 // A Flush is the outcome of writing one batch.
 type Flush struct {
@@ -77,24 +115,28 @@ func (s *Store) PutBatch(ctx context.Context, blobs []Blob) (Flush, error) {
 		return Flush{}, nil
 	}
 	payloads := make([][]byte, len(blobs))
+	var payloadBytes int64
 	for i, blob := range blobs {
 		payloads[i] = blob.Payload
+		payloadBytes += int64(len(blob.Payload))
 	}
 
 	start := time.Now()
-	batch, err := s.client.UploadPacked(ctx, payloads)
+	batch, err := s.client.UploadPacked(ctx, payloads, s.uploadProgress(payloadBytes)...)
 	if err != nil {
 		return Flush{}, fmt.Errorf("upload batch of %d: %w", len(blobs), err)
 	}
 	flush := Flush{UploadFor: time.Since(start)}
 
 	start = time.Now()
+	s.report(Event{Kind: PinningSlabs})
 	if err := s.client.PinSlabs(ctx, batch); err != nil {
 		return Flush{}, err
 	}
 	flush.PinSlabsFor = time.Since(start)
 
 	start = time.Now()
+	s.report(Event{Kind: PinningObjects})
 	if err := s.client.PinObjects(ctx, batch); err != nil {
 		return Flush{}, err
 	}
@@ -112,6 +154,27 @@ func (s *Store) PutBatch(ctx context.Context, blobs []Blob) (Flush, error) {
 	}
 	flush.Slabs = batch.Slabs()
 	return flush, nil
+}
+
+// uploadProgress counts the shards of one write, so far and in total.
+//
+// The count is capped and never handed backwards: the reports arrive from
+// several goroutines and can overtake each other, and a percentage that jumps
+// back is read as something having gone wrong.
+func (s *Store) uploadProgress(payloadBytes int64) []sia.UploadOption {
+	if s.observer == nil {
+		return nil
+	}
+	total := sia.ShardUploads(payloadBytes)
+	s.report(Event{Kind: Uploading, Total: total})
+	return []sia.UploadOption{sia.WithShardProgress(s.countShards(total))}
+}
+
+func (s *Store) countShards(total int64) func(sia.ShardUploaded) {
+	var done atomic.Int64
+	return func(sia.ShardUploaded) {
+		s.report(Event{Kind: Uploading, Done: min(done.Add(1), total), Total: total})
+	}
 }
 
 // Get fetches a stored payload by object ref.

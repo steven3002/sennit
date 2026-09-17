@@ -34,6 +34,11 @@ type ApprovalRequest struct {
 	// reissue. A caller that shows only the first one will show an expired link
 	// for most of the budget.
 	OnURL func(url string, attempt int)
+	// OnApproved is called once a request has been approved, before this
+	// installation registers with the indexer. Registration is a second round
+	// trip, and a caller showing progress has otherwise no way to tell that the
+	// waiting for a person has ended.
+	OnApproved func()
 }
 
 // An ApprovalResult is what an onboarding round produced.
@@ -122,6 +127,9 @@ func Approve(ctx context.Context, phrase string, req ApprovalRequest) (ApprovalR
 			return result, fmt.Errorf("wait for approval at %s: %w", indexer, err)
 		}
 
+		if req.OnApproved != nil {
+			req.OnApproved()
+		}
 		sdk, err := builder.Register(ctx, phrase)
 		if err != nil {
 			// The phrase is deliberately absent from this message. It is the one

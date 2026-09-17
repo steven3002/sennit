@@ -62,8 +62,14 @@ func (v *Vault) Recover(ctx context.Context, req RecoveryRequest) (RecoveryRepor
 	start := time.Now()
 	var report RecoveryReport
 
+	// The walk reads the whole change feed before it calls back for the first
+	// object, so listing and recovering are two waits rather than one.
+	v.progress(Progress{Phase: PhaseList})
 	stats, err := v.client.WalkObjectsStats(ctx, func(object sia.StoredObject) error {
 		report.Objects++
+		if report.Objects == 1 {
+			v.progress(Progress{Phase: PhaseRestore, Unit: UnitRecords})
+		}
 
 		payload, err := v.client.ReadObject(object)
 		if err != nil {
@@ -87,6 +93,7 @@ func (v *Vault) Recover(ctx context.Context, req RecoveryRequest) (RecoveryRepor
 				if recovered {
 					report.Embedded++
 				}
+				v.progress(Progress{Phase: PhaseRestore, Done: int64(report.Recovered), Unit: UnitRecords})
 				if req.OnRecord != nil {
 					req.OnRecord(frame.ID, report.Recovered)
 				}

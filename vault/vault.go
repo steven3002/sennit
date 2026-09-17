@@ -68,6 +68,9 @@ type sessionCounters struct {
 // call.
 func Open(ctx context.Context, opts Options) (*Vault, error) {
 	opts.applyDefaults()
+	if opts.OnProgress != nil {
+		opts.OnProgress(Progress{Phase: PhaseUnlock})
+	}
 	if err := os.MkdirAll(opts.Home, 0o700); err != nil {
 		return nil, fmt.Errorf("prepare vault directory %s: %w", opts.Home, err)
 	}
@@ -180,6 +183,7 @@ func (v *Vault) openIndex(ctx context.Context) error {
 	if err := v.openEmbedder(ctx); err != nil {
 		return err
 	}
+	v.progress(Progress{Phase: PhaseIndexLoad})
 	v.index = index.New(v.opts.Model.Name, v.opts.Model.Dim)
 
 	vectors, err := index.OpenStore(v.opts.indexDir(), v.sealer)
@@ -216,10 +220,16 @@ func (v *Vault) openEmbedder(ctx context.Context) error {
 		return nil
 	}
 	v.ownsEmbedder = true
+	// The download is reported apart from the load because it is a different
+	// wait by two orders of magnitude, and it happens once per machine.
+	if !v.opts.Model.Present(v.opts.ModelDir) {
+		v.progress(Progress{Phase: PhaseModelFetch})
+	}
 	dir, err := v.opts.Model.Fetch(ctx, v.opts.ModelDir)
 	if err != nil {
 		return err
 	}
+	v.progress(Progress{Phase: PhaseModelLoad})
 	embedder, err := embed.Open(ctx, v.opts.Model, dir)
 	if err != nil {
 		return err
@@ -285,6 +295,7 @@ func (h IndexHealth) Stale() int {
 func (v *Vault) IndexHealth() IndexHealth { return v.health }
 
 func (v *Vault) connect(ctx context.Context) error {
+	v.progress(Progress{Phase: PhaseConnect})
 	client, err := sia.Connect(sia.Config{Indexer: v.opts.Indexer, AppKey: v.opts.AppKey})
 	if err != nil {
 		return err
@@ -292,6 +303,7 @@ func (v *Vault) connect(ctx context.Context) error {
 	v.client = client
 	v.store = store.New(client)
 	v.reclaimer = reclaim.New(client, v.local)
+	v.observe()
 	_ = ctx
 	return nil
 }
@@ -439,6 +451,18 @@ func (v *Vault) awaitFirstWrite(ctx context.Context) error {
 	if v.client == nil || v.ready.Load() {
 		return nil
 	}
+	// An account that is already funded answers in one call, which is the
+	// ordinary case and no wait at all. Only a freshly approved one waits, and
+	// only then is there a phase worth reporting.
+	account, err := v.client.Account(ctx)
+	if err != nil {
+		return err
+	}
+	if account.Ready {
+		v.ready.Store(true)
+		return nil
+	}
+	v.progress(Progress{Phase: PhaseAwaitReady})
 	if _, err := v.WaitReady(ctx, FirstWriteBudget); err != nil {
 		return err
 	}
@@ -466,6 +490,7 @@ func (v *Vault) PendingBytes() int64 {
 
 // Recall retrieves records by meaning.
 func (v *Vault) Recall(ctx context.Context, req recall.Request) (recall.Result, error) {
+	v.progress(Progress{Phase: PhaseSearch, Total: int64(v.index.Len()), Unit: UnitRecords})
 	return recall.New(v.embedder, v.index, v, v, v.local).Run(ctx, req)
 }
 

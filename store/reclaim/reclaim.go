@@ -22,13 +22,52 @@ var ErrNotOursToRelease = errors.New("this device did not pin that storage")
 // partially-filled slab can never be extended, so every flush strands one.
 // Without this list that quota is unrecoverable and invisible at the same time.
 type Reclaimer struct {
-	client *sia.Client
-	store  *local.Store
+	client   *sia.Client
+	store    *local.Store
+	observer func(Event)
 }
 
 // New builds a reclaimer over the device's slab ledger.
 func New(client *sia.Client, store *local.Store) *Reclaimer {
 	return &Reclaimer{client: client, store: store}
+}
+
+// A Stage names a step of reclaiming storage. Each of them is minutes of
+// waiting on the indexer, so a caller that says which one it is in is the
+// difference between a slow command and one that looks stopped.
+type Stage int
+
+const (
+	// StageSweep is releasing the storage nothing points at any more.
+	StageSweep Stage = iota
+	// StageUnledgered is asking the indexer what it bills that this device has
+	// no record of.
+	StageUnledgered
+	// StageOrphans is releasing slabs that hold nothing.
+	StageOrphans
+	// StageUnreadable is deleting objects the indexer will not open.
+	StageUnreadable
+	// StageRepackRead and StageRepackRetire are a repack's first and last
+	// steps; the write between them is reported by the store.
+	StageRepackRead
+	StageRepackRetire
+)
+
+// An Event is a stage beginning, with what it has to get through where that is
+// known before it starts.
+type Event struct {
+	Stage Stage
+	Total int64
+}
+
+// Observe registers a function called as each stage begins. A nil function
+// reports nothing, which is exactly today's behaviour.
+func (r *Reclaimer) Observe(fn func(Event)) { r.observer = fn }
+
+func (r *Reclaimer) report(event Event) {
+	if r.observer != nil {
+		r.observer(event)
+	}
 }
 
 // Track records that a flush pinned a slab.
@@ -280,6 +319,7 @@ func (s Sweep) Freed() uint64 {
 func (r *Reclaimer) Sweep(ctx context.Context, live Live) (Sweep, error) {
 	start := time.Now()
 	report := Sweep{}
+	r.report(Event{Stage: StageSweep})
 
 	tracked, err := r.Tracked()
 	if err != nil {
@@ -362,6 +402,7 @@ func checkOccupancy(pinned, occupied int, releaseAll bool) error {
 // directory, nothing local remembers it exists. Asking the indexer what it is
 // charging for is the only way to find that storage.
 func (r *Reclaimer) Orphans(ctx context.Context, releaseAll bool) ([]Orphan, error) {
+	r.report(Event{Stage: StageOrphans})
 	pinned, err := r.client.PinnedSlabs(ctx)
 	if err != nil {
 		return nil, err
@@ -418,6 +459,7 @@ type Unledgered struct {
 
 // Unledgered lists slabs the account pays for that this device did not record.
 func (r *Reclaimer) Unledgered(ctx context.Context) ([]Unledgered, error) {
+	r.report(Event{Stage: StageUnledgered})
 	pinned, err := r.client.PinnedSlabs(ctx)
 	if err != nil {
 		return nil, err
@@ -488,6 +530,7 @@ func (r *Reclaimer) ReleaseOrphans(ctx context.Context, releaseAll bool) (Sweep,
 // why removing them is asked for rather than assumed. The state is reached by
 // releasing a slab while objects still pointed into it.
 func (r *Reclaimer) DropUnreadable(ctx context.Context) ([]sia.ObjectRef, error) {
+	r.report(Event{Stage: StageUnreadable})
 	stats, err := r.client.WalkObjectsStats(ctx, func(sia.StoredObject) error { return nil })
 	if err != nil {
 		return nil, err

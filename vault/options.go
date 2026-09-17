@@ -56,6 +56,14 @@ type Options struct {
 	// Offline opens the vault without contacting the indexer, which is enough
 	// for anything served from this device.
 	Offline bool
+	// OnProgress, when set, is called as an operation changes phase and as
+	// countable work completes, so a caller can show what a command is waiting
+	// on. It may be called from several goroutines at once, because shards are
+	// uploaded in parallel, and it must not block.
+	//
+	// Nil reports nothing and is exactly the behaviour of a vault that was
+	// opened before this existed.
+	OnProgress func(Progress)
 }
 
 // DefaultSlabMetaTTL is how long a cached object location is used before the

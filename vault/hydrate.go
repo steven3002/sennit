@@ -129,8 +129,12 @@ func (v *Vault) Hydrate(ctx context.Context, req HydrateRequest) (HydrateReport,
 	slabs := make(map[sia.SlabID]struct{})
 
 	walkStart := time.Now()
+	v.progress(Progress{Phase: PhaseList})
 	stats, err := v.client.WalkObjectsStats(ctx, func(object sia.StoredObject) error {
 		report.Objects++
+		if report.Objects == 1 {
+			v.progress(Progress{Phase: PhaseRestore, Unit: UnitRecords})
+		}
 
 		payload, err := v.client.ReadObject(object)
 		if err != nil {
@@ -153,6 +157,7 @@ func (v *Vault) Hydrate(ctx context.Context, req HydrateRequest) (HydrateReport,
 			default:
 				report.Records++
 				slabs[object.Slab] = struct{}{}
+				v.progress(Progress{Phase: PhaseRestore, Done: int64(report.Records), Unit: UnitRecords})
 				if req.OnRecord != nil {
 					req.OnRecord(frame.ID, report.Records)
 				}
@@ -173,6 +178,7 @@ func (v *Vault) Hydrate(ctx context.Context, req HydrateRequest) (HydrateReport,
 	// into a session is only readable once the memory is here.
 	if req.Depth.includes(HydrateMetadata) {
 		rebuildStart := time.Now()
+		v.progress(Progress{Phase: PhaseRebuild})
 		rebuilt, err := v.RebuildSessions(ctx, RebuildRequest{Embed: req.Depth.includes(HydrateIndex)})
 		report.RebuildFor = time.Since(rebuildStart)
 		if err != nil {

@@ -107,6 +107,7 @@ func (r *Reclaimer) Repack(ctx context.Context, writer *store.Store, held []Held
 	}
 
 	read := time.Now()
+	r.report(Event{Stage: StageRepackRead, Total: int64(len(held))})
 	blobs := make([]store.Blob, len(held))
 	for i, item := range held {
 		payload, err := r.client.Download(ctx, item.Ref)
@@ -153,6 +154,7 @@ func (r *Reclaimer) Repack(ctx context.Context, writer *store.Store, held []Held
 	}
 
 	retire := time.Now()
+	r.report(Event{Stage: StageRepackRetire})
 	stale := make([]sia.ObjectRef, len(held))
 	for i, item := range held {
 		stale[i] = item.Ref
