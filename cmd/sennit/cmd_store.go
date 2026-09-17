@@ -41,7 +41,7 @@ func runFlush(ctx context.Context, out *session, args []string) error {
 		return needsIndexer("flush", v, queuedStay(pending))
 	}
 	out.watch(flushPhases(out, pending))
-	out.leaves(queuedStay(pending), "They have not reached Sia yet.")
+	out.leaves(queuedLeaves(pending)...)
 
 	flushed, err := v.Flush(ctx)
 	if err != nil {
@@ -64,6 +64,16 @@ func runFlush(ctx context.Context, out *session, args []string) error {
 	}
 	out.detail(detail...)
 	return nil
+}
+
+// queuedLeaves is what an interrupted flush leaves behind, in the two sentences
+// it is said in.
+//
+// They are built together because they have to agree with each other about how
+// many records there are, and a fixed second sentence beside a counted first one
+// is exactly how they came to disagree.
+func queuedLeaves(records int) []string {
+	return []string{queuedStay(records), pick(records, "It has", "They have") + " not reached Sia yet."}
 }
 
 // queuedStay says what is still owed to the network, which is the one thing a
@@ -521,9 +531,13 @@ func droppedRow(objects int) [2]string {
 	return [2]string{"Dropped", plural(objects, "object") + " the indexer could not open"}
 }
 
+// orphansRow takes its verb from the count, and counts the slabs this device's
+// ledger does not name rather than saying "of them", which reads as a plural of
+// one when a single slab was found. The hint this row follows is built the same
+// way.
 func orphansRow(found, stranded, released int) [2]string {
-	return [2]string{"Orphans", fmt.Sprintf("%s hold nothing, %d of them unknown to this device; released %d",
-		plural(found, "slab"), stranded, released)}
+	return [2]string{"Orphans", fmt.Sprintf("%s %s nothing, %d not in this device's ledger; released %d",
+		plural(found, "slab"), verb(found, "holds", "hold"), stranded, released)}
 }
 
 func quotaRow(before, after sia.Account, freed uint64) [2]string {

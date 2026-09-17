@@ -3,5 +3,5 @@
 Owned    3 slabs hydrated from another installation are now this device's to release
 Swept    12 objects, deleted 4, released 1 slab
 Dropped  1 object the indexer could not open
-Orphans  2 slabs hold nothing, 1 of them unknown to this device; released 2
+Orphans  2 slabs hold nothing, 1 not in this device's ledger; released 2
 Quota    240.00 MiB used before, 120.00 MiB after, freed 120.00 MiB

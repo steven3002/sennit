@@ -94,6 +94,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- **Two printed lines agree with their own counts.** A release that found a single slab read `1 slab
+  hold nothing`, and an interrupted flush with a single record queued followed "The record stays
+  queued on this device." with "They have not reached Sia yet." Both now take their verb and pronoun
+  from the count, and the release row says how many slabs are not in this device's ledger rather than
+  "of them", which reads as a plural of one. The hint beside each of them was already built this way.
 - **A flush interrupted while it is pinning no longer strands storage nothing can release.** A write
   uploads its records, registers the slab, then registers each record's location, one round trip per
   record and sixteen at a time, which for a large flush is seconds of pinning. The slab was written

@@ -229,30 +229,30 @@ func TestAnInterruptWhilePinningSaysASlabMayStayBilled(t *testing.T) {
 		{
 			name:   "a flush interrupted while uploading",
 			namer:  func(s *session) phaseNamer { return flushPhases(s, 1) },
-			leaves: []string{queuedStay(1), "They have not reached Sia yet."},
+			leaves: queuedLeaves(1),
 			phases: []vault.Progress{upload},
 			want: []string{
 				"✗ Cancelled while uploading 1 record to Sia (1m26s)",
 				"  " + queuedStay(1),
-				"  They have not reached Sia yet.",
+				"  It has not reached Sia yet.",
 			},
 		},
 		{
 			name:   "a flush interrupted while pinning",
 			namer:  func(s *session) phaseNamer { return flushPhases(s, 1) },
-			leaves: []string{queuedStay(1), "They have not reached Sia yet."},
+			leaves: queuedLeaves(1),
 			phases: []vault.Progress{uploaded, pin},
 			want: []string{
 				"✗ Cancelled while pinning on Sia (1m26s)",
 				"  " + queuedStay(1),
-				"  They have not reached Sia yet.",
+				"  It has not reached Sia yet.",
 				"  " + billed,
 			},
 		},
 		{
 			name:   "a flush interrupted between its two pins says it once",
 			namer:  func(s *session) phaseNamer { return flushPhases(s, 3) },
-			leaves: []string{queuedStay(3), "They have not reached Sia yet."},
+			leaves: queuedLeaves(3),
 			phases: []vault.Progress{uploaded, pin, pin},
 			want: []string{
 				"✗ Cancelled while pinning on Sia (1m26s)",

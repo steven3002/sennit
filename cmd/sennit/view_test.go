@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -370,6 +371,35 @@ func TestTheQuotaAReclaimReportsCoversEveryStageThatRan(t *testing.T) {
 				t.Errorf("window %s to %s, want %s to %s",
 					humanBytes(quota.before.PinnedData), humanBytes(quota.after.PinnedData),
 					humanBytes(c.before.PinnedData), humanBytes(c.after.PinnedData))
+			}
+		})
+	}
+}
+
+// Every count the output prints carries its own verb and pronoun, and one is
+// the count that catches a fixed plural.
+//
+// Both lines below were shipped in the plural whatever the count: a release of a
+// single slab read "1 slab hold nothing", and an interrupted flush of a single
+// record followed "The record stays queued on this device." with "They have not
+// reached Sia yet.". The hint each of them sits beside was already built from
+// the count, which is what made the disagreement visible.
+func TestWhatIsPrintedAgreesWithItsCount(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"one slab released", orphansRow(1, 1, 1)[1], "1 slab holds nothing, 1 not in this device's ledger; released 1"},
+		{"two slabs released", orphansRow(2, 1, 2)[1], "2 slabs hold nothing, 1 not in this device's ledger; released 2"},
+		{"one record queued", strings.Join(queuedLeaves(1), " "),
+			"The record stays queued on this device. It has not reached Sia yet."},
+		{"three records queued", strings.Join(queuedLeaves(3), " "),
+			"The 3 records stay queued on this device. They have not reached Sia yet."},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if c.got != c.want {
+				t.Errorf("got %q, want %q", c.got, c.want)
 			}
 		})
 	}
