@@ -92,7 +92,7 @@ func TestTagFrequenciesCountRecords(t *testing.T) {
 		}
 	}
 
-	counts, total, err := store.TagFrequencies([]string{"sia", "slab-quantum", "never-used"})
+	counts, total, err := store.TagFrequencies(record.ID{}, []string{"sia", "slab-quantum", "never-used"})
 	if err != nil {
 		t.Fatalf("tag frequencies: %v", err)
 	}
@@ -100,6 +100,44 @@ func TestTagFrequenciesCountRecords(t *testing.T) {
 		t.Fatalf("counted %d records, want 5", total)
 	}
 	want := map[string]int{"sia": 5, "slab-quantum": 1, "never-used": 0}
+	for _, count := range counts {
+		if want[count.Tag] != count.Records {
+			t.Fatalf("tag %q counted %d records, want %d", count.Tag, count.Records, want[count.Tag])
+		}
+	}
+}
+
+// A record is left out of its own tag counts, because the write path stores it
+// before it asks how specific its tags are.
+func TestTagFrequenciesLeaveOutTheNamedRecord(t *testing.T) {
+	store, err := local.Open(filepath.Join(t.TempDir(), "vault.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer store.Close()
+
+	var newest record.ID
+	for i := range 3 {
+		id, _ := record.NewID()
+		tags := []string{"sia"}
+		if i == 2 {
+			newest, tags = id, []string{"sia", "first-use"}
+		}
+		if err := store.PutRankingMeta(local.RankingMeta{
+			ID: id, Type: record.TypeFact, Tags: tags,
+		}); err != nil {
+			t.Fatalf("put ranking metadata: %v", err)
+		}
+	}
+
+	counts, total, err := store.TagFrequencies(newest, []string{"sia", "first-use"})
+	if err != nil {
+		t.Fatalf("tag frequencies: %v", err)
+	}
+	if total != 2 {
+		t.Fatalf("counted %d other records, want 2", total)
+	}
+	want := map[string]int{"sia": 2, "first-use": 0}
 	for _, count := range counts {
 		if want[count.Tag] != count.Records {
 			t.Fatalf("tag %q counted %d records, want %d", count.Tag, count.Records, want[count.Tag])

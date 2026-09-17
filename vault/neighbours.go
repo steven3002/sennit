@@ -82,7 +82,8 @@ type TagSpecificity struct {
 // 0.898. The write is the only moment at which that is cheap to fix, because
 // records are immutable once stored.
 type TagAdvice struct {
-	// Records is how many records the vault holds metadata for.
+	// Records is how many records the vault holds metadata for, the record
+	// being written excluded: the question is about the vault it is joining.
 	Records int
 	// Tags describes each tag supplied with this write.
 	Tags []TagSpecificity
@@ -148,8 +149,12 @@ func (v *Vault) neighbours(ctx context.Context, self record.ID, vector []float32
 }
 
 // tagAdvice reports how specific a record's tags are within this vault.
-func (v *Vault) tagAdvice(tags []string) (TagAdvice, error) {
-	counts, total, err := v.local.TagFrequencies(tags)
+//
+// The record being written is already in the metadata by the time this runs,
+// for the same reason it is already in the index when neighbours looks, so it
+// is named here and left out of its own counts.
+func (v *Vault) tagAdvice(self record.ID, tags []string) (TagAdvice, error) {
+	counts, total, err := v.local.TagFrequencies(self, tags)
 	if err != nil {
 		return TagAdvice{}, err
 	}

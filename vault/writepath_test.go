@@ -233,6 +233,48 @@ func TestTheVaultRefusesARecordWithoutContext(t *testing.T) {
 	}
 }
 
+// A tag used for the first time is reported as new.
+//
+// The advice exists to catch a mistyped tag, and a typo is precisely a tag the
+// vault has never seen, so if a first use cannot be reported the signal is
+// dead. The record being written is in the metadata before the counting runs
+// and has to be left out of it.
+func TestAFirstUseOfATagIsReportedAsNew(t *testing.T) {
+	v := offlineVault(t)
+
+	first := write(t, v, 1, []string{"alpha"})
+	if len(first.Tags.Tags) != 1 || !first.Tags.Tags[0].New {
+		t.Fatalf("the only tag of the only record came back as %+v, want it new", first.Tags.Tags)
+	}
+	if first.Tags.Records != 0 {
+		t.Fatalf("the first write counted %d other records, want 0", first.Tags.Records)
+	}
+
+	second := write(t, v, 2, []string{"zeta"})
+	if len(second.Tags.Tags) != 1 {
+		t.Fatalf("advice covers %d tags, want 1", len(second.Tags.Tags))
+	}
+	if zeta := second.Tags.Tags[0]; !zeta.New || zeta.Records != 0 {
+		t.Fatalf("a tag never used before was reported on %d of %d records, want it new",
+			zeta.Records, second.Tags.Records)
+	}
+
+	// A tag already in use reports the records that carry it, and the record
+	// carrying it now is not one of them.
+	third := write(t, v, 3, []string{"alpha", "zeta"})
+	if third.Tags.Records != 2 {
+		t.Fatalf("the third write counted %d other records, want 2", third.Tags.Records)
+	}
+	for _, tag := range third.Tags.Tags {
+		if tag.New {
+			t.Fatalf("tag %q was reported as new although a record already carries it", tag.Tag)
+		}
+		if tag.Records != 1 {
+			t.Fatalf("tag %q counted %d records, want 1", tag.Tag, tag.Records)
+		}
+	}
+}
+
 // The write path tells the caller when a tag cannot narrow anything, which is
 // the measured single-domain failure caught at the only moment it is cheap.
 func TestTheWritePathReportsATagThatCannotNarrowAnything(t *testing.T) {

@@ -75,6 +75,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- **A tag used for the first time is reported as new.** `remember` reports how well each tag
+  separates the new record from the rest of the vault, and a tag nobody had used before was always
+  reported as already sitting on one record, because the record being written was counted before
+  the counting ran. The advice exists to catch a mistyped tag, and a typo is exactly a tag the
+  vault has never seen, so the one case it was for could never be reported. The figures now
+  describe the vault the record is joining: a first use says so, and the count beside it is of
+  other records.
 - **The durability figure in the 0.1.0-beta-mvp entry was corrected from 30.3 days to 28.3 days.**
   No check at 30.3 days exists in the evidence ledger, and the checks that back that entry are 0 h,
   18 h and 28.3 d. The published release notes for `v0.1.0-beta-mvp` still carry the original

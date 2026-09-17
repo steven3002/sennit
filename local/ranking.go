@@ -186,15 +186,25 @@ type TagCount struct {
 	Records int
 }
 
-// TagFrequencies reports how many records carry each of the given tags, and how
-// many records the vault holds metadata for.
+// TagFrequencies reports how many records other than one carry each of the
+// given tags, and how many records other than that one the vault holds metadata
+// for.
 //
 // This is what makes a tag's specificity visible at write time. A tag that
 // already sits on most of the vault cannot separate anything, and the write path
 // is the only place where that is still worth knowing.
-func (s *Store) TagFrequencies(tags []string) ([]TagCount, int, error) {
+//
+// The exclusion is what keeps the answer about the vault a record is joining
+// rather than about the vault with that record already in it. The write path
+// stores a record's metadata before it asks for advice, so without it every tag
+// a write supplies is counted at least once, on the record supplying it, and a
+// tag used for the first time can never be reported as new. A zero id matches
+// no record, and so excludes nothing.
+func (s *Store) TagFrequencies(exclude record.ID, tags []string) ([]TagCount, int, error) {
+	self := exclude.String()
 	var total int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM record_meta`).Scan(&total); err != nil {
+	if err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM record_meta WHERE record_id <> ?`, self).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count records: %w", err)
 	}
 	clean := NormalizeTags(tags)
@@ -203,12 +213,14 @@ func (s *Store) TagFrequencies(tags []string) ([]TagCount, int, error) {
 	}
 
 	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(clean)), ",")
-	args := make([]any, len(clean))
-	for i, tag := range clean {
-		args[i] = tag
+	args := make([]any, 0, len(clean)+1)
+	for _, tag := range clean {
+		args = append(args, tag)
 	}
+	args = append(args, self)
 	rows, err := s.db.Query(
-		`SELECT tag, COUNT(*) FROM record_tags WHERE tag IN (`+placeholders+`) GROUP BY tag`, args...)
+		`SELECT tag, COUNT(*) FROM record_tags WHERE tag IN (`+placeholders+`) AND record_id <> ?`+
+			` GROUP BY tag`, args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("count tags: %w", err)
 	}

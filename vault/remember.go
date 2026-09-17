@@ -201,7 +201,7 @@ func (v *Vault) Remember(ctx context.Context, req RememberRequest) (RememberResu
 			result.Conflicts = append(result.Conflicts, neighbour)
 		}
 	}
-	if result.Tags, err = v.tagAdvice(memory.Tags); err != nil {
+	if result.Tags, err = v.tagAdvice(id, memory.Tags); err != nil {
 		return RememberResult{}, err
 	}
 	result.AdviseFor = time.Since(start)
