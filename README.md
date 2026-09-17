@@ -55,7 +55,7 @@ something. About ten minutes, most of it one download and one approval click.
 **→ [Quickstart](docs/quickstart.md)**
 
 No Sia node, no wallet and no payment are needed; the hosted indexer's free tier covers it. Every
-command also takes `-offline` if you want to see recall working before connecting to Sia.
+command also takes `--offline` if you want to see recall working before connecting to Sia.
 
 ## Documentation
 

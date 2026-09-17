@@ -17,9 +17,5 @@ changes it, not before, so the quickstart never describes a command your binary 
   device, and the record reaches Sia on the regular flush or when you run `sennit flush`. The
   distinction in ["Saved" is not "on Sia"](storage.md#saved-is-not-on-sia) is exactly what makes this safe,
   and the output keeps saying which of the two happened.
-- **The command line output is redesigned.** Colour that follows your terminal's own palette and
-  turns itself off when piped, redirected, in CI or under `NO_COLOR`; a live status line for long
-  waits; errors that name the cause and the next step; grouped help. **What each command does does
-  not change**, and flags still come before the text. The sample outputs in the quickstart change with it.
 - **Signed and notarized macOS binaries**, so the Gatekeeper step goes away.
 - **Long memories** stop failing at the embedding model's limit.

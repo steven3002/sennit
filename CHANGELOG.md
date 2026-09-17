@@ -8,11 +8,55 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Verified end to end against live Sia
 
+- **The upload percentage is real.** One live flush of a single record on a throwaway vault moved
+  the progress through 24 distinct percentages over 9.2 s of uploading, from the SDK's own
+  per-shard callback, and the storage it used was released again: the account read 80.00 MiB
+  before and 80.00 MiB after, with the flush's 40 MiB slab freed by `reclaim --release-all`.
 - **The same object is still byte exact at 38.0 days.** The durability marker written on
   2026-08-05, 6,191 B of plaintext, was re-read twice after the release went out: at 834.3 h
   (34.8 d) on 2026-09-09 and at 912.3 h (38.0 d) on 2026-09-12, byte exact both times. These are
   two more readings at two more ages and nothing more. The spans between checks are still
   unobserved, so this remains readability at those ages and not continuous readability.
+
+### Added
+
+- **One live line while a command waits.** Every command now says what it is doing, in place, with
+  the elapsed time and `ctrl+c to cancel` once a wait is worth naming, and ends on one past-tense
+  line. An upload shows a real percentage, counted from the shards it has written. Interrupted, it
+  says what was stopped and what that left behind. Where output is piped, redirected, in CI or
+  under `TERM=dumb`, the same run prints one plain line per step instead, and a `Still ...` line
+  every ten seconds so a long wait is never silent.
+- **`sennit recall` prints a table**, with `--memory-text` to expand each row to the whole
+  statement, its context and its id; tab-separated output with nothing cut off when stdout is a
+  pipe; and `--json`, which is the shape the MCP server answers a recall with, so a script and an
+  agent read the same fields.
+- **Errors, warnings and hints as badges**, short and lowercase, with the problem and the fix kept
+  apart. Off a terminal they fall back to `error:`, `warning:` and `hint:` labels.
+- **Grouped help**, to stdout, exiting 0: `sennit`, `sennit help`, `sennit --help` and every
+  `sennit <command> --help`. An unknown command suggests what was probably meant instead of
+  printing the whole usage.
+- **`--color=auto|always|never` on every command, and `--verbose`** on every command that opens a
+  vault. `NO_COLOR`, `FORCE_COLOR` and `TERM=dumb` are honoured, `NO_COLOR` wins over
+  `FORCE_COLOR`, and **`SENNIT_NO_PROGRESS=1`** turns the live line into plain lines.
+- **`SENNIT_GLYPHS=full|basic|ascii`**, for a terminal whose font draws boxes instead of the
+  progress glyphs. Without it the set is chosen from the locale and the console.
+- **Progress events on the Go SDK surface**: an optional `OnProgress` on `vault.Options` reports
+  the phase an operation is in and, for an upload, how many shards of how many are written. A nil
+  callback is exactly the behaviour of a vault opened before it existed.
+
+### Changed
+
+- **Results go to stdout and everything a person watches goes to stderr.** `sennit status` used to
+  print its whole report to stderr; the report is now on stdout, so it can be read by a script
+  while the progress stays out of the way.
+- **Timings, read tiers and internal accounting moved behind `--verbose`**, in the words they had
+  before. Nothing was dropped: what a command used to print unasked it still prints when asked.
+- **A bare `sennit` prints a short screen and exits 0**, rather than the whole usage and exit 2.
+  Help is something a reader asked for.
+- **`sennit connect` writes everything to stderr.** None of it is a result another program reads.
+- **`sia` passes the erasure coding it uses, 10 data and 20 parity shards, explicitly** rather than
+  relying on the SDK's defaults, so the upload percentage has an exact denominator. The bytes on
+  the wire are unchanged.
 
 ### Fixed
 

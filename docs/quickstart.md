@@ -82,14 +82,19 @@ The first build downloads dependencies and takes a few minutes. A binary you bui
 ## 2. Get a recovery phrase
 
 ```sh
-sennit init -new-phrase
+sennit init --new-phrase
 ```
 
-It prints twelve words and stores nothing. Yours will differ from every example in this file,
-the words below stand in for a real phrase and are not a working one:
+It prints twelve words to stdout and stores nothing, and says what they are worth on stderr, so a
+script that captures the phrase captures the phrase alone. Yours will differ from every example in
+this file; the words below stand in for a real phrase and are not a working one:
 
 ```
 <word1> <word2> <word3> ... <word12>
+
+ WARNING  this phrase is the vault: anyone holding it can read
+          every memory, and losing it loses the data
+  It is not stored anywhere.
 ```
 
 > ⚠️ **This phrase is the vault.** Anyone holding it can read every memory, and losing it loses the
@@ -107,10 +112,10 @@ export SENNIT_PHRASE="<the twelve words init printed>"
 Storing on Sia needs an **app key**, which an indexer issues after you approve it in a browser.
 
 ```sh
-sennit connect -out sennit.key
+sennit connect --out sennit.key
 ```
 
-It prints a link. Open it, approve, and come back:
+It prints a link and then waits on one line, counting up. Open the link, approve, and come back:
 
 ```
 Connecting to https://sia.storage
@@ -119,7 +124,19 @@ minutes; a fresh one is issued automatically until you approve or the budget run
 
   approve this: https://sia.storage/approve?...
 
-  waiting...
+◍  Waiting for approval… (48s · ctrl+c to cancel)
+```
+
+When you approve, it registers this installation, waits for the account to become usable, and ends:
+
+```
+✓ Connected: app key 3f9a1c2b… written to sennit.key (1m42s)
+
+Approved  after 1m12s, over 1 request
+Ready     after 16s, 40.00 MiB of 46.57 GiB quota in use
+
+ HINT   load the key into this shell without putting it in your
+        history: `export SENNIT_APP_KEY=$(cat sennit.key)`
 ```
 
 Then load the key it wrote:
@@ -145,36 +162,46 @@ sennit init
 ```
 
 ```
-preparing vault in /home/you/.sennit
-  keys derived, model loaded, device store ready in 9.00 s
-  connected: https://sia.storage
-  quota:     40.00 MiB used of 46.57 GiB (46.53 GiB free)
+✓ Vault ready (10.2s)
+
+Vault    /home/you/.sennit
+Indexer  https://sia.storage
+Quota    80.00 MiB used of 46.57 GiB (46.49 GiB free)
 ```
 
-The first run downloads the embedding model (~130 MB, once).
+While it works it shows one line saying what it is waiting on, which is worth watching the first
+time: most of those ten seconds are spent connecting to Sia's hosts. The first run also downloads
+the embedding model (~130 MB, once), and says so.
 
 ## 5. Remember something
 
 ```sh
 sennit remember \
-  -context "Recorded while checking the README quickstart from a clean environment." \
-  -tags "sia,storage" \
+  --context "Recorded while checking the README quickstart from a clean environment." \
+  --tags "sia,storage" \
   "Sia bills a slab whole, so packing many records into one slab is a cost decision rather than an optimisation."
 ```
 
 ```
+✓ Remembered, and stored on Sia (24.4s)
 <record id>
-  cid       <content id>
-  embed     940 ms
-  seal      1 ms
-  on Sia    420 B in 1 object(s), 1 slab(s)
-            upload 4.49 s · pin slabs 196 ms · pin objects 158 ms
 ```
 
-> **`-context` is required, and flags come before the text.** The context is what makes a statement
+The line above the id counts up while the write happens, and shows a percentage while the upload
+runs. The id is the only thing on stdout, so `id=$(sennit remember ...)` captures it and nothing
+else. `--verbose` adds the content id, the tag counts and the upload timings.
+
+**Only that first wording means the record is on Sia.** A write that could not reach the network
+says so instead, and the record waits on this device:
+
+```
+✓ Remembered on this device, queued for Sia (0.4s)
+```
+
+> **`--context` is required, and flags come before the text.** The context is what makes a statement
 > findable once it is separated from the conversation it came from; leaving it out measurably costs
 > retrieval quality, and records are immutable, so it cannot be added later. And because Go's flag
-> parsing stops at the first plain word, `remember "..." -offline` reads `-offline` as part of your
+> parsing stops at the first plain word, `remember "..." --offline` reads `--offline` as part of your
 > sentence.
 
 ## 6. Recall it by meaning
@@ -184,13 +211,29 @@ sennit recall "how is storage billed"
 ```
 
 ```
-  embed 383 ms · search 0.74 ms over 1 vector(s) and 1 term match(es) · fetch 8 ms
-1. [0.6257] Sia bills a slab whole, so packing many records into one slab is a cost decision rather than an optimisation.
-   context: Recorded while checking the README quickstart from a clean environment.
-   <record id> · fact · sia, storage · from local in 8 ms
+✓ Found 1 memory (11.1s)
+
+MATCH  TYPE  MEMORY                                                TAGS
+0.63   fact  Sia bills a slab whole, so packing many records in…   sia, storage
 ```
 
 Note the query shares no words with the record beyond "billed"/"bills", the match is semantic.
+
+**To see a result in full**, with its context and the id a supersession needs, add `--memory-text`:
+
+```
+MATCH  TYPE  MEMORY                                                TAGS
+0.63   fact  Sia bills a slab whole, so packing many records into  sia, storage
+             one slab is a cost decision rather than an
+             optimisation.
+             context  Recorded while checking the README quickstart from a
+                      clean environment.
+             id       a02e046a088c93ee953033588b317b1c
+```
+
+Piped into another program the same command prints one tab-separated line per record, with nothing
+cut off and no colour, and `--json` prints the whole record in the shape the MCP server answers
+with. `--verbose` adds the timings and which tier served each read.
 
 ## 7. Connect an MCP client
 
@@ -220,9 +263,9 @@ Every command takes `-offline`, which uses the device's own copy and contacts no
 no app key and no approval, so it is the fastest way to see recall working:
 
 ```sh
-sennit init -offline
-sennit remember -offline -context "..." "..."
-sennit recall -offline "..."
+sennit init --offline
+sennit remember --offline --context "..." "..."
+sennit recall --offline "..."
 ```
 
 Records written offline stay on the device until a connected run flushes them.

@@ -23,14 +23,37 @@ export TMPDIR="$HOME/.tmp" && mkdir -p "$TMPDIR"
 
 ## "no recovery phrase"
 
-Set `SENNIT_PHRASE`, or pipe the phrase on stdin. If you do not have one, `sennit init
--new-phrase` prints one and stores nothing.
+```
+ ERROR  no recovery phrase
+
+ HINT   set SENNIT_PHRASE, or pipe the phrase in on stdin
+ HINT   no phrase yet? `sennit init --new-phrase` prints one and
+        stores nothing
+```
+
+Every error is shaped like this: the problem, then what to do about it. Piped or redirected, the
+same text arrives as `error:` and `hint:` lines with no colour.
 
 ## "no Sia app key"
 
-You have not completed step 3, or the key is not in the environment. Run `sennit connect -out
+You have not completed step 3, or the key is not in the environment. Run `sennit connect --out
 sennit.key` and `export SENNIT_APP_KEY="$(cat sennit.key)"`. To work without an indexer
-entirely, pass `-offline`.
+entirely, pass `--offline`.
+
+## Boxes or question marks in the progress line
+
+The line that counts up while a command works uses characters your terminal's font may not carry.
+Nothing is wrong with the vault; pick a set your font has:
+
+```sh
+export SENNIT_GLYPHS=basic   # circles and dots, which almost every font carries
+export SENNIT_GLYPHS=ascii   # | / - \ and plain ok and x
+```
+
+`SENNIT_GLYPHS=full` forces the full set back on. Colour and the live line follow the usual
+conventions on their own: both turn off when the output is piped, redirected or in CI, `NO_COLOR`
+turns colour off, `SENNIT_NO_PROGRESS=1` turns the live line into one plain line per step, and
+`--color=always` forces colour on where you know it is safe.
 
 ## An error about hosts, or "not enough hosts"
 
