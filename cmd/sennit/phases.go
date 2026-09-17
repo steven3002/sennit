@@ -1,6 +1,8 @@
 package main
 
 import (
+	"slices"
+
 	"github.com/steven3002/sennit/cmd/sennit/internal/ui"
 	"github.com/steven3002/sennit/vault"
 )
@@ -33,14 +35,32 @@ func openPhases(p vault.Progress) (string, string, bool) {
 	return "", "", false
 }
 
+// mayStayBilled is what an interrupt can leave once a write has started pinning.
+//
+// A slab is billed from the moment it is pinned, and the device writes it into
+// its ledger only after the records on it are pinned as well, so an interrupt
+// between the two leaves storage paid for that nothing here records. Measured
+// against a live account, that is one whole slab holding nothing. `sennit
+// status` finds it anyway, because it asks the indexer what the account is
+// billed for rather than trusting the ledger.
+const mayStayBilled = "A slab pinned before the interrupt may stay billed; `sennit status` shows it."
+
 // writePhases names the two steps every write shares. The upload is the only
 // phase with an exact count: shards written of shards to write.
+//
+// Pinning also changes what an interrupt leaves, so its first report adds
+// mayStayBilled to the end of whatever the command has already said. An upload
+// pins nothing, so an interrupt before that point is told exactly what it was
+// told before.
 func (s *session) writePhases(uploading string) phaseNamer {
 	return func(p vault.Progress) (string, string, bool) {
 		switch p.Phase {
 		case vault.PhaseUpload:
 			return uploading, s.percent(p.Done, p.Total), true
 		case vault.PhasePin:
+			if !slices.Contains(s.cancelled, mayStayBilled) {
+				s.leaves(append(slices.Clip(s.cancelled), mayStayBilled)...)
+			}
 			return "Pinning on Sia", "", true
 		}
 		return openPhases(p)

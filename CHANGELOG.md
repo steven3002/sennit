@@ -72,6 +72,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - **`sia` passes the erasure coding it uses, 10 data and 20 parity shards, explicitly** rather than
   relying on the SDK's defaults, so the upload percentage has an exact denominator. The bytes on
   the wire are unchanged.
+- **An interrupt while pinning says what it may leave billed.** A write pins its slab, then the
+  records on it, and writes the slab into the device's ledger only once both have finished, so an
+  interrupt between the two leaves a 40 MiB slab billed that nothing on the device records. Once
+  pinning has started, the cancel line of `flush`, `remember --flush` and `reclaim --repack` now
+  ends with "A slab pinned before the interrupt may stay billed; `sennit status` shows it." Before
+  pinning starts the line is unchanged, since nothing has been pinned. `sennit status` already
+  names such a slab, and `sennit reclaim --orphans` releases it once nothing is queued.
 
 ### Fixed
 

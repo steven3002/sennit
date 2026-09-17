@@ -206,6 +206,103 @@ func TestAnInterruptSaysWhatItLeft(t *testing.T) {
 	}
 }
 
+// An interrupt once pinning has started can leave a slab billed that nothing on
+// the device records: the slab is pinned before the records on it, and the
+// ledger learns of it only after both. Measured live, a flush cancelled between
+// the two pins left one 40 MiB slab holding nothing and named in no ledger. So
+// from the first pinning report every write that pins says so, once, after what
+// it already said, and an interrupt before pinning says nothing new.
+func TestAnInterruptWhilePinningSaysASlabMayStayBilled(t *testing.T) {
+	const billed = "A slab pinned before the interrupt may stay billed; `sennit status` shows it."
+	upload := vault.Progress{Phase: vault.PhaseUpload, Done: 3, Total: 30, Unit: vault.UnitShards}
+	uploaded := vault.Progress{Phase: vault.PhaseUpload, Done: 30, Total: 30, Unit: vault.UnitShards}
+	pin := vault.Progress{Phase: vault.PhasePin}
+	stoppedPartWay := "It stopped part way. Run `sennit reclaim` again to finish."
+
+	for _, c := range []struct {
+		name   string
+		namer  func(*session) phaseNamer
+		leaves []string
+		phases []vault.Progress
+		want   []string
+	}{
+		{
+			name:   "a flush interrupted while uploading",
+			namer:  func(s *session) phaseNamer { return flushPhases(s, 1) },
+			leaves: []string{queuedStay(1), "They have not reached Sia yet."},
+			phases: []vault.Progress{upload},
+			want: []string{
+				"✗ Cancelled while uploading 1 record to Sia (1m26s)",
+				"  " + queuedStay(1),
+				"  They have not reached Sia yet.",
+			},
+		},
+		{
+			name:   "a flush interrupted while pinning",
+			namer:  func(s *session) phaseNamer { return flushPhases(s, 1) },
+			leaves: []string{queuedStay(1), "They have not reached Sia yet."},
+			phases: []vault.Progress{uploaded, pin},
+			want: []string{
+				"✗ Cancelled while pinning on Sia (1m26s)",
+				"  " + queuedStay(1),
+				"  They have not reached Sia yet.",
+				"  " + billed,
+			},
+		},
+		{
+			name:   "a flush interrupted between its two pins says it once",
+			namer:  func(s *session) phaseNamer { return flushPhases(s, 3) },
+			leaves: []string{queuedStay(3), "They have not reached Sia yet."},
+			phases: []vault.Progress{uploaded, pin, pin},
+			want: []string{
+				"✗ Cancelled while pinning on Sia (1m26s)",
+				"  " + queuedStay(3),
+				"  They have not reached Sia yet.",
+				"  " + billed,
+			},
+		},
+		{
+			name:   "remember --flush interrupted while pinning",
+			namer:  rememberPhases,
+			leaves: []string{onDevice},
+			phases: []vault.Progress{uploaded, pin, pin},
+			want: []string{
+				"✗ Cancelled while pinning on Sia (1m26s)",
+				"  " + onDevice,
+				"  " + billed,
+			},
+		},
+		{
+			name:   "a repack interrupted while pinning",
+			namer:  reclaimPhases,
+			leaves: []string{stoppedPartWay},
+			phases: []vault.Progress{{Phase: vault.PhaseRepackRead, Total: 60}, uploaded, pin},
+			want: []string{
+				"✗ Cancelled while pinning on Sia (1m26s)",
+				"  " + stoppedPartWay,
+				"  " + billed,
+			},
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			interrupted, cancel := context.WithCancel(t.Context())
+			cancel()
+			s := ended(t, 80, 86*time.Second)
+			progress := s.out.watch(c.namer(s.out))
+			s.out.leaves(c.leaves...)
+			for _, p := range c.phases {
+				progress(p)
+			}
+			if code := report(interrupted, s.out, fmt.Errorf("flush: %w", context.Canceled)); code != 1 {
+				t.Errorf("exit %d, want 1", code)
+			}
+			if got, want := s.text(), uitest.Lines(c.want...); got != want {
+				t.Errorf("got %q, want %q", got, want)
+			}
+		})
+	}
+}
+
 // Nothing a reader relies on changes when a search is interrupted, so there is
 // no second line.
 func TestAnInterruptedSearchSaysOnlyThat(t *testing.T) {
