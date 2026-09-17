@@ -1,0 +1,6 @@
+✓ Found 3 memories (11.1s)
+
+MATCH  TYPE        MEMORY                                                   TAGS       READ
+0.56   fact        Prefers one live status line over scrolling logs         cli, ui    local 6 ms
+0.46   fact        The Sia grant ask is 26k over five months                grant      local 0.12 ms
+0.44   preference  Go builds on this box need TMPDIR set to the home fil…   go, build  cached 42 ms

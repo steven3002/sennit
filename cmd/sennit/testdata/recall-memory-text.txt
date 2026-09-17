@@ -1,0 +1,17 @@
+✓ Found 2 memories and 1 conversation (11.1s)
+
+MATCH  TYPE        MEMORY                                         TAGS
+0.56   fact        Prefers one live status line over scrolling    cli, ui
+                   logs
+                   context  The user is choosing a CLI look for Sennit
+                   id       4083dbdd9e9f0f816c797080eed61fba
+0.48   session     Deciding the flush cadence                     storage, flush
+                   summary  Worked out why the one-hour cap exists: it bounds
+                            how long a turn lives only on the device. Cost is
+                            controlled by repack instead.
+                   holds    4 messages in 1 chunk
+                   id       9c41e07b2d5a4f86a1e3b0c7d8f25e61
+0.44   preference  Go builds on this box need TMPDIR set to the   go, build
+                   home filesystem
+                   context  Sennit build tooling
+                   id       e26c6b15b50d38d6edf89a250fbcadf9

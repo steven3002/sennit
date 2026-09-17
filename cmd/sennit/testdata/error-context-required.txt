@@ -1,0 +1,5 @@
+ ERROR  --context is required
+  It is what makes the statement findable once it is separated
+  from the conversation it came from.
+
+ HINT   `sennit remember --context "why this matters and when it applies" "Prefers one live status line over scrolling logs"`

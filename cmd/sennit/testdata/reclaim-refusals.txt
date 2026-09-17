@@ -1,0 +1,15 @@
+ ERROR  3 records are queued and not yet on the network
+
+ HINT   flush before reclaiming: `sennit flush`
+
+ ERROR  repack needs 120.00 MiB free to hold the old and new
+        slabs at once, and there is less than that
+
+ ERROR  the catalog holds no records while 1 slab is pinned
+  That is what an emptied vault looks like and also what a lost
+  or unreadable catalog looks like.
+
+ HINT   check the vault is opened against the right home
+        directory
+ HINT   if the vault really is empty,
+        `sennit reclaim --release-all` releases its storage

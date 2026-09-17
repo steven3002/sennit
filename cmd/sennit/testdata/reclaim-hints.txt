@@ -1,0 +1,11 @@
+✓ Nothing to release (22.1s)
+
+Swept  4 objects, deleted 0, released 0 slabs
+Held   1 slab left alone: another device pinned it and this one hydrated it
+Quota  80.00 MiB used before, 80.00 MiB after, freed 0 B
+
+ HINT   2 objects cannot be opened; `--unreadable` removes them
+
+ HINT   3 slabs billed to this account are not in this device's
+        ledger and were not swept; `--orphans` releases the 2
+        that hold nothing

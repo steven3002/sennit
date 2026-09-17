@@ -1,0 +1,16 @@
+Upload queued records to Sia now.
+
+USAGE
+  sennit flush [flags]
+
+VAULT FLAGS
+  --home dir       Vault directory (default ~/.sennit)
+  --indexer url    Indexer URL (default https://sia.storage)
+  --offline        Work from this device only, without contacting the indexer
+
+OUTPUT FLAGS
+  --color when     When to colour output: auto, always or never (default auto)
+  --verbose        Show timings, read tiers and other detail
+
+EXAMPLES
+  $ sennit flush

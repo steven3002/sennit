@@ -1,0 +1,6 @@
+✓ Found 2 memories and 1 conversation (11.1s)
+
+MATCH  TYPE        MEMORY                                         TAGS
+0.56   fact        Prefers one live status line over scrolling…   cli, ui
+0.48   session     Deciding the flush cadence                     storage, flush
+0.44   preference  Go builds on this box need TMPDIR set to th…   go, build

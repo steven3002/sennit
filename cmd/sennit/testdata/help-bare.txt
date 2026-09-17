@@ -1,0 +1,7 @@
+User-owned storage for an AI's memory, on Sia.
+
+  sennit remember --context "<why it matters>" "<statement>"
+  sennit recall "<query>"
+
+New here?      sennit init --new-phrase
+All commands:  sennit --help

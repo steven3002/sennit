@@ -1,0 +1,8 @@
+✓ Checked this vault and its Sia account (9.8s)
+
+Vault    ~/.sennit
+Records  1,281 stored on Sia, 3 queued on this device
+Search   1,284 indexed with bge-small-en-v1.5-fp32
+Quota    80.00 MiB of 46.57 GiB used, 46.49 GiB free
+Slabs    2 pinned by this device, 0 hydrated from another
+Repack   not needed yet (0.2% of quota used)

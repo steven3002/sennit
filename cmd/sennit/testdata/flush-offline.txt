@@ -1,0 +1,4 @@
+ ERROR  flush needs the indexer, and this run is offline
+  The 37 records stay queued on this device.
+
+ HINT   run it without `--offline`

@@ -1,0 +1,9 @@
+ WARNING  the indexer did not answer, this run works from this
+          device only
+  Nothing was lost: reads are answered on this device, and
+  anything written is queued until a run reaches the indexer.
+
+ HINT     check that https://sia.storage is the right address
+          and that this machine has a network
+! Remembered on this device only: the indexer did not answer, the next connected flush uploads it (0.6s)
+cdbfb0d3eefb5babd4779487b8aac9e7

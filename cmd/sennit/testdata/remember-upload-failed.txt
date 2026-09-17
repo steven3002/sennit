@@ -1,0 +1,6 @@
+✗ Failed while uploading to Sia (12.3s)
+  The memory is saved on this device. It has not reached Sia yet.
+9c2e41d07a5b38f6e1d4c0b7a2958e13
+
+ ERROR  upload batch of 1: finalize packed upload: not enough
+        hosts available to upload slab 0: 22 < 30

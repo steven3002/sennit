@@ -1,0 +1,26 @@
+Prepare a vault on this device.
+
+USAGE
+  sennit init [flags]
+  sennit init --new-phrase
+
+FLAGS
+  --new-phrase       Print a fresh recovery phrase and exit without touching
+                     the vault
+  --wait duration    How long to wait for the indexer to finish funding host
+                     accounts (default 60s)
+
+VAULT FLAGS
+  --home dir         Vault directory (default ~/.sennit)
+  --indexer url      Indexer URL (default https://sia.storage)
+  --offline          Work from this device only, without contacting the indexer
+
+OUTPUT FLAGS
+  --color when       When to colour output: auto, always or never (default
+                     auto)
+  --verbose          Show timings, read tiers and other detail
+
+EXAMPLES
+  $ sennit init --new-phrase
+  $ sennit init
+  $ sennit init --offline

@@ -1,0 +1,9 @@
+Connecting to https://sia.storage
+This needs one approval in a browser. The link below expires after about ten
+minutes; a fresh one is issued automatically until you approve or the budget runs out.
+
+  approve this: https://sia.storage/app/connect?id=2f6c0d9a8b7e4c1f
+
+  the previous link expired unapproved, here is a fresh one (#2)
+
+  approve this: https://sia.storage/app/connect?id=7a1e5b3c9d2f4e08

@@ -1,0 +1,6 @@
+✓ Recovered 1,008 records from 14 objects (56.5s)
+
+Skipped  12 frames this phrase does not open
+
+ WARNING  1 object stopped parsing part way, 2 could not be
+          opened at all

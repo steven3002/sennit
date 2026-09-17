@@ -1,0 +1,5 @@
+<word1> <word2> <word3> ... <word12>
+
+ WARNING  this phrase is the vault: anyone holding it can read
+          every memory, and losing it loses the data
+  It is not stored anywhere.

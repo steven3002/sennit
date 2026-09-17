@@ -1,0 +1,21 @@
+Rebuild this vault from its phrase and the indexer.
+
+USAGE
+  sennit recover [flags]
+
+FLAGS
+  --embed          Regenerate search vectors as records are recovered, so they
+                   are findable by meaning and not only by id (default true)
+
+VAULT FLAGS
+  --home dir       Vault directory (default ~/.sennit)
+  --indexer url    Indexer URL (default https://sia.storage)
+  --offline        Work from this device only, without contacting the indexer
+
+OUTPUT FLAGS
+  --color when     When to colour output: auto, always or never (default auto)
+  --verbose        Show timings, read tiers and other detail
+
+EXAMPLES
+  $ sennit recover
+  $ sennit recover --embed=false

@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/steven3002/sennit/cmd/sennit/internal/ui"
 	"github.com/steven3002/sennit/keys"
 	"github.com/steven3002/sennit/vault"
 )
@@ -26,15 +27,29 @@ type vaultFlags struct {
 // key the user had just said they did not want to use. Silently taking a flag
 // as prose is worse than refusing it: the run appears to be about something
 // else entirely.
-func checkFlagOrder(rest []string) error {
+func checkFlagOrder(command string, rest []string) error {
 	for _, arg := range rest {
 		if len(arg) > 1 && strings.HasPrefix(arg, "-") {
-			return fmt.Errorf(
-				"%q looks like a flag but comes after the text, where it is read as part of it. "+
-					"Flags go first: sennit <command> %s \"<text>\"", arg, arg)
+			return refuse(fmt.Sprintf(
+				"%q looks like a flag but comes after the text, where it is read as part of it", arg)).
+				try(fmt.Sprintf("flags go first: `sennit %s %s \"<text>\"`", command, flagAsShown(command, arg)))
 		}
 	}
 	return nil
+}
+
+// flagAsShown names a flag the way the help does, so the hint shows the form to
+// type rather than echoing what was typed.
+func flagAsShown(command, typed string) string {
+	name, _, _ := strings.Cut(strings.TrimLeft(typed, "-"), "=")
+	for _, group := range [][]flagHelp{commandHelps[command].flags, vaultFlagHelp, {colorFlagHelp, verboseFlagHelp}} {
+		for _, f := range group {
+			if f.flag == name {
+				return f.shown
+			}
+		}
+	}
+	return typed
 }
 
 func (f *vaultFlags) bind(fs *flag.FlagSet) {
@@ -48,16 +63,17 @@ func (f *vaultFlags) bind(fs *flag.FlagSet) {
 // Neither secret is a flag. A recovery phrase or an app key passed as an
 // argument is visible in the process table and lands in shell history, which
 // would make every other precaution in the design decorative.
-func (f *vaultFlags) open(ctx context.Context) (*vault.Vault, error) {
+func (f *vaultFlags) open(ctx context.Context, out *session, phases phaseNamer) (*vault.Vault, error) {
 	phrase, err := keys.ReadPhrase(os.Stdin)
 	if err != nil {
 		return nil, err
 	}
 	opts := vault.Options{
-		Home:    f.home,
-		Phrase:  phrase,
-		Indexer: f.indexer,
-		Offline: f.offline,
+		Home:       f.home,
+		Phrase:     phrase,
+		Indexer:    f.indexer,
+		Offline:    f.offline,
+		OnProgress: out.watch(phases),
 	}
 	if !f.offline {
 		appKey, err := keys.AppKeyFromEnv()
@@ -72,16 +88,15 @@ func (f *vaultFlags) open(ctx context.Context) (*vault.Vault, error) {
 	}
 	// A vault that wanted the network and did not get it still works, and the
 	// user has to be told which of the two happened. Reads are answered from
-	// this device; writes are queued and owed.
+	// this device; writes are queued and owed. It is printed the moment it
+	// happens, above the live line, rather than saved for the end.
 	if reason := v.OfflineBecause(); reason != nil {
-		fmt.Fprintf(os.Stderr, "warning: %v\n"+
-			"         Working from this device only. Reads are answered locally; "+
-			"anything written is queued until a run that reaches the indexer.\n", reason)
+		out.warn(degraded(reason, f.indexer))
 	}
 	return v, nil
 }
 
-// closing releases the vault and says so when the shutdown did not complete.
+// closing releases the vault and hands any failure to the session.
 //
 // The command's result is already decided by the time this runs and a close
 // failure does not undo work that succeeded, so it changes no exit code. It is
@@ -89,11 +104,22 @@ func (f *vaultFlags) open(ctx context.Context) (*vault.Vault, error) {
 // record queued but not flushed stays claimed, and the device store was left to
 // the operating system rather than closed.
 //
-// It is a warning rather than an error line because a defer runs before the
-// command's own failure is reported, and two "sennit:" lines in that order
-// would make this one look like the reason the command failed.
-func closing(v *vault.Vault) {
+// It is a warning, and it is printed last, after the command's own outcome and
+// after any error. A defer runs before the command's failure is reported, so
+// printing it here and then would put it where a reader takes it for the reason
+// the command failed.
+func closing(out *session, v *vault.Vault) {
 	if err := v.Close(); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: the vault did not close cleanly: %v\n", err)
+		out.closeWarning = err
 	}
+}
+
+// finish prints what was held back until the command's own outcome was on
+// screen.
+func (s *session) finish() {
+	if s.closeWarning == nil {
+		return
+	}
+	s.note(ui.Message{Kind: ui.KindWarning, Text: "the vault did not close cleanly: " + s.closeWarning.Error()})
+	s.closeWarning = nil
 }

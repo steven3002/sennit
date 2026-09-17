@@ -2,12 +2,11 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/steven3002/sennit/record"
+	"github.com/steven3002/sennit/cmd/sennit/internal/ui"
 	"github.com/steven3002/sennit/vault"
 )
 
@@ -19,76 +18,88 @@ import (
 // are rebuilt here. The catalog is cheap and the index is not, hundreds of
 // milliseconds a record, which is why this can stop after any stage and why it
 // says what each one cost.
-func runHydrate(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("hydrate", flag.ExitOnError)
-	var flags vaultFlags
-	flags.bind(fs)
-	depth := fs.String("depth", string(vault.HydrateMetadata),
-		"how far to go: catalog (locate records), metadata (hold and file them), index (search by meaning)")
-	quiet := fs.Bool("quiet", false, "report only the summary, not each record")
-	if err := fs.Parse(args); err != nil {
+func runHydrate(ctx context.Context, out *session, args []string) error {
+	cmd := newInvocation("hydrate").withVault().withVerbose()
+	depth, quiet := hydrateFlags(cmd)
+	if err := cmd.parse(out, args); err != nil {
 		return err
 	}
 
-	v, err := flags.open(ctx)
+	v, err := cmd.vault.open(ctx, out, restorePhases(out, "Restoring records", "restored", *quiet))
 	if err != nil {
 		return err
 	}
-	defer closing(v)
+	defer closing(out, v)
+	if !v.Online() {
+		return needsIndexer("hydrate", v, "")
+	}
+	out.leaves("Records recovered before the interrupt stay on this device.")
 
-	fmt.Fprintf(stderr, "hydrating from %s to depth %q\n", v.Indexer(), *depth)
-	tick := time.Now()
-	report, err := v.Hydrate(ctx, vault.HydrateRequest{
-		Depth: vault.HydrateDepth(*depth),
-		OnRecord: func(_ record.ID, n int) {
-			if *quiet || time.Since(tick) < time.Second {
-				return
-			}
-			tick = time.Now()
-			fmt.Fprintf(stderr, "  %d record(s)...\n", n)
-		},
-	})
+	report, err := v.Hydrate(ctx, vault.HydrateRequest{Depth: vault.HydrateDepth(*depth)})
 	if err != nil {
 		return err
 	}
 
-	fmt.Fprintf(stderr, "\n%d record(s) from %d object(s), %s of ciphertext\n",
-		report.Records, report.Objects, humanBytes(uint64(report.Bytes)))
-	fmt.Fprintf(stderr, "  held on this device   %d\n", report.Bodies)
-	fmt.Fprintf(stderr, "  conversations rebuilt %d\n", report.Sessions)
-	fmt.Fprintf(stderr, "  searchable by meaning %d\n", report.Embedded)
-	fmt.Fprintf(stderr, "  slabs tracked         %d\n", report.Slabs)
-	if report.Foreign+report.Damaged+report.Unreadable > 0 {
-		fmt.Fprintf(stderr, "  skipped               %d frame(s) this phrase does not open, "+
-			"%d damaged object(s), %d unreadable\n",
-			report.Foreign, report.Damaged, report.Unreadable)
-	}
-	fmt.Fprintf(stderr, "\nfetch %s · rebuild %s · index %s · total %s\n",
+	out.done(ui.MarkSuccess, fmt.Sprintf("Hydrated %s to depth %s", plural(report.Records, "record"), *depth))
+	out.report(hydrateRows(report, v.Indexer()))
+	out.detail(fmt.Sprintf("fetch %s · rebuild %s · index %s · total %s",
 		report.WalkFor.Round(time.Millisecond), report.RebuildFor.Round(time.Millisecond),
-		report.EmbedFor.Round(time.Millisecond), report.Elapsed.Round(time.Millisecond))
+		report.EmbedFor.Round(time.Millisecond), report.Elapsed.Round(time.Millisecond)))
 
-	reportRebuiltHeads(report)
-
-	switch vault.HydrateDepth(*depth) {
-	case vault.HydrateCatalog:
-		fmt.Fprintf(stderr, "\nRecords are locatable and none is held here: a read fetches its body "+
-			"from Sia.\nRun again with -depth index to search by meaning.\n")
-	case vault.HydrateMetadata:
-		fmt.Fprintf(stderr, "\nEverything is here except the search vectors. Run again with "+
-			"-depth index to search by meaning.\n")
+	if report.Damaged > 0 || report.Unreadable > 0 {
+		out.note(ui.Message{Kind: ui.KindWarning, Text: fmt.Sprintf(
+			"%s stopped parsing part way, %d could not be opened at all",
+			plural(report.Damaged, "object"), report.Unreadable)})
+	}
+	if note, ok := rebuiltHeads(report); ok {
+		out.note(note)
+	}
+	if report.Rebuild.Gaps > 0 {
+		out.note(ui.Message{Kind: ui.KindWarning, Text: fmt.Sprintf(
+			"%s %s missing part of the transcript in the middle",
+			plural(report.Rebuild.Gaps, "conversation"), verb(report.Rebuild.Gaps, "is", "are"))})
+	}
+	if hint, ok := deeperHint(vault.HydrateDepth(*depth)); ok {
+		out.note(hint)
 	}
 	return nil
 }
 
-// reportRebuiltHeads says plainly what a rebuilt conversation does not carry.
+// hydrateFlags is what sennit hydrate takes.
+func hydrateFlags(cmd *invocation) (depth *string, quiet *bool) {
+	return cmd.set.String("depth", string(vault.HydrateMetadata),
+			"how far to go: catalog (locate records), metadata (hold and file them), index (search by meaning)"),
+		cmd.set.Bool("quiet", false, "report only the summary, not each record")
+}
+
+// hydrateRows is what came back and what it cost, in the labels this command
+// has always used.
+func hydrateRows(report vault.HydrateReport, indexer string) [][2]string {
+	rows := [][2]string{
+		{"Indexer", indexer},
+		{"Records", fmt.Sprintf("%s from %s, %s of ciphertext",
+			ui.Commas(report.Records), plural(report.Objects, "object"), humanBytes(uint64(report.Bytes)))},
+		{"Held on this device", ui.Commas(report.Bodies)},
+		{"Conversations rebuilt", ui.Commas(report.Sessions)},
+		{"Searchable by meaning", ui.Commas(report.Embedded)},
+		{"Slabs tracked", ui.Commas(report.Slabs)},
+	}
+	if report.Foreign > 0 {
+		rows = append(rows, [2]string{"Skipped", plural(report.Foreign, "frame") + " this phrase does not open"})
+	}
+	return rows
+}
+
+// rebuiltHeads says plainly what a rebuilt conversation does not carry.
 //
-// A session head is the one record that never reaches the network, so what comes
-// back is assembled from the transcript. Most of it is exact and some of it is
-// invented, and a device that presented the two identically would be claiming
-// something it has not restored.
-func reportRebuiltHeads(report vault.HydrateReport) {
+// A session head is the one record that never reaches the network, so what
+// comes back is assembled from the transcript. Most of it is exact and some of
+// it is invented, and a device that presented the two identically would be
+// claiming something it has not restored. It stays in the default output for
+// that reason: it is the honest half of a successful hydrate.
+func rebuiltHeads(report vault.HydrateReport) (ui.Message, bool) {
 	if report.Sessions == 0 {
-		return
+		return ui.Message{}, false
 	}
 	var invented, lost []string
 	for _, field := range vault.HeadFields {
@@ -99,16 +110,31 @@ func reportRebuiltHeads(report vault.HydrateReport) {
 			lost = append(lost, field)
 		}
 	}
-	fmt.Fprintf(stderr, "\n%d conversation(s) were rebuilt from their transcripts.\n", report.Sessions)
-	fmt.Fprintf(stderr, "  The messages are exact. A conversation's own description is not on Sia,\n")
+	explanation := "The messages are exact. A conversation's own description is not on Sia"
 	if len(invented) > 0 {
-		fmt.Fprintf(stderr, "  so these were reconstructed here: %s\n", strings.Join(invented, ", "))
+		explanation += ", so these were reconstructed here: " + strings.Join(invented, ", ")
 	}
+	explanation += "."
 	if len(lost) > 0 {
-		fmt.Fprintf(stderr, "  and these are not recoverable: %s\n", strings.Join(lost, ", "))
+		explanation += " These are not recoverable: " + strings.Join(lost, ", ") + "."
 	}
-	if report.Rebuild.Gaps > 0 {
-		fmt.Fprintf(stderr, "  ⚠ %d conversation(s) are missing part of the transcript in the middle.\n",
-			report.Rebuild.Gaps)
+	return ui.Message{
+		Kind: ui.KindWarning,
+		Text: fmt.Sprintf("%s %s rebuilt from their transcripts",
+			plural(report.Sessions, "conversation"), verb(report.Sessions, "was", "were")),
+		Explanation: []string{explanation},
+	}, true
+}
+
+// deeperHint says what this depth left out and what the next one would add.
+func deeperHint(depth vault.HydrateDepth) (ui.Message, bool) {
+	switch depth {
+	case vault.HydrateCatalog:
+		return ui.Message{Kind: ui.KindHint, Text: "records are locatable and none is held here, so a read " +
+			"fetches its body from Sia; run again with `--depth index` to search by meaning"}, true
+	case vault.HydrateMetadata:
+		return ui.Message{Kind: ui.KindHint, Text: "everything is here except the search vectors; " +
+			"run again with `--depth index` to search by meaning"}, true
 	}
+	return ui.Message{}, false
 }

@@ -1,0 +1,6 @@
+ ERROR  app key is the wrong length: got 4, expected 64 bytes
+  The key in SENNIT_APP_KEY arrived damaged, most likely
+  truncated by the copy or the secret store it came through.
+
+ HINT   set it to the whole value that approval issued, or issue
+        a new one: `sennit connect --out sennit.key`

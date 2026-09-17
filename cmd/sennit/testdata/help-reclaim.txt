@@ -1,0 +1,33 @@
+Release storage nothing points to.
+
+USAGE
+  sennit reclaim [flags]
+
+FLAGS
+  --repack            Rewrite every live record into as few slabs as it fits in
+                      before releasing the rest
+  --orphans           Also release slabs the account is billed for that hold
+                      nothing, including any stranded by an installation that
+                      is gone
+  --unreadable        Also delete objects the indexer holds but cannot open
+  --take-ownership    Release storage this device hydrated rather than pinned;
+                      only when the installation that wrote it is gone for
+                      good, never when it is merely switched off
+  --release-all       Release this vault's storage even though the catalog is
+                      empty; only for a vault that really has been emptied,
+                      never to work around a catalog that will not load
+
+VAULT FLAGS
+  --home dir          Vault directory (default ~/.sennit)
+  --indexer url       Indexer URL (default https://sia.storage)
+  --offline           Work from this device only, without contacting the
+                      indexer
+
+OUTPUT FLAGS
+  --color when        When to colour output: auto, always or never (default
+                      auto)
+  --verbose           Show timings, read tiers and other detail
+
+EXAMPLES
+  $ sennit reclaim
+  $ sennit reclaim --repack

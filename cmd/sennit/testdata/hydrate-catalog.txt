@@ -1,0 +1,15 @@
+✓ Hydrated 1,008 records to depth catalog (18.4s)
+
+Indexer                https://sia.storage
+Records                1,008 from 14 objects, 1.92 MiB of ciphertext
+Held on this device    0
+Conversations rebuilt  0
+Searchable by meaning  0
+Slabs tracked          14
+
+ WARNING  1 conversation is missing part of the transcript in
+          the middle
+
+ HINT   records are locatable and none is held here, so a read
+        fetches its body from Sia; run again with
+        `--depth index` to search by meaning

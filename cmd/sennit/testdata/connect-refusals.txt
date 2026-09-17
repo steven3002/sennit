@@ -1,0 +1,11 @@
+ ERROR  --out is required
+  The app key is a secret and is written to a file rather than
+  printed, so it does not land in a terminal's scrollback or a
+  recording.
+
+ HINT   `sennit connect --out sennit.key`
+
+ ERROR  the connection was declined at the indexer
+
+ ERROR  no approval within 30m0s: 3 request(s) were issued at
+        https://sia.storage and each expired unapproved

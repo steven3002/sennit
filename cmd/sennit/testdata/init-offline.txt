@@ -1,0 +1,4 @@
+✓ Vault ready on this device (0.3s)
+
+Vault  /home/you/.sennit
+Sia    offline: the vault works from this device but writes nothing to Sia

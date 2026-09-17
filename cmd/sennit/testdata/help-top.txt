@@ -1,0 +1,41 @@
+User-owned storage for an AI's memory, on Sia.
+
+USAGE
+  sennit <command> [flags]
+
+GET STARTED
+  init        Prepare a vault on this device
+  connect     Approve this installation with an indexer
+
+MEMORY
+  remember    Store a memory
+  recall      Find memories by meaning
+
+STORAGE ON SIA
+  status      Show what is held, queued and billed
+  flush       Upload queued records now
+  reclaim     Release storage nothing points to
+
+RESTORE
+  recover     Rebuild this vault from its phrase and the indexer
+  hydrate     Restore this vault on a machine that never held it
+
+FLAGS
+  -h, --help       Show help for sennit or a command
+      --version    Show the version
+
+EXAMPLES
+  $ sennit init --new-phrase
+  $ sennit remember --context "why it matters" "the statement"
+  $ sennit recall "what did we decide about packing"
+
+ENVIRONMENT
+  SENNIT_PHRASE      Recovery phrase; read from stdin when unset
+  SENNIT_APP_KEY     Sia app key, issued by sennit connect
+  SENNIT_HOME        Vault directory (default ~/.sennit)
+  SENNIT_INDEXER     Indexer URL (default https://sia.storage)
+  SENNIT_MODEL_DIR   Where embedding models are kept
+
+LEARN MORE
+  Run `sennit <command> --help` for a command's flags.
+  https://github.com/steven3002/sennit

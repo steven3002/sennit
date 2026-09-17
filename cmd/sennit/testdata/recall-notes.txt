@@ -1,0 +1,12 @@
+✓ Found 2 memories (11.1s)
+
+MATCH  TYPE  MEMORY                                     TAGS
+0.46   fact  The Sia grant ask is 26k over five months  grant
+             context  Grant planning
+             note     also ranked up by words it shares with the query and the
+                      tags and types asked for
+             id       ea0df403908921a3f8ede37d406c4de4
+-      fact  Budget reviews happen every quarter        grant
+             context  Grant planning
+             note     found only by words it shares with the query
+             id       5b0f3c9ad2e14f7c8b6a1d0e9f3c2a71

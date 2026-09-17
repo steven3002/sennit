@@ -1,0 +1,17 @@
+✓ Checked this vault and its Sia account (10.4s)
+
+Vault    ~/.sennit
+Records  1,281 stored on Sia, 0 queued on this device
+Search   1,281 indexed with bge-small-en-v1.5-fp32
+Quota    200.00 MiB of 46.57 GiB used, 46.37 GiB free
+Slabs    2 pinned by this device, 0 hydrated from another
+Repack   not needed yet (0.4% of quota used)
+
+ WARNING  3 slabs are billed to this account and not in this
+          device's ledger
+          2 hold nothing, an interrupted write leaves exactly this
+          1 holds records and belongs to another installation of this vault
+
+ HINT     `sennit reclaim --orphans` releases the 2 that hold
+          nothing
+ HINT     reclaim the other from the device that wrote it

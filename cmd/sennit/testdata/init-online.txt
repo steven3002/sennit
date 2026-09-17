@@ -1,0 +1,5 @@
+✓ Vault ready (9.4s)
+
+Vault    /home/you/.sennit
+Indexer  https://sia.storage
+Quota    40.00 MiB used of 46.57 GiB (46.53 GiB free)

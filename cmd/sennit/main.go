@@ -4,12 +4,14 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 
 	"github.com/steven3002/sennit/build"
-	"github.com/steven3002/sennit/keys"
+	"github.com/steven3002/sennit/cmd/sennit/internal/ui"
 )
 
 func main() { os.Exit(run()) }
@@ -18,103 +20,163 @@ func run() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
+	out, restore := newSession(ctx.Done())
+	defer restore()
+
 	if len(os.Args) < 2 {
-		usage()
-		return 2
+		printHelp(out, bareHelp())
+		return 0
 	}
 
 	var err error
 	switch os.Args[1] {
 	case "init":
-		err = runInit(ctx, os.Args[2:])
+		err = runInit(ctx, out, os.Args[2:])
 	case "connect":
-		err = runConnect(ctx, os.Args[2:])
+		err = runConnect(ctx, out, os.Args[2:])
 	case "remember":
-		err = runRemember(ctx, os.Args[2:])
+		err = runRemember(ctx, out, os.Args[2:])
 	case "recall":
-		err = runRecall(ctx, os.Args[2:])
+		err = runRecall(ctx, out, os.Args[2:])
 	case "flush":
-		err = runFlush(ctx, os.Args[2:])
+		err = runFlush(ctx, out, os.Args[2:])
 	case "status":
-		err = runStatus(ctx, os.Args[2:])
+		err = runStatus(ctx, out, os.Args[2:])
 	case "reclaim":
-		err = runReclaim(ctx, os.Args[2:])
+		err = runReclaim(ctx, out, os.Args[2:])
 	case "recover":
-		err = runRecover(ctx, os.Args[2:])
+		err = runRecover(ctx, out, os.Args[2:])
 	case "hydrate":
-		err = runHydrate(ctx, os.Args[2:])
+		err = runHydrate(ctx, out, os.Args[2:])
 	case "version", "-version", "--version":
-		fmt.Printf("sennit %s\n", build.String())
+		fmt.Fprintf(out.stdout, "sennit %s\n", build.String())
 		return 0
 	case "help", "-h", "--help":
-		usage()
+		printHelp(out, topLevelHelp())
 		return 0
 	default:
-		fmt.Fprintf(os.Stderr, "sennit: unknown command %q\n\n", os.Args[1])
-		usage()
-		return 2
+		err = unknownCommand(os.Args[1])
 	}
+	return report(ctx, out, err)
+}
 
-	if err != nil {
-		report(err)
+// errHelpAsked reports that a command was asked for its help rather than run.
+// Help is something a reader asked for, so it goes to stdout and the run
+// succeeds.
+var errHelpAsked = errors.New("help was asked for")
+
+// report ends the run: the live line, then what went wrong, then anything the
+// vault could not finish cleanly.
+//
+// An interrupt is not reported as an error. The person who pressed Ctrl-C knows
+// what happened and needs to be told what it left behind, which the cancel line
+// says; printing "context canceled" underneath it would be the program
+// explaining the user's own key press back to them.
+func report(ctx context.Context, out *session, err error) int {
+	switch {
+	case err == nil:
+		out.finish()
+		return 0
+	case errors.Is(err, errHelpAsked):
+		out.finish()
+		return 0
+	case ctx.Err() != nil && errors.Is(err, context.Canceled):
+		out.cancelledBy()
+		out.finish()
 		return 1
 	}
-	return 0
-}
-
-// report explains the two failures a first run actually hits, rather than
-// printing the underlying error and leaving the reader to work out what to do.
-func report(err error) {
-	switch {
-	case keys.MissingAppKey(err):
-		fmt.Fprintf(os.Stderr, "sennit: no Sia app key.\n\n"+
-			"  Set %s to the app key issued when you approved this\n"+
-			"  installation with your indexer. It is a secret: keep it out of\n"+
-			"  shell history and never pass it as an argument.\n\n"+
-			"  If you have not approved this installation yet, run:\n"+
-			"    sennit connect -out sennit.key\n\n"+
-			"  To work without an indexer, pass -offline before the arguments:\n"+
-			"    sennit remember -offline -context \"...\" \"...\"\n", keys.AppKeyEnv)
-	case keys.WrongAppKeyLength(err):
-		fmt.Fprintf(os.Stderr, "sennit: %v.\n\n"+
-			"  The key in %s arrived damaged, most likely truncated\n"+
-			"  by the copy or the secret store it came through. Set it to the whole\n"+
-			"  value that approval issued, or issue a new one:\n"+
-			"    sennit connect -out sennit.key\n", err, keys.AppKeyEnv)
-	case errors.Is(err, keys.ErrNoPhrase):
-		fmt.Fprintf(os.Stderr, "sennit: no recovery phrase.\n\n"+
-			"  Set %s, or pipe the phrase in on stdin. The vault derives its\n"+
-			"  keys from it on every run and never stores it.\n\n"+
-			"  If you do not have one yet, this prints a new one and stores nothing:\n"+
-			"    sennit init -new-phrase\n", keys.PhraseEnv)
-	default:
-		fmt.Fprintf(os.Stderr, "sennit: %v\n", err)
+	out.clear()
+	if out.printed {
+		fmt.Fprintln(out.stderr)
 	}
+	for _, line := range out.messageLines(messageFor(err)) {
+		fmt.Fprintln(out.stderr, line)
+	}
+	out.finish()
+	return statusOf(err)
 }
 
-func usage() {
-	fmt.Fprint(os.Stderr, `sennit, user-owned storage for an AI's memory, on Sia
+// An invocation is one command's flags: the ones it defines itself, and the
+// ones every command shares.
+type invocation struct {
+	name  string
+	set   *flag.FlagSet
+	vault *vaultFlags
+	color colorFlag
+	// verbose is nil for a command that does not offer it.
+	verbose *bool
+}
 
-usage:
-  sennit init -new-phrase          print a fresh recovery phrase and exit
-  sennit connect -out <file>       approve this installation with an indexer
-  sennit init                      derive keys, prepare the vault, connect
-  sennit remember -context "<why it matters>" "<statement>"
-                                     store a memory; -context is required
-  sennit recall "<query>"          retrieve memories by meaning
-  sennit flush                     write queued records to Sia now
-  sennit status                    what is held, what is queued, what is billed
-  sennit reclaim                   release storage nothing points at any more
-  sennit recover                   rebuild this vault from the phrase and the indexer
-  sennit hydrate                   restore this vault on a machine that never held it
+// newInvocation prepares a command's flags. Parse errors are the command's own
+// to report, so the flag package neither prints nor exits here.
+func newInvocation(name string) *invocation {
+	set := flag.NewFlagSet(name, flag.ContinueOnError)
+	set.SetOutput(io.Discard)
+	set.Usage = func() {}
+	r := &invocation{name: name, set: set}
+	set.Var(&r.color, "color", "when to colour output: auto, always or never")
+	return r
+}
 
-environment:
-  SENNIT_PHRASE     BIP-39 recovery phrase; read from stdin when unset
-  SENNIT_APP_KEY    Sia app key, issued by indexer approval
-  SENNIT_HOME       vault directory (default ~/.sennit)
-  SENNIT_INDEXER    indexer URL (default https://sia.storage)
-  SENNIT_MODEL_DIR  where embedding models are kept
+// withVault adds the three flags every command that opens a vault shares.
+func (r *invocation) withVault() *invocation {
+	r.vault = &vaultFlags{}
+	r.vault.bind(r.set)
+	return r
+}
 
-run "sennit <command> -h" for the flags of one command.
-`)
+// withVerbose adds the flag that shows timings and read tiers.
+func (r *invocation) withVerbose() *invocation {
+	r.verbose = r.set.Bool("verbose", false, "show timings, read tiers and other detail")
+	return r
+}
+
+// parse reads the command's arguments and settles what its output may look
+// like.
+//
+// A request for help is answered here rather than by the flag package, because
+// the flag package writes to stderr and exits 2, and help is neither an error
+// nor something to hunt for in a redirect. A real parse error stays an error
+// and still exits 2.
+func (r *invocation) parse(out *session, args []string) error {
+	err := r.set.Parse(args)
+	out.setColor(r.color.mode())
+	if r.verbose != nil {
+		out.verbose = *r.verbose
+	}
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, flag.ErrHelp):
+		printHelp(out, commandHelpLines(r.name, r.set))
+		return errHelpAsked
+	}
+	return refuse(err.Error()).
+		try("`sennit " + r.name + " --help` lists its flags").
+		exit(2).from(err)
+}
+
+// A colorFlag is --color, which takes auto, always or never.
+type colorFlag string
+
+func (c *colorFlag) String() string { return string(*c) }
+
+func (c *colorFlag) Set(value string) error {
+	mode, ok := ui.ParseColorMode(value)
+	if !ok {
+		return errParseFlag
+	}
+	*c = colorFlag(mode)
+	return nil
+}
+
+// errParseFlag is the flag package's own wording for a value it cannot read,
+// which is what a reader sees for every other flag that refuses one.
+var errParseFlag = errors.New("parse error")
+
+func (c colorFlag) mode() ui.ColorMode {
+	if mode, ok := ui.ParseColorMode(string(c)); ok {
+		return mode
+	}
+	return ui.ColorAuto
 }

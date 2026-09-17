@@ -1,0 +1,23 @@
+Approve this installation with an indexer.
+
+USAGE
+  sennit connect --out <file> [flags]
+
+FLAGS
+  --out file          File to write the issued app key to, created 0600
+                      (required)
+  --indexer url       Indexer URL (default https://sia.storage)
+  --wait duration     How long to keep a live approval link available (default
+                      30m)
+  --ready duration    How long to wait for the account to become usable
+                      (default 90s)
+
+OUTPUT FLAGS
+  --color when        When to colour output: auto, always or never (default
+                      auto)
+
+EXAMPLES
+  $ sennit connect --out sennit.key
+  $ export SENNIT_APP_KEY="$(cat sennit.key)"
+
+The recovery phrase comes from SENNIT_PHRASE, or from stdin when that is unset.

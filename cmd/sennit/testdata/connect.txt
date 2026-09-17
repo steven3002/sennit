@@ -1,0 +1,7 @@
+✓ Connected: app key 3f9a1c2b… written to sennit.key (1m42s)
+
+Approved  after 1m12s, over 1 request
+Ready     after 16s, 40.00 MiB of 46.57 GiB quota in use
+
+ HINT   load the key into this shell without putting it in your
+        history: `export SENNIT_APP_KEY=$(cat sennit.key)`

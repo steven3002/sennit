@@ -2,11 +2,16 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
+	"os"
+	"runtime"
+	"strings"
 	"time"
 
-	"github.com/steven3002/sennit/record"
+	"github.com/steven3002/sennit/cmd/sennit/internal/ui"
+	"github.com/steven3002/sennit/cmd/sennit/internal/width"
+	"github.com/steven3002/sennit/sia"
+	"github.com/steven3002/sennit/store/reclaim"
 	"github.com/steven3002/sennit/vault"
 )
 
@@ -15,105 +20,110 @@ import (
 // A record is durable on this device the moment it is remembered and on the
 // network only after a flush. The standing cadence closes that gap on its own;
 // this is for closing it now.
-func runFlush(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("flush", flag.ExitOnError)
-	var flags vaultFlags
-	flags.bind(fs)
-	if err := fs.Parse(args); err != nil {
+func runFlush(ctx context.Context, out *session, args []string) error {
+	cmd := newInvocation("flush").withVault().withVerbose()
+	if err := cmd.parse(out, args); err != nil {
 		return err
 	}
 
-	v, err := flags.open(ctx)
+	v, err := cmd.vault.open(ctx, out, openPhases)
 	if err != nil {
 		return err
 	}
-	defer closing(v)
+	defer closing(out, v)
 
 	pending := v.Pending()
 	if pending == 0 {
-		fmt.Fprint(stderr, "nothing queued: everything on this device is on Sia\n")
+		out.done(ui.MarkSuccess, "Nothing queued: everything on this device is on Sia")
 		return nil
 	}
-	fmt.Fprintf(stderr, "flushing %d record(s)\n", pending)
+	if !v.Online() {
+		return needsIndexer("flush", v, queuedStay(pending))
+	}
+	out.watch(flushPhases(out, pending))
+	out.leaves(queuedStay(pending), "They have not reached Sia yet.")
 
 	flushed, err := v.Flush(ctx)
 	if err != nil {
 		return err
 	}
 	if flushed == nil {
-		fmt.Fprint(stderr, "the flush wrote nothing\n")
+		out.done(ui.MarkWarning, "The flush wrote nothing")
 		return nil
 	}
-	fmt.Fprintf(stderr, "  wrote     %s in %d object(s) over %d slab(s)\n",
-		humanBytes(uint64(flushed.Bytes())), len(flushed.Written), len(flushed.Slabs))
-	fmt.Fprintf(stderr, "  upload    %s · pin slabs %s · pin objects %s\n",
-		took(flushed.UploadFor), took(flushed.PinSlabsFor), took(flushed.PinObjectFor))
-	if n := len(flushed.Written); n > 0 {
-		fmt.Fprintf(stderr, "  per pin   %s across %d object(s)\n",
-			took(flushed.PinObjectFor/time.Duration(n)), n)
+	out.done(ui.MarkSuccess, "Flushed "+plural(len(flushed.Written), "record")+" to Sia")
+	detail := []string{
+		fmt.Sprintf("  wrote     %s in %d object(s) over %d slab(s)",
+			humanBytes(uint64(flushed.Bytes())), len(flushed.Written), len(flushed.Slabs)),
+		fmt.Sprintf("  upload    %s · pin slabs %s · pin objects %s",
+			took(flushed.UploadFor), took(flushed.PinSlabsFor), took(flushed.PinObjectFor)),
 	}
+	if n := len(flushed.Written); n > 0 {
+		detail = append(detail, fmt.Sprintf("  per pin   %s across %d object(s)",
+			took(flushed.PinObjectFor/time.Duration(n)), n))
+	}
+	out.detail(detail...)
 	return nil
+}
+
+// queuedStay says what is still owed to the network, which is the one thing a
+// reader must not have to work out for themselves.
+func queuedStay(records int) string {
+	if records == 1 {
+		return "The record stays queued on this device."
+	}
+	return "The " + plural(records, "record") + " stay queued on this device."
 }
 
 // runStatus reports what the vault holds, what it owes the network, and what
 // it is being billed for.
-func runStatus(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("status", flag.ExitOnError)
-	var flags vaultFlags
-	flags.bind(fs)
-	if err := fs.Parse(args); err != nil {
+func runStatus(ctx context.Context, out *session, args []string) error {
+	cmd := newInvocation("status").withVault().withVerbose()
+	if err := cmd.parse(out, args); err != nil {
 		return err
 	}
 
-	v, err := flags.open(ctx)
+	v, err := cmd.vault.open(ctx, out, openPhases)
 	if err != nil {
 		return err
 	}
-	defer closing(v)
+	defer closing(out, v)
 
 	entries := v.Entries()
-	fmt.Fprintf(stderr, "records   %d catalogued, %d queued for Sia\n", len(entries), v.Pending())
-
-	stats := v.ManifestStats()
-	fmt.Fprintf(stderr, "catalog   %s snapshot + %s log, %d compaction(s), %s written\n",
-		humanBytes(uint64(stats.SnapshotBytes)), humanBytes(uint64(stats.LogBytes)),
-		stats.Compactions, humanBytes(uint64(stats.Written)))
-
 	health := v.IndexHealth()
-	vectors := v.VectorStats()
-	fmt.Fprintf(stderr, "index     %d vector(s) of %s, %s base + %s delta, %d compaction(s)\n",
-		health.Indexed, health.Model,
-		humanBytes(uint64(vectors.BaseBytes)), humanBytes(uint64(vectors.DeltaBytes)), vectors.Compactions)
-	// A mixed index is reported rather than passed over. Vectors from two models
-	// cannot be compared, so the ones from the other model are simply not
-	// searched, which looks exactly like the vault having become worse at
+	held := heldView{
+		path:    vaultPath(cmd.vault.home),
+		stored:  len(entries),
+		queued:  v.Pending(),
+		indexed: health.Indexed,
+		model:   health.Model,
+	}
+	var notes []ui.Message
+	// A mixed index is reported rather than passed over. Vectors from two
+	// models cannot be compared, so the ones from the other model are simply
+	// not searched, which looks exactly like the vault having become worse at
 	// recall unless it is said out loud.
 	if health.Mixed() {
-		fmt.Fprintf(stderr, "  ⚠ %d vector(s) are from another model and are NOT searchable:\n", health.Stale())
-		for model, count := range health.Foreign {
-			fmt.Fprintf(stderr, "      %-32s %d\n", model, count)
-		}
-		fmt.Fprintln(stderr, "      re-embed those records to make them findable again")
+		notes = append(notes, foreignVectors(health))
 	}
 
-	if cache, err := v.CacheSize(); err == nil && cache.Objects > 0 {
-		fmt.Fprintf(stderr, "locations %s for %d object(s) over %d slab(s), %.0f B/object\n",
-			humanBytes(uint64(cache.Total())), cache.Objects, cache.Slabs, cache.PerObject())
+	// The detail costs a few reads of the device's own accounting, so it is
+	// gathered only when it will be shown.
+	var detail []string
+	if out.verbose {
+		detail = statusDetail(v, len(entries), health)
 	}
-
-	if tiers, err := v.ReadStats(); err == nil && len(tiers) > 0 {
-		fmt.Fprint(stderr, "reads\n")
-		for _, tier := range tiers {
-			fmt.Fprintf(stderr, "  %-8s %6d served, mean %s, %d miss(es)\n",
-				tier.Tier, tier.Reads, took(tier.Mean()), tier.Misses)
-		}
-	}
-
 	if !v.Online() {
-		fmt.Fprint(stderr, "offline: queued records stay on this device until a connected run\n")
+		out.done(ui.MarkSuccess, "Checked this vault")
+		out.report(statusRows(held))
+		out.detail(detail...)
+		for _, note := range notes {
+			out.note(note)
+		}
 		return nil
 	}
 
+	out.phase(accountPhase)
 	account, err := v.Account(ctx)
 	if err != nil {
 		return err
@@ -122,25 +132,24 @@ func runStatus(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(stderr, "quota     %s of %s used, %s free\n",
-		humanBytes(account.PinnedData), humanBytes(account.MaxPinnedData), humanBytes(account.Free()))
-	var hydrated int
-	for _, slab := range slabs {
-		if !slab.Releasable() {
-			hydrated++
-		}
-	}
-	fmt.Fprintf(stderr, "slabs     %d pinned by this device, %d hydrated from another\n",
-		len(slabs)-hydrated, hydrated)
-
 	mark, err := v.Watermark(ctx)
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(stderr, "repack    %.1f%% of quota used; %s\n", 100*mark.Used, repackAdvice(mark.Due, mark.Affordable))
+	for _, slab := range slabs {
+		if !slab.Releasable() {
+			held.hydrated++
+		}
+	}
+	held.online, held.account, held.pinned = true, account, len(slabs)-held.hydrated
+	held.repack = fmt.Sprintf("%s (%.1f%% of quota used)", repackAdvice(mark.Due, mark.Affordable), 100*mark.Used)
 	if mark.Due {
-		fmt.Fprintf(stderr, "  ⚠ reclaimable storage has built up. Run `sennit reclaim -repack` to return it;\n"+
-			"    left alone it keeps accumulating until a write fails for want of room.\n")
+		notes = append(notes, ui.Message{
+			Kind:        ui.KindWarning,
+			Text:        "reclaimable storage has built up",
+			Explanation: []string{"Left alone it keeps accumulating until a write fails for want of room."},
+			Hints:       []string{"`sennit reclaim --repack` returns it"},
+		})
 	}
 
 	// Storage the account pays for that this device has no record of. It is
@@ -151,25 +160,125 @@ func runStatus(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if len(unledgered) > 0 {
-		var empty int
-		for _, slab := range unledgered {
-			if slab.Empty {
-				empty++
-			}
-		}
-		fmt.Fprintf(stderr, "unknown   %d slab(s) are billed to this account and not in this device's ledger\n",
-			len(unledgered))
-		if empty > 0 {
-			fmt.Fprintf(stderr, "          %d of them hold nothing, an interrupted write leaves exactly this; "+
-				"`sennit reclaim -orphans` releases them\n", empty)
-		}
-		if held := len(unledgered) - empty; held > 0 {
-			fmt.Fprintf(stderr, "          %d hold records and belong to another installation of this vault; "+
-				"reclaim them from the device that wrote them\n", held)
-		}
+	if note, ok := unknownSlabs(unledgered); ok {
+		notes = append(notes, note)
+	}
+
+	out.done(ui.MarkSuccess, "Checked this vault and its Sia account")
+	out.report(statusRows(held))
+	out.detail(detail...)
+	for _, note := range notes {
+		out.note(note)
 	}
 	return nil
+}
+
+// A heldView is what status says the vault holds, in the terms it prints.
+type heldView struct {
+	path             string
+	stored, queued   int
+	indexed          int
+	model            string
+	online           bool
+	account          sia.Account
+	pinned, hydrated int
+	repack           string
+}
+
+// statusRows is the report: what is here, what is owed, and what is billed.
+func statusRows(v heldView) [][2]string {
+	rows := [][2]string{
+		{"Vault", v.path},
+		{"Records", fmt.Sprintf("%s stored on Sia, %s queued on this device", ui.Commas(v.stored), ui.Commas(v.queued))},
+		{"Search", fmt.Sprintf("%s indexed with %s", ui.Commas(v.indexed), v.model)},
+	}
+	if !v.online {
+		return append(rows, [2]string{"Sia", "offline: queued records stay on this device until a connected run"})
+	}
+	return append(rows,
+		[2]string{"Quota", fmt.Sprintf("%s of %s used, %s free",
+			humanBytes(v.account.PinnedData), humanBytes(v.account.MaxPinnedData), humanBytes(v.account.Free()))},
+		[2]string{"Slabs", fmt.Sprintf("%d pinned by this device, %d hydrated from another", v.pinned, v.hydrated)},
+		[2]string{"Repack", v.repack})
+}
+
+func foreignVectors(health vault.IndexHealth) ui.Message {
+	note := ui.Message{
+		Kind: ui.KindWarning,
+		Text: fmt.Sprintf("%s %s from another model and %s not searchable",
+			plural(health.Stale(), "vector"), verb(health.Stale(), "is", "are"), verb(health.Stale(), "is", "are")),
+		Hints: []string{"re-embed those records to make them findable again"},
+	}
+	labels := 0
+	for model := range health.Foreign {
+		labels = max(labels, width.String(model))
+	}
+	for model, count := range health.Foreign {
+		note.Data = append(note.Data, fmt.Sprintf("%s    %d", width.Pad(model, labels), count))
+	}
+	return note
+}
+
+// unknownSlabs is the caution about storage this account pays for that this
+// device cannot account for: some of it is another installation's, and the rest
+// is this device's own interrupted writes.
+func unknownSlabs(unledgered []reclaim.Unledgered) (ui.Message, bool) {
+	if len(unledgered) == 0 {
+		return ui.Message{}, false
+	}
+	var empty int
+	for _, slab := range unledgered {
+		if slab.Empty {
+			empty++
+		}
+	}
+	note := ui.Message{
+		Kind: ui.KindWarning,
+		Text: fmt.Sprintf("%s %s billed to this account and not in this device's ledger",
+			plural(len(unledgered), "slab"), verb(len(unledgered), "is", "are")),
+	}
+	if empty > 0 {
+		note.Data = append(note.Data, fmt.Sprintf("%d %s nothing, an interrupted write leaves exactly this",
+			empty, verb(empty, "holds", "hold")))
+		note.Hints = append(note.Hints, fmt.Sprintf("`sennit reclaim --orphans` releases the %d that %s nothing",
+			empty, verb(empty, "holds", "hold")))
+	}
+	if held := len(unledgered) - empty; held > 0 {
+		note.Data = append(note.Data, fmt.Sprintf("%d %s records and %s to another installation of this vault",
+			held, verb(held, "holds", "hold"), verb(held, "belongs", "belong")))
+		note.Hints = append(note.Hints, fmt.Sprintf("reclaim the %s from the device that wrote %s",
+			pick(held, "other", "others"), pick(held, "it", "them")))
+	}
+	return note, true
+}
+
+// statusDetail is the internal accounting --verbose keeps: what the catalog,
+// the index and the location cache cost on this device, and how reads were
+// served.
+func statusDetail(v *vault.Vault, records int, health vault.IndexHealth) []string {
+	stats := v.ManifestStats()
+	vectors := v.VectorStats()
+	lines := []string{
+		fmt.Sprintf("records   %d catalogued, %d queued for Sia", records, v.Pending()),
+		fmt.Sprintf("catalog   %s snapshot + %s log, %d compaction(s), %s written",
+			humanBytes(uint64(stats.SnapshotBytes)), humanBytes(uint64(stats.LogBytes)),
+			stats.Compactions, humanBytes(uint64(stats.Written))),
+		fmt.Sprintf("index     %d vector(s) of %s, %s base + %s delta, %d compaction(s)",
+			health.Indexed, health.Model,
+			humanBytes(uint64(vectors.BaseBytes)), humanBytes(uint64(vectors.DeltaBytes)), vectors.Compactions),
+	}
+	if cache, err := v.CacheSize(); err == nil && cache.Objects > 0 {
+		lines = append(lines, fmt.Sprintf("locations %s for %d object(s) over %d slab(s), %.0f B/object",
+			humanBytes(uint64(cache.Total())), cache.Objects, cache.Slabs, cache.PerObject()))
+	}
+	if tiers, err := v.ReadStats(); err == nil && len(tiers) > 0 {
+		lines = append(lines, "reads")
+		for _, tier := range tiers {
+			lines = append(lines, fmt.Sprintf("  %-8s %6d served, mean %s, %d miss(es)",
+				tier.Tier, tier.Reads, took(tier.Mean()), tier.Misses))
+		}
+	}
+	return lines
 }
 
 func repackAdvice(due, affordable bool) string {
@@ -183,44 +292,73 @@ func repackAdvice(due, affordable bool) string {
 	}
 }
 
+// vaultPath is the vault's directory as a person recognises it. A home-relative
+// path is shorter and is what the documentation shows; on Windows the full path
+// is the one a reader can act on.
+func vaultPath(home string) string {
+	if runtime.GOOS == "windows" {
+		return home
+	}
+	dir, err := os.UserHomeDir()
+	if err != nil || dir == "" {
+		return home
+	}
+	if home == dir {
+		return "~"
+	}
+	if rest, ok := strings.CutPrefix(home, dir+string(os.PathSeparator)); ok {
+		return "~" + string(os.PathSeparator) + rest
+	}
+	return home
+}
+
 // runReclaim releases storage nothing points at any more.
-func runReclaim(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("reclaim", flag.ExitOnError)
-	var flags vaultFlags
-	flags.bind(fs)
-	repack := fs.Bool("repack", false,
-		"rewrite every live record into as few slabs as it fits in before releasing the rest")
-	orphans := fs.Bool("orphans", false,
-		"also release slabs the account is billed for that hold nothing, including any stranded by an installation that is gone")
-	unreadable := fs.Bool("unreadable", false,
-		"also delete objects the indexer holds but cannot open")
-	takeOwnership := fs.Bool("take-ownership", false,
-		"release storage this device hydrated rather than pinned; only when the installation that wrote it is gone for good, never when it is merely switched off")
-	releaseAll := fs.Bool("release-all", false,
-		"release this vault's storage even though the catalog is empty; only for a vault that really has been emptied, never to work around a catalog that will not load")
-	if err := fs.Parse(args); err != nil {
+func runReclaim(ctx context.Context, out *session, args []string) error {
+	cmd := newInvocation("reclaim").withVault().withVerbose()
+	repack, orphans, unreadable, takeOwnership, releaseAll := reclaimFlags(cmd)
+	if err := cmd.parse(out, args); err != nil {
 		return err
 	}
 
-	v, err := flags.open(ctx)
+	v, err := cmd.vault.open(ctx, out, reclaimPhases(out))
 	if err != nil {
 		return err
 	}
-	defer closing(v)
+	defer closing(out, v)
+	if !v.Online() {
+		return needsIndexer("reclaim", v, "")
+	}
+	// The same refusal the vault makes, made before any phase starts so that
+	// it reads as a precondition rather than as a step that failed.
+	if pending := v.Pending(); pending > 0 {
+		return refuse(fmt.Sprintf("%s %s queued and not yet on the network",
+			plural(pending, "record"), verb(pending, "is", "are"))).
+			try("flush before reclaiming: `sennit flush`")
+	}
+	out.leaves("It stopped part way. Run `sennit reclaim` again to finish.")
 
 	opts := vault.ReclaimOptions{ReleaseAll: *releaseAll, TakeOwnership: *takeOwnership}
-
+	var rows [][2]string
+	var detail []string
 	if *takeOwnership {
 		taken, err := v.TakeOwnership()
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(stderr, "owned     %d slab(s) hydrated from another installation are now this device's to release\n", taken)
+		rows = append(rows, ownedRow(taken))
 	}
-
 	if *repack {
-		if err := reportRepack(ctx, v); err != nil {
+		packed, err := repackNow(ctx, v)
+		if err != nil {
 			return err
+		}
+		rows = append(rows, repackRow(packed))
+		if len(packed.Records) > 0 {
+			detail = append(detail,
+				fmt.Sprintf("repack    %d record(s), %d slab(s) into %d, peak %d, in %s",
+					len(packed.Records), packed.SlabsBefore, packed.SlabsAfter, packed.Peak, took(packed.Elapsed)),
+				fmt.Sprintf("          read %s · write %s · retire %s",
+					took(packed.ReadFor), took(packed.WriteFor), took(packed.RetireFor)))
 		}
 	}
 
@@ -228,35 +366,33 @@ func runReclaim(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(stderr, "swept     %d object(s), deleted %d, released %d slab(s) in %s\n",
-		sweep.ObjectsSeen, sweep.ObjectsDeleted, sweep.SlabsReleased, took(sweep.Elapsed))
-	if sweep.Unreadable > 0 && !*unreadable {
-		fmt.Fprintf(stderr, "          %d object(s) cannot be opened; -unreadable removes them\n", sweep.Unreadable)
-	}
+	rows = append(rows, sweptRow(sweep))
+	detail = append(detail, fmt.Sprintf("swept     %d object(s), deleted %d, released %d slab(s) in %s",
+		sweep.ObjectsSeen, sweep.ObjectsDeleted, sweep.SlabsReleased, took(sweep.Elapsed)))
 	if sweep.SlabsHeld > 0 {
-		fmt.Fprintf(stderr, "          %d slab(s) left alone: another device pinned them and this one hydrated them\n",
-			sweep.SlabsHeld)
+		rows = append(rows, heldRow(sweep.SlabsHeld))
+	}
+
+	var notes []ui.Message
+	if sweep.Unreadable > 0 && !*unreadable {
+		notes = append(notes, ui.Message{Kind: ui.KindHint, Text: fmt.Sprintf(
+			"%s cannot be opened; `--unreadable` removes %s",
+			plural(sweep.Unreadable, "object"), pick(sweep.Unreadable, "it", "them"))})
 	}
 	// A sweep that reported only what it released would say nothing about the
 	// storage it cannot reach, which is exactly the storage a user is looking
 	// for when a reclaim returns less than expected.
-	if unledgered, err := v.Unledgered(ctx); err == nil && len(unledgered) > 0 && !*orphans {
-		var empty int
-		for _, slab := range unledgered {
-			if slab.Empty {
-				empty++
-			}
+	if !*orphans {
+		if note, ok := unsweptSlabs(ctx, v); ok {
+			notes = append(notes, note)
 		}
-		fmt.Fprintf(stderr, "unknown   %d slab(s) billed to this account are not in this device's ledger "+
-			"and were not swept; %d hold nothing and -orphans would release them\n", len(unledgered), empty)
 	}
-
 	if *unreadable {
 		dropped, err := v.DropUnreadable(ctx)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(stderr, "dropped   %d object(s) the indexer could not open\n", len(dropped))
+		rows = append(rows, droppedRow(len(dropped)))
 	}
 
 	freed := sweep.Freed()
@@ -272,85 +408,167 @@ func runReclaim(ctx context.Context, args []string) error {
 				stranded++
 			}
 		}
-		fmt.Fprintf(stderr, "orphans   %d slab(s) hold nothing, %d of them unknown to this device\n",
-			len(found), stranded)
-
 		released, err := v.ReleaseOrphans(ctx, opts)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(stderr, "          released %d slab(s) in %s\n", released.SlabsReleased, took(released.Elapsed))
+		rows = append(rows, orphansRow(len(found), stranded, released.SlabsReleased))
+		detail = append(detail, fmt.Sprintf("          released %d slab(s) in %s", released.SlabsReleased, took(released.Elapsed)))
 		freed += released.Freed()
 		after = released.After
 	}
+	rows = append(rows, quotaRow(before, after, freed))
 
-	fmt.Fprintf(stderr, "quota     %s used before, %s after, freed %s\n",
-		humanBytes(before.PinnedData), humanBytes(after.PinnedData), humanBytes(freed))
+	final := "Nothing to release"
+	if freed > 0 {
+		final = "Released " + humanBytes(freed)
+	}
+	out.done(ui.MarkSuccess, final)
+	out.report(rows)
+	out.detail(detail...)
+	for _, note := range notes {
+		out.note(note)
+	}
 	return nil
 }
 
-func reportRepack(ctx context.Context, v *vault.Vault) error {
+// The lines of a reclaim's report. Each says what was released and what was
+// left alone, because quota that did not come back is the thing a reader is
+// looking for when a reclaim returns less than they expected.
+func ownedRow(slabs int) [2]string {
+	return [2]string{"Owned", fmt.Sprintf("%s hydrated from another installation %s now this device's to release",
+		plural(slabs, "slab"), verb(slabs, "is", "are"))}
+}
+
+func repackRow(packed reclaim.Repack) [2]string {
+	if len(packed.Records) == 0 {
+		return [2]string{"Repack", "nothing to move"}
+	}
+	return [2]string{"Repack", fmt.Sprintf("%s, %s into %d, peak %d",
+		plural(len(packed.Records), "record"), plural(packed.SlabsBefore, "slab"), packed.SlabsAfter, packed.Peak)}
+}
+
+func sweptRow(sweep reclaim.Sweep) [2]string {
+	return [2]string{"Swept", fmt.Sprintf("%s, deleted %d, released %s",
+		plural(sweep.ObjectsSeen, "object"), sweep.ObjectsDeleted, plural(sweep.SlabsReleased, "slab"))}
+}
+
+func heldRow(slabs int) [2]string {
+	return [2]string{"Held", fmt.Sprintf("%s left alone: another device pinned %s and this one hydrated %s",
+		plural(slabs, "slab"), pick(slabs, "it", "them"), pick(slabs, "it", "them"))}
+}
+
+func droppedRow(objects int) [2]string {
+	return [2]string{"Dropped", plural(objects, "object") + " the indexer could not open"}
+}
+
+func orphansRow(found, stranded, released int) [2]string {
+	return [2]string{"Orphans", fmt.Sprintf("%s hold nothing, %d of them unknown to this device; released %d",
+		plural(found, "slab"), stranded, released)}
+}
+
+func quotaRow(before, after sia.Account, freed uint64) [2]string {
+	return [2]string{"Quota", fmt.Sprintf("%s used before, %s after, freed %s",
+		humanBytes(before.PinnedData), humanBytes(after.PinnedData), humanBytes(freed))}
+}
+
+// unsweptSlabs is the hint about storage a ledger-bounded sweep cannot reach.
+func unsweptSlabs(ctx context.Context, v *vault.Vault) (ui.Message, bool) {
+	unledgered, err := v.Unledgered(ctx)
+	if err != nil || len(unledgered) == 0 {
+		return ui.Message{}, false
+	}
+	var empty int
+	for _, slab := range unledgered {
+		if slab.Empty {
+			empty++
+		}
+	}
+	return ui.Message{Kind: ui.KindHint, Text: fmt.Sprintf(
+		"%s billed to this account %s not in this device's ledger and were not swept; "+
+			"`--orphans` releases the %d that %s nothing",
+		plural(len(unledgered), "slab"), verb(len(unledgered), "is", "are"), empty, verb(empty, "holds", "hold"))}, true
+}
+
+// repackNow rewrites the live records into as few slabs as they fit in.
+func repackNow(ctx context.Context, v *vault.Vault) (reclaim.Repack, error) {
 	mark, err := v.Watermark(ctx)
 	if err != nil {
-		return err
+		return reclaim.Repack{}, err
 	}
 	if !mark.Affordable {
-		return fmt.Errorf("repack needs %s free to hold the old and new slabs at once, and there is less than that",
-			humanBytes(mark.Headroom))
+		return reclaim.Repack{}, refuse(fmt.Sprintf(
+			"repack needs %s free to hold the old and new slabs at once, and there is less than that",
+			humanBytes(mark.Headroom)))
 	}
-
-	packed, err := v.Repack(ctx)
-	if err != nil {
-		return err
-	}
-	if len(packed.Records) == 0 {
-		fmt.Fprint(stderr, "repack    nothing to move\n")
-		return nil
-	}
-	fmt.Fprintf(stderr, "repack    %d record(s), %d slab(s) into %d, peak %d, in %s\n",
-		len(packed.Records), packed.SlabsBefore, packed.SlabsAfter, packed.Peak, took(packed.Elapsed))
-	fmt.Fprintf(stderr, "          read %s · write %s · retire %s\n",
-		took(packed.ReadFor), took(packed.WriteFor), took(packed.RetireFor))
-	return nil
+	return v.Repack(ctx)
 }
 
 // runRecover rebuilds the vault from the recovery phrase and the indexer.
-func runRecover(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("recover", flag.ExitOnError)
-	var flags vaultFlags
-	flags.bind(fs)
-	embed := fs.Bool("embed", true,
-		"regenerate search vectors as records are recovered, so they are findable by meaning and not only by id")
-	if err := fs.Parse(args); err != nil {
+func runRecover(ctx context.Context, out *session, args []string) error {
+	cmd := newInvocation("recover").withVault().withVerbose()
+	embed := recoverFlags(cmd)
+	if err := cmd.parse(out, args); err != nil {
 		return err
 	}
 
-	v, err := flags.open(ctx)
+	v, err := cmd.vault.open(ctx, out, restorePhases(out, "Recovering records", "recovered", false))
 	if err != nil {
 		return err
 	}
-	defer closing(v)
+	defer closing(out, v)
+	if !v.Online() {
+		return needsIndexer("recover", v, "")
+	}
+	// Each record is written whole before the next is read, so what was
+	// restored stays. Whether running it again is safe has not been
+	// established, so nothing here suggests it.
+	out.leaves("Records recovered before the interrupt stay on this device.")
 
-	fmt.Fprint(stderr, "rebuilding from the recovery phrase and the indexer\n")
-	report, err := v.Recover(ctx, vault.RecoveryRequest{
-		Embed: *embed,
-		OnRecord: func(_ record.ID, n int) {
-			if n%100 == 0 {
-				fmt.Fprintf(stderr, "  %d records\n", n)
-			}
-		},
-	})
+	report, err := v.Recover(ctx, vault.RecoveryRequest{Embed: *embed})
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(stderr, "recovered %d record(s) from %d object(s) in %s\n",
-		report.Recovered, report.Objects, took(report.Elapsed))
+	out.done(ui.MarkSuccess, fmt.Sprintf("Recovered %s from %s",
+		plural(report.Recovered, "record"), plural(report.Objects, "object")))
 	if report.Foreign > 0 {
-		fmt.Fprintf(stderr, "  skipped  %d frame(s) this phrase does not open\n", report.Foreign)
+		out.report([][2]string{{"Skipped", plural(report.Foreign, "frame") + " this phrase does not open"}})
 	}
 	if report.Damaged > 0 || report.Unreadable > 0 {
-		fmt.Fprintf(stderr, "  damaged  %d object(s) stopped parsing part way, %d could not be opened at all\n",
-			report.Damaged, report.Unreadable)
+		out.note(ui.Message{Kind: ui.KindWarning, Text: fmt.Sprintf(
+			"%s stopped parsing part way, %d could not be opened at all",
+			plural(report.Damaged, "object"), report.Unreadable)})
 	}
 	return nil
+}
+
+// reclaimFlags is what sennit reclaim takes. Each of them releases something
+// the plain command deliberately leaves alone.
+func reclaimFlags(cmd *invocation) (repack, orphans, unreadable, takeOwnership, releaseAll *bool) {
+	return cmd.set.Bool("repack", false,
+			"rewrite every live record into as few slabs as it fits in before releasing the rest"),
+		cmd.set.Bool("orphans", false,
+			"also release slabs the account is billed for that hold nothing, including any stranded by an installation that is gone"),
+		cmd.set.Bool("unreadable", false,
+			"also delete objects the indexer holds but cannot open"),
+		cmd.set.Bool("take-ownership", false,
+			"release storage this device hydrated rather than pinned; only when the installation that wrote it is gone for good, never when it is merely switched off"),
+		cmd.set.Bool("release-all", false,
+			"release this vault's storage even though the catalog is empty; only for a vault that really has been emptied, never to work around a catalog that will not load")
+}
+
+// recoverFlags is what sennit recover takes.
+func recoverFlags(cmd *invocation) *bool {
+	return cmd.set.Bool("embed", true,
+		"regenerate search vectors as records are recovered, so they are findable by meaning and not only by id")
+}
+
+// verb picks the form of a verb that agrees with a count.
+func verb(n int, singular, plural string) string { return pick(n, singular, plural) }
+
+func pick(n int, singular, plural string) string {
+	if n == 1 {
+		return singular
+	}
+	return plural
 }

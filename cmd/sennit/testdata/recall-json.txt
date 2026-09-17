@@ -1,0 +1,87 @@
+{
+  "results": [
+    {
+      "uri": "sennit://memory/4083dbdd9e9f0f816c797080eed61fba",
+      "kind": "memory",
+      "type": "fact",
+      "title": "Prefers one live status line over scrolling logs",
+      "snippet": "Prefers one live status line over scrolling logs, The user is choosing a CLI look for Sennit",
+      "tags": [
+        "cli",
+        "ui"
+      ],
+      "created": "2026-09-16T21:50:03.114Z",
+      "score": 0.0328,
+      "similarity": 0.5642,
+      "detail": {
+        "uri": "sennit://memory/4083dbdd9e9f0f816c797080eed61fba",
+        "id": "4083dbdd9e9f0f816c797080eed61fba",
+        "type": "fact",
+        "statement": "Prefers one live status line over scrolling logs",
+        "context": "The user is choosing a CLI look for Sennit",
+        "tags": [
+          "cli",
+          "ui"
+        ],
+        "created": "2026-09-16T21:50:03.114Z",
+        "tier": "local"
+      }
+    },
+    {
+      "uri": "sennit://memory/ea0df403908921a3f8ede37d406c4de4",
+      "kind": "memory",
+      "type": "fact",
+      "title": "The Sia grant ask is 26k over five months",
+      "snippet": "The Sia grant ask is 26k over five months, Grant planning",
+      "tags": [
+        "grant"
+      ],
+      "created": "2026-09-02T10:11:45.902Z",
+      "score": 0.0323,
+      "similarity": 0.4607,
+      "detail": {
+        "uri": "sennit://memory/ea0df403908921a3f8ede37d406c4de4",
+        "id": "ea0df403908921a3f8ede37d406c4de4",
+        "type": "fact",
+        "statement": "The Sia grant ask is 26k over five months",
+        "context": "Grant planning",
+        "tags": [
+          "grant"
+        ],
+        "created": "2026-09-02T10:11:45.902Z",
+        "tier": "local"
+      }
+    },
+    {
+      "uri": "sennit://memory/e26c6b15b50d38d6edf89a250fbcadf9",
+      "kind": "memory",
+      "type": "preference",
+      "title": "Go builds on this box need TMPDIR set to the home filesystem",
+      "snippet": "Go builds on this box need TMPDIR set to the home filesystem, Sennit build tooling",
+      "tags": [
+        "go",
+        "build"
+      ],
+      "created": "2026-09-12T08:31:20.377Z",
+      "score": 0.0317,
+      "similarity": 0.4357,
+      "detail": {
+        "uri": "sennit://memory/e26c6b15b50d38d6edf89a250fbcadf9",
+        "id": "e26c6b15b50d38d6edf89a250fbcadf9",
+        "type": "preference",
+        "statement": "Go builds on this box need TMPDIR set to the home filesystem",
+        "context": "Sennit build tooling",
+        "tags": [
+          "go",
+          "build"
+        ],
+        "created": "2026-09-12T08:31:20.377Z",
+        "tier": "local"
+      }
+    }
+  ],
+  "searched": 1284,
+  "considered": 100,
+  "lexicalHits": 0,
+  "tookMs": 208
+}

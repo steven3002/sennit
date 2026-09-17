@@ -4,13 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
-	"errors"
-	"flag"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/steven3002/sennit/cmd/sennit/internal/ui"
 	"github.com/steven3002/sennit/keys"
 	"github.com/steven3002/sennit/sia"
 	"github.com/steven3002/sennit/vault"
@@ -26,18 +25,17 @@ import (
 // is often already dead; approval is not readiness, because the indexer funds
 // host accounts afterwards and a write before that fails with a message about
 // hosts; and the app key is a secret that must not be typed on a command line.
-func runConnect(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("connect", flag.ExitOnError)
-	out := fs.String("out", "", "file to write the issued app key to, created 0600 (required)")
-	indexer := fs.String("indexer", vault.DefaultIndexer(), "indexer URL")
-	budget := fs.Duration("wait", sia.ApprovalBudget, "how long to keep a live approval link available")
-	ready := fs.Duration("ready", 90*time.Second, "how long to wait for the account to become usable")
-	if err := fs.Parse(args); err != nil {
+func runConnect(ctx context.Context, out *session, args []string) error {
+	cmd := newInvocation("connect")
+	keyFile, indexer, budget, ready := connectFlags(cmd)
+	if err := cmd.parse(out, args); err != nil {
 		return err
 	}
-	if *out == "" {
-		return errors.New("-out is required: the app key is a secret and is written to a file " +
-			"rather than printed, so it does not land in a terminal's scrollback or a recording")
+	if *keyFile == "" {
+		return refuse("--out is required").
+			because("The app key is a secret and is written to a file rather than printed, " +
+				"so it does not land in a terminal's scrollback or a recording.").
+			try("`sennit connect --out sennit.key`")
 	}
 
 	// The phrase is read once, used twice, to register and to derive the vault
@@ -47,53 +45,81 @@ func runConnect(ctx context.Context, args []string) error {
 		return err
 	}
 
-	fmt.Printf("Connecting to %s\n", *indexer)
-	fmt.Printf("This needs one approval in a browser. The link below expires after about ten\n" +
-		"minutes; a fresh one is issued automatically until you approve or the budget runs out.\n")
+	// Everything this command prints is for the person at the terminal, and
+	// none of it is a result another program would read, so all of it goes to
+	// stderr. The link is printed above the live line and never cut.
+	out.above(
+		"Connecting to "+*indexer,
+		"This needs one approval in a browser. The link below expires after about ten",
+		"minutes; a fresh one is issued automatically until you approve or the budget runs out.")
+	out.leaves("No app key was issued. Run `sennit connect --out " + *keyFile + "` again for a fresh link.")
+	out.phase("Requesting an approval link")
 
 	result, err := sia.Approve(ctx, phrase, sia.ApprovalRequest{
 		Indexer: *indexer,
 		Budget:  *budget,
 		OnURL: func(url string, attempt int) {
+			lines := []string{""}
 			if attempt > 1 {
-				fmt.Printf("\n  the previous link expired unapproved, here is a fresh one (#%d)\n", attempt)
+				lines = append(lines,
+					fmt.Sprintf("  the previous link expired unapproved, here is a fresh one (#%d)", attempt), "")
 			}
-			fmt.Printf("\n  approve this: %s\n\n  waiting...\n", url)
+			out.above(append(lines, "  approve this: "+url)...)
+			out.phase("Waiting for approval")
 		},
+		OnApproved: func() { out.phase("Registering this installation") },
 	})
 	if err != nil {
 		return err
 	}
-	fmt.Printf("\n  approved after %s, over %d request(s)\n",
-		result.WaitedFor.Round(time.Second), result.Attempts)
-
-	if err := writeAppKey(*out, result.AppKey); err != nil {
+	if err := writeAppKey(*keyFile, result.AppKey); err != nil {
 		return err
 	}
-	fmt.Printf("  app key %s… written to %s\n", result.AppKey.Fingerprint(), *out)
+	out.leaves("The app key is already written to " + *keyFile +
+		". The indexer may need a little longer before the account can write.")
 
 	// Approval is not readiness. The indexer funds host accounts after the
 	// connection is approved, and a write before that completes fails with an
 	// error about hosts that says nothing about waiting.
+	out.phase("Waiting for the indexer to fund host accounts")
 	client, err := sia.Connect(sia.Config{Indexer: *indexer, AppKey: result.AppKey})
 	if err != nil {
 		return err
 	}
 	defer client.Close()
 
-	fmt.Printf("  funding host accounts (this is the ~16 s step that follows approval)...\n")
 	waited := time.Now()
 	account, err := client.WaitReady(ctx, *ready)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("  ready after %s · %s of %s quota in use\n\n",
-		time.Since(waited).Round(time.Second),
-		humanBytes(account.PinnedData), humanBytes(account.MaxPinnedData))
 
-	fmt.Printf("Load the key into this shell without putting it in your history:\n"+
-		"  export %s=$(cat %s)\n", keys.AppKeyEnv, *out)
+	out.done(ui.MarkSuccess, fmt.Sprintf("Connected: app key %s… written to %s",
+		result.AppKey.Fingerprint(), *keyFile))
+	out.above(append([]string{""}, ui.KeyValues(
+		connectRows(result.Attempts, result.WaitedFor, time.Since(waited), account))...)...)
+	out.note(ui.Message{Kind: ui.KindHint, Text: fmt.Sprintf(
+		"load the key into this shell without putting it in your history: `export %s=$(cat %s)`",
+		keys.AppKeyEnv, *keyFile)})
 	return nil
+}
+
+// connectFlags is what sennit connect takes. It opens no vault, so it has none
+// of the vault flags.
+func connectFlags(cmd *invocation) (keyFile, indexer *string, budget, ready *time.Duration) {
+	return cmd.set.String("out", "", "file to write the issued app key to, created 0600 (required)"),
+		cmd.set.String("indexer", vault.DefaultIndexer(), "indexer URL"),
+		cmd.set.Duration("wait", sia.ApprovalBudget, "how long to keep a live approval link available"),
+		cmd.set.Duration("ready", 90*time.Second, "how long to wait for the account to become usable")
+}
+
+// connectRows is what the approval cost and where the account stands after it.
+func connectRows(attempts int, approval, ready time.Duration, account sia.Account) [][2]string {
+	return [][2]string{
+		{"Approved", fmt.Sprintf("after %s, over %s", approval.Round(time.Second), plural(attempts, "request"))},
+		{"Ready", fmt.Sprintf("after %s, %s of %s quota in use", ready.Round(time.Second),
+			humanBytes(account.PinnedData), humanBytes(account.MaxPinnedData))},
+	}
 }
 
 // writeAppKey stores the credential at 0600 and refuses to widen an existing

@@ -1,0 +1,4 @@
+✓ No records matched (0.4s)
+
+ HINT   this vault holds nothing searchable yet;
+        `sennit remember` stores the first record

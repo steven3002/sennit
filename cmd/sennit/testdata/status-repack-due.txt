@@ -1,0 +1,14 @@
+✓ Checked this vault and its Sia account (9.9s)
+
+Vault    ~/.sennit
+Records  12,480 stored on Sia, 0 queued on this device
+Search   12,480 indexed with bge-small-en-v1.5-fp32
+Quota    36.52 GiB of 46.57 GiB used, 10.05 GiB free
+Slabs    935 pinned by this device, 0 hydrated from another
+Repack   worth running, and there is room for it (78.4% of quota used)
+
+ WARNING  reclaimable storage has built up
+  Left alone it keeps accumulating until a write fails for want
+  of room.
+
+ HINT     `sennit reclaim --repack` returns it

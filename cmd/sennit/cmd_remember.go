@@ -2,53 +2,52 @@ package main
 
 import (
 	"context"
-	"flag"
+	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/steven3002/sennit/cmd/sennit/internal/ui"
+	"github.com/steven3002/sennit/cmd/sennit/internal/width"
 	"github.com/steven3002/sennit/record"
 	"github.com/steven3002/sennit/vault"
 )
 
-func runRemember(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("remember", flag.ExitOnError)
-	var flags vaultFlags
-	flags.bind(fs)
-	context_ := fs.String("context", "", "what makes the statement resolvable on its own")
-	memType := fs.String("type", string(record.TypeFact),
-		"one of "+strings.Join(record.TypeNames(), ", "))
-	tags := fs.String("tags", "", "comma-separated tags; prefer specific ones, and reuse the vault's existing vocabulary")
-	supersedes := fs.String("supersedes", "", "the id of a record this one replaces")
-	flush := fs.Bool("flush", true, "write to Sia before returning instead of leaving the record queued")
-	if err := fs.Parse(args); err != nil {
+// onDevice is what an interrupted or failed write leaves behind, and it is the
+// sentence this interface exists to be honest about: the memory is here, and it
+// is not on Sia.
+const onDevice = "The memory is saved on this device. It has not reached Sia yet."
+
+func runRemember(ctx context.Context, out *session, args []string) error {
+	cmd := newInvocation("remember").withVault().withVerbose()
+	statementContext, memType, tags, supersedes, flush := rememberFlags(cmd)
+	if err := cmd.parse(out, args); err != nil {
 		return err
 	}
-	if err := checkFlagOrder(fs.Args()); err != nil {
+	if err := checkFlagOrder("remember", cmd.set.Args()); err != nil {
 		return err
 	}
-	statement := strings.TrimSpace(strings.Join(fs.Args(), " "))
+	statement := strings.TrimSpace(strings.Join(cmd.set.Args(), " "))
 	if statement == "" {
-		return fmt.Errorf("nothing to remember: pass the statement as an argument")
+		return refuse("nothing to remember").try("pass the statement as an argument")
 	}
 	// Named here rather than left to the record validator, which explains why
 	// the field matters but not what to type. A first run meets this before it
 	// has met anything else.
-	if strings.TrimSpace(*context_) == "" {
-		return fmt.Errorf(
-			"-context is required, and it is what makes the statement findable once it is separated "+
-				"from the conversation it came from. Try:\n"+
-				"  sennit remember -context \"why this matters and when it applies\" \"%s\"", statement)
+	if strings.TrimSpace(*statementContext) == "" {
+		return refuse("--context is required").
+			because("It is what makes the statement findable once it is separated from the conversation it came from.").
+			try(fmt.Sprintf("`sennit remember --context \"why this matters and when it applies\" %q`", statement))
 	}
 
-	v, err := flags.open(ctx)
+	v, err := cmd.vault.open(ctx, out, rememberPhases(out))
 	if err != nil {
 		return err
 	}
-	defer closing(v)
+	defer closing(out, v)
 
 	req := vault.RememberRequest{
 		Statement: statement,
-		Context:   *context_,
+		Context:   *statementContext,
 		Type:      record.Type(*memType),
 		Tags:      splitTags(*tags),
 		Source:    record.Source{Origin: "cli", Client: "sennit"},
@@ -65,10 +64,19 @@ func runRemember(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	// Neither the connection to Sia nor the embedder stops for an interrupt, so
+	// from here the memory is on this device however the run ends.
+	out.leaves(onDevice)
 
 	if *flush && !result.OnNetwork && v.Online() {
 		flushed, err := v.Flush(ctx)
 		if err != nil {
+			if !errors.Is(err, context.Canceled) {
+				// The memory is stored and the id is how it is reached, so it
+				// is printed even though the upload failed.
+				out.failed(onDevice)
+				out.result(result.ID.String())
+			}
 			return err
 		}
 		if flushed != nil {
@@ -77,24 +85,153 @@ func runRemember(ctx context.Context, args []string) error {
 		}
 	}
 
-	fmt.Println(result.ID)
-	fmt.Fprintf(stderr, "  cid       %s\n", result.CID)
-	reportAdvice(result)
-	fmt.Fprintf(stderr, "  embed     %s\n", took(result.EmbedFor))
-	fmt.Fprintf(stderr, "  seal      %s\n", took(result.SealFor))
-	if result.OnNetwork && result.Flushed != nil {
-		fmt.Fprintf(stderr, "  on Sia    %s in %d object(s), %d slab(s)\n",
-			humanBytes(uint64(result.Flushed.Bytes())), len(result.Flushed.Written), len(result.Flushed.Slabs))
-		fmt.Fprintf(stderr, "            upload %s · pin slabs %s · pin objects %s\n",
-			took(result.Flushed.UploadFor), took(result.Flushed.PinSlabsFor), took(result.Flushed.PinObjectFor))
-		fmt.Fprintf(stderr, "  object    %s\n", result.Flushed.Written[0].ObjectRef)
-	} else {
-		// Saying "saved" without this distinction would be the one dishonest
-		// thing this interface could do: until a flush completes the record
-		// exists on this device only.
-		fmt.Fprintf(stderr, "  on Sia    not yet, held on this device, %d record(s) queued\n", v.Pending())
-	}
+	reportRemembered(out, writeOutcome{
+		result:   result,
+		degraded: v.OfflineBecause() != nil,
+		queued:   v.Pending(),
+	})
 	return nil
+}
+
+// rememberFlags is what sennit remember takes.
+func rememberFlags(cmd *invocation) (statementContext, memType, tags, supersedes *string, flush *bool) {
+	return cmd.set.String("context", "", "what makes the statement resolvable on its own"),
+		cmd.set.String("type", string(record.TypeFact), "one of "+strings.Join(record.TypeNames(), ", ")),
+		cmd.set.String("tags", "", "comma-separated tags; prefer specific ones, and reuse the vault's existing vocabulary"),
+		cmd.set.String("supersedes", "", "the id of a record this one replaces"),
+		cmd.set.Bool("flush", true, "write to Sia before returning instead of leaving the record queued")
+}
+
+// A writeOutcome is what one remember achieved, in the terms the output needs:
+// the record, whether the indexer answered at all, and what is still owed to
+// the network.
+type writeOutcome struct {
+	result   vault.RememberResult
+	degraded bool
+	queued   int
+}
+
+// rememberPhases names what a write is doing, and keeps track of what an
+// interrupt would leave: the model download is the one phase that stops before
+// anything has been stored.
+func rememberPhases(out *session) phaseNamer {
+	write := out.writePhases("Uploading to Sia")
+	return func(p vault.Progress) (string, string, bool) {
+		switch p.Phase {
+		case vault.PhaseModelFetch:
+			out.leaves("The memory was not stored, and the model download did not finish.")
+			return "Downloading embedding model", "", true
+		case vault.PhaseEmbed:
+			return "Embedding and encrypting", "", true
+		}
+		return write(p)
+	}
+}
+
+// reportRemembered says which of the three things happened, and only the first
+// of them may say the memory is on Sia.
+//
+// Saying "saved" without that distinction would be the one dishonest thing this
+// interface could do: until a flush completes the record exists on this device
+// alone.
+func reportRemembered(out *session, outcome writeOutcome) {
+	switch {
+	case outcome.result.OnNetwork && outcome.result.Flushed != nil:
+		out.done(ui.MarkSuccess, "Remembered, and stored on Sia")
+	case outcome.degraded:
+		out.done(ui.MarkWarning, "Remembered on this device only: the indexer did not answer, "+
+			"the next connected flush uploads it")
+	default:
+		out.done(ui.MarkSuccess, "Remembered on this device, queued for Sia")
+	}
+	out.result(outcome.result.ID.String())
+	out.detail(writeDetail(outcome)...)
+	for _, note := range writeAdvice(outcome.result) {
+		out.note(note)
+	}
+}
+
+// writeDetail is the diagnostic block --verbose keeps, in the words it had
+// before there was anywhere else to put it.
+func writeDetail(outcome writeOutcome) []string {
+	result := outcome.result
+	lines := []string{fmt.Sprintf("  cid       %s", result.CID)}
+	for _, tag := range result.Tags.Tags {
+		switch {
+		case tag.New:
+			lines = append(lines, fmt.Sprintf("  tag       %-20s new to this vault", tag.Tag))
+		case tag.TooCommon:
+			lines = append(lines, fmt.Sprintf("  tag       %-20s on %d of %d records (%.0f%%), too common to narrow a search",
+				tag.Tag, tag.Records, result.Tags.Records, 100*tag.Share))
+		default:
+			lines = append(lines, fmt.Sprintf("  tag       %-20s on %d of %d records", tag.Tag, tag.Records, result.Tags.Records))
+		}
+	}
+	lines = append(lines,
+		fmt.Sprintf("  embed     %s", took(result.EmbedFor)),
+		fmt.Sprintf("  seal      %s", took(result.SealFor)))
+	if result.OnNetwork && result.Flushed != nil {
+		lines = append(lines,
+			fmt.Sprintf("  on Sia    %s in %d object(s), %d slab(s)",
+				humanBytes(uint64(result.Flushed.Bytes())), len(result.Flushed.Written), len(result.Flushed.Slabs)),
+			fmt.Sprintf("            upload %s · pin slabs %s · pin objects %s",
+				took(result.Flushed.UploadFor), took(result.Flushed.PinSlabsFor), took(result.Flushed.PinObjectFor)))
+		if len(result.Flushed.Written) > 0 {
+			lines = append(lines, fmt.Sprintf("  object    %s", result.Flushed.Written[0].ObjectRef))
+		}
+		return lines
+	}
+	return append(lines, fmt.Sprintf("  on Sia    not yet, held on this device, %d record(s) queued", outcome.queued))
+}
+
+// writeAdvice is what the vault noticed about the record just written.
+//
+// It is advice rather than output: the caller decides whether a near-duplicate
+// is a duplicate and whether a tag is worth narrowing. The vault runs no model
+// and does not decide either.
+func writeAdvice(result vault.RememberResult) []ui.Message {
+	var out []ui.Message
+	for i, conflict := range result.Conflicts {
+		note := ui.Message{
+			Kind: ui.KindWarning,
+			Text: "a very similar memory is already in this vault",
+			Data: []string{fmt.Sprintf("%s  match %.2f", conflict.ID, conflict.Similarity)},
+		}
+		if conflict.Statement != "" {
+			note.Data = append(note.Data, conflict.Statement)
+		}
+		if i == len(result.Conflicts)-1 {
+			note.Hints = []string{"decide whether this adds to the vault or replaces the record above (`--supersedes`)"}
+		}
+		out = append(out, note)
+	}
+
+	if result.Tags.NeedsNarrowerTags() {
+		note := ui.Message{
+			Kind: ui.KindHint,
+			Text: "none of these tags narrows a search of this vault; a more specific one would",
+		}
+		labels := 0
+		for _, tag := range result.Tags.Tags {
+			labels = max(labels, width.String(tag.Tag))
+		}
+		for _, tag := range result.Tags.Tags {
+			note.Data = append(note.Data, fmt.Sprintf("%s  on %d of %d records (%.0f%%)",
+				width.Pad(tag.Tag, labels), tag.Records, result.Tags.Records, 100*tag.Share))
+		}
+		return append(out, note)
+	}
+	for _, tag := range result.Tags.Tags {
+		if !tag.TooCommon {
+			continue
+		}
+		out = append(out, ui.Message{
+			Kind: ui.KindHint,
+			Text: fmt.Sprintf("%s is on %d of %d records (%.0f%%), too common to narrow a search",
+				tag.Tag, tag.Records, result.Tags.Records, 100*tag.Share),
+		})
+	}
+	return out
 }
 
 func splitTags(raw string) []string {
@@ -105,39 +242,6 @@ func splitTags(raw string) []string {
 		}
 	}
 	return out
-}
-
-// reportAdvice prints what the vault noticed about the record just written.
-//
-// It is on stderr with the rest of the diagnostics because it is advice, not
-// output: the caller decides whether a near-duplicate is a duplicate, and
-// whether a tag is worth narrowing. The vault runs no model and does not decide
-// either.
-func reportAdvice(result vault.RememberResult) {
-	for _, tag := range result.Tags.Tags {
-		switch {
-		case tag.New:
-			fmt.Fprintf(stderr, "  tag       %-20s new to this vault\n", tag.Tag)
-		case tag.TooCommon:
-			fmt.Fprintf(stderr, "  tag       %-20s on %d of %d records (%.0f%%), too common to narrow a search\n",
-				tag.Tag, tag.Records, result.Tags.Records, 100*tag.Share)
-		default:
-			fmt.Fprintf(stderr, "  tag       %-20s on %d of %d records\n",
-				tag.Tag, tag.Records, result.Tags.Records)
-		}
-	}
-	if result.Tags.NeedsNarrowerTags() {
-		fmt.Fprintln(stderr, "  ⚠ none of these tags narrows a search of this vault; a more specific one would")
-	}
-	for _, conflict := range result.Conflicts {
-		fmt.Fprintf(stderr, "  ⚠ near-duplicate [%.4f] %s\n", conflict.Similarity, conflict.ID)
-		if conflict.Statement != "" {
-			fmt.Fprintf(stderr, "              %s\n", conflict.Statement)
-		}
-	}
-	if len(result.Conflicts) > 0 {
-		fmt.Fprintln(stderr, "  decide whether this adds to the vault or replaces the record above (-supersedes)")
-	}
 }
 
 // splitTypes parses a comma-separated type list for the recall filter.

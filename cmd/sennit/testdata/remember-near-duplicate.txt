@@ -1,0 +1,9 @@
+✓ Remembered on this device, queued for Sia (0.5s)
+3bd23285606a44e6110cb83771d91ed1
+
+ WARNING  a very similar memory is already in this vault
+          fc680f96678d090b2e4aee3a82cfa677  match 0.98
+          Prefers one live status line over scrolling logs
+
+ HINT     decide whether this adds to the vault or replaces the
+          record above (`--supersedes`)

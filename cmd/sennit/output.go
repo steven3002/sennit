@@ -2,13 +2,8 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"time"
 )
-
-// stderr carries progress and diagnostics; stdout carries results, so a caller
-// can pipe one without the other.
-var stderr = os.Stderr
 
 // took renders a duration at a precision that stays readable across the four
 // orders of magnitude these operations span.

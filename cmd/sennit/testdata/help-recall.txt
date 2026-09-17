@@ -1,0 +1,31 @@
+Find memories by meaning.
+
+USAGE
+  sennit recall [flags] <query>
+
+FLAGS
+  --limit n         How many records to return (default 5)
+  --tags list       Comma-separated tags the answer is likely to carry; these
+                    prefer, never exclude
+  --types list      Comma-separated record types that could answer this
+  --history         Include versions that have since been superseded
+  --from-network    Read bodies from Sia even when this device holds a copy, to
+                    check the stored data
+  --memory-text     Show each result's full text, its context and its id
+  --json            Print the results as JSON
+
+VAULT FLAGS
+  --home dir        Vault directory (default ~/.sennit)
+  --indexer url     Indexer URL (default https://sia.storage)
+  --offline         Work from this device only, without contacting the indexer
+
+OUTPUT FLAGS
+  --color when      When to colour output: auto, always or never (default auto)
+  --verbose         Show timings, read tiers and other detail
+
+EXAMPLES
+  $ sennit recall "how should progress be shown"
+  $ sennit recall --tags grant --limit 3 "budget"
+  $ sennit recall --memory-text "how should progress be shown"
+
+Flags go before the query.

@@ -1,0 +1,10 @@
+ ERROR  no Sia app key
+  The indexer issues one when you approve this installation. It
+  is a secret: keep it out of shell history and never pass it as
+  an argument.
+
+ HINT   set SENNIT_APP_KEY to the key that approval issued
+ HINT   not approved yet? `sennit connect --out sennit.key`
+        issues one
+ HINT   to work without an indexer, put `--offline` before the
+        text: `sennit remember --offline --context "..." "..."`

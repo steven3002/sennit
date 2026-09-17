@@ -1,0 +1,22 @@
+Restore this vault on a machine that never held it.
+
+USAGE
+  sennit hydrate [flags]
+
+FLAGS
+  --depth level    How far to go: catalog (locate records), metadata (hold and
+                   file them), index (search by meaning) (default metadata)
+  --quiet          Report only the summary, not each record
+
+VAULT FLAGS
+  --home dir       Vault directory (default ~/.sennit)
+  --indexer url    Indexer URL (default https://sia.storage)
+  --offline        Work from this device only, without contacting the indexer
+
+OUTPUT FLAGS
+  --color when     When to colour output: auto, always or never (default auto)
+  --verbose        Show timings, read tiers and other detail
+
+EXAMPLES
+  $ sennit hydrate
+  $ sennit hydrate --depth index

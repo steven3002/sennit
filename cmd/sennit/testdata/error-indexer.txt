@@ -1,0 +1,5 @@
+ ERROR  read the account (https://sia.storage): the indexer
+        answered 502 (gateway error)
+  The indexer or the CDN in front of it is having trouble. This
+  is transient and retryable; nothing was lost, because a failed
+  write leaves the records queued on this device.

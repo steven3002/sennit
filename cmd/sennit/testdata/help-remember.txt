@@ -1,0 +1,31 @@
+Store a memory.
+
+USAGE
+  sennit remember --context <text> [flags] <statement>
+
+FLAGS
+  --context text     What makes the statement resolvable on its own (required)
+  --type type        One of fact, preference, insight, doc, profile, correction
+                     (default fact)
+  --tags list        Comma-separated tags; prefer specific ones, and reuse the
+                     vault's existing vocabulary
+  --supersedes id    The id of a record this one replaces
+  --flush            Write to Sia before returning instead of leaving the
+                     record queued (default true; --flush=false leaves it
+                     queued)
+
+VAULT FLAGS
+  --home dir         Vault directory (default ~/.sennit)
+  --indexer url      Indexer URL (default https://sia.storage)
+  --offline          Work from this device only, without contacting the indexer
+
+OUTPUT FLAGS
+  --color when       When to colour output: auto, always or never (default
+                     auto)
+  --verbose          Show timings, read tiers and other detail
+
+EXAMPLES
+  $ sennit remember --context "why it matters" "the statement"
+  $ sennit remember --type preference --tags cli,ui --context "choosing a CLI look" "Prefers one live status line"
+
+Flags go before the statement.

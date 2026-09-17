@@ -1,0 +1,17 @@
+Show what is held, queued and billed.
+
+USAGE
+  sennit status [flags]
+
+VAULT FLAGS
+  --home dir       Vault directory (default ~/.sennit)
+  --indexer url    Indexer URL (default https://sia.storage)
+  --offline        Work from this device only, without contacting the indexer
+
+OUTPUT FLAGS
+  --color when     When to colour output: auto, always or never (default auto)
+  --verbose        Show timings, read tiers and other detail
+
+EXAMPLES
+  $ sennit status
+  $ sennit status --offline

@@ -1,0 +1,5 @@
+✓ Released 120.00 MiB (35.7s)
+
+Repack  60 records, 4 slabs into 1, peak 5
+Swept   60 objects, deleted 0, released 0 slabs
+Quota   200.00 MiB used before, 80.00 MiB after, freed 120.00 MiB

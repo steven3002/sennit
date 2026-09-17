@@ -1,0 +1,3 @@
+0.5642	fact	cli,ui	4083dbdd9e9f0f816c797080eed61fba	Prefers one live status line over scrolling logs	The user is choosing a CLI look for Sennit
+0.4607	fact	grant	ea0df403908921a3f8ede37d406c4de4	The Sia grant ask is 26k over five months	Grant planning
+0.4357	preference	go,build	e26c6b15b50d38d6edf89a250fbcadf9	Go builds on this box need TMPDIR set to the home filesystem	Sennit build tooling
