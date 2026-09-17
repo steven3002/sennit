@@ -522,3 +522,57 @@ func TestASweepNeverReachesOutsideItsOwnLedger(t *testing.T) {
 		t.Errorf("counted %d object(s) outside this ledger, want 2", plan.ForeignObjects)
 	}
 }
+
+// A flush interrupted while pinning its objects leaves a slab that is billed
+// and holds part of a batch the catalog never learned about. Whether an
+// ordinary sweep can reach that slab is decided entirely by whether the ledger
+// names it.
+//
+// Both halves are here because the second is what the write path now
+// guarantees, and the first is what it used to leave behind. The sweep itself
+// is the same in both.
+func TestAStrandedSlabIsReachedOnlyThroughTheLedger(t *testing.T) {
+	t.Parallel()
+
+	// One slab holding a flush that completed, one holding the objects an
+	// interrupted flush managed to pin, one belonging to another installation.
+	all := []sia.StoredObject{
+		object(1, "landed"), object(2, "landed"), object(3, "landed"),
+		object(4, "stranded"), object(5, "stranded"),
+		object(9, "someone-elses"),
+	}
+	// The catalog names the completed flush and nothing else. The interrupted
+	// flush never got as far as cataloguing anything, and its records are back
+	// on the queue.
+	live := reclaim.Live{Objects: keep(1, 2, 3), Slabs: slabs("landed"), Catalogued: 3}
+
+	t.Run("the ledger names it, so the sweep releases it", func(t *testing.T) {
+		t.Parallel()
+		plan := reclaim.PlanSweepForTest(live, pinned("landed", "stranded"), all)
+
+		if len(plan.DeadObjects) != 2 {
+			t.Errorf("plans to delete %v, want the two objects the interrupt pinned", plan.DeadObjects)
+		}
+		if len(plan.ReleasableSlabs) != 1 || plan.ReleasableSlabs[0] != "stranded" {
+			t.Errorf("plans to release %v, want the stranded slab", plan.ReleasableSlabs)
+		}
+		if plan.ForeignObjects != 1 {
+			t.Errorf("counted %d object(s) outside this ledger, want 1", plan.ForeignObjects)
+		}
+	})
+
+	t.Run("the ledger does not name it, so nothing ordinary can", func(t *testing.T) {
+		t.Parallel()
+		plan := reclaim.PlanSweepForTest(live, pinned("landed"), all)
+
+		if len(plan.DeadObjects) != 0 || len(plan.ReleasableSlabs) != 0 {
+			t.Errorf("plans to delete %v and release %v from outside its ledger",
+				plan.DeadObjects, plan.ReleasableSlabs)
+		}
+		// The stranded slab's objects are counted as another installation's,
+		// which is what `status` says about them too, and it is false.
+		if plan.ForeignObjects != 3 {
+			t.Errorf("counted %d object(s) outside this ledger, want 3", plan.ForeignObjects)
+		}
+	})
+}

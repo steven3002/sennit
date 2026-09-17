@@ -301,8 +301,11 @@ func (v *Vault) connect(ctx context.Context) error {
 		return err
 	}
 	v.client = client
-	v.store = store.New(client)
+	// The reclaimer is built before the store because the store writes through
+	// it: every batch records its slabs in the ledger the reclaimer owns before
+	// it pins them. See recordSlabs.
 	v.reclaimer = reclaim.New(client, v.local)
+	v.store = store.New(client, v.recordSlabs)
 	v.observe()
 	_ = ctx
 	return nil

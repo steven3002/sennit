@@ -231,12 +231,40 @@ func (v *Vault) Flush(ctx context.Context) (*store.Flush, error) {
 	return &result.Flush, nil
 }
 
+// recordSlabs writes a batch's slabs into this device's ledger, before the
+// write that created them pins anything.
+//
+// It is what the store calls on the way through, so a flush and a repack both
+// pass here. Recording the slab first is what makes an interrupted write
+// recoverable. A slab is billed from the moment it is pinned, this ledger is
+// the only thing that can find it again, and the sweep that releases it is
+// bounded by this ledger, so a write recorded only on completion leaves an
+// interrupt anywhere in its pinning with storage nothing local knows about.
+// Pinning the objects of a large batch is seconds long, so that window is wide.
+//
+// The record and byte figures are the whole batch's, unchanged from when this
+// was done after the flush rather than before it. They say what the batch put
+// into the slab, not what survived the write, and nothing shows them to anyone.
+//
+// A slab the write then failed to pin is named here and is not on the account.
+// That costs nothing: releasing a slab the indexer does not have already counts
+// as success, so the next reclamation drops the entry.
+func (v *Vault) recordSlabs(written store.SlabsWritten) error {
+	for _, slabID := range written.Slabs {
+		if err := v.reclaimer.Track(slabID, written.Records, written.Bytes); err != nil {
+			return fmt.Errorf("track slab %s: %w", slabID, err)
+		}
+	}
+	return nil
+}
+
 // recordFlush catalogs a completed flush.
 //
-// The catalog entry and the slab ledger are written here rather than at queue
-// time because neither is knowable until the network answers: an object ref
-// only exists once the write lands, and a slab only becomes this vault's
-// responsibility once something of ours is pinned in it.
+// The catalog entry is written here rather than at queue time because it is not
+// knowable until the network answers: an object ref only exists once the write
+// lands. The slab ledger is deliberately not written here. It is written before
+// the slabs are pinned, by recordSlabs, and writing it twice would count every
+// record and every byte in the batch against its slab twice over.
 func (v *Vault) recordFlush(result packer.Result) error {
 	byCID := make(map[string]store.Written, len(result.Flush.Written))
 	for _, written := range result.Flush.Written {
@@ -272,12 +300,6 @@ func (v *Vault) recordFlush(result packer.Result) error {
 		}
 		if err := v.manifest.Append(entry); err != nil {
 			return fmt.Errorf("catalog %s: %w", queued.ID, err)
-		}
-	}
-
-	for _, slabID := range result.Flush.Slabs {
-		if err := v.reclaimer.Track(slabID, len(result.Records), int64(result.Flush.Bytes())); err != nil {
-			return fmt.Errorf("track slab %s: %w", slabID, err)
 		}
 	}
 	return nil

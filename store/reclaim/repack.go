@@ -118,6 +118,11 @@ func (r *Reclaimer) Repack(ctx context.Context, writer *store.Store, held []Held
 	}
 	report.ReadFor = time.Since(read)
 
+	// The write records its new slabs in this ledger itself, before it pins
+	// them, so they are this device's to release from the moment they can be
+	// billed. See store.SlabLedger: a repack interrupted while pinning would
+	// otherwise leave a new slab billed with nothing pointing at it and nothing
+	// able to find it, on top of the old slabs it had not yet released.
 	write := time.Now()
 	flushed, err := writer.PutBatch(ctx, blobs)
 	if err != nil {
@@ -142,11 +147,6 @@ func (r *Reclaimer) Repack(ctx context.Context, writer *store.Store, held []Held
 			To:     written.ObjectRef,
 			SlabID: written.SlabID,
 			Bytes:  written.Bytes,
-		}
-	}
-	for _, slabID := range flushed.Slabs {
-		if err := r.Track(slabID, len(held), int64(flushed.Bytes())); err != nil {
-			return report, err
 		}
 	}
 	if err := apply(report.Records); err != nil {
