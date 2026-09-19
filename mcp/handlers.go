@@ -100,7 +100,7 @@ type RecallIn struct {
 	Tags              []string `json:"tags,omitempty" jsonschema:"two or three tags you expect the answer to carry; these PREFER and never exclude, so a wrong guess costs ranking quality and never an answer"`
 	Types             []string `json:"types,omitempty" jsonschema:"memory types that could answer: fact, preference, insight, doc, profile, correction; these PREFER and never exclude"`
 	Scope             []string `json:"scope,omitempty" jsonschema:"which classes of record may answer at all: memory, session. This EXCLUDES. Set it only when the user named a container, never because a question's wording suggests a class; empty means both"`
-	Limit             int      `json:"limit,omitempty" jsonschema:"how many results to return, default 5, maximum 50"`
+	Limit             int      `json:"limit,omitempty" jsonschema:"how many results to return, default 5, maximum 100. Raise it when the user asks for a thorough search and accepts the context cost: a deeper page finds records the default ranks below the cut"`
 	Cursor            string   `json:"cursor,omitempty" jsonschema:"a nextCursor from a previous call, to continue the same ranking"`
 	IncludeSuperseded bool     `json:"includeSuperseded,omitempty" jsonschema:"include records a later one replaced; use when the user asks what something used to be"`
 	Detail            string   `json:"detail,omitempty" jsonschema:"concise (default) returns snippets and addresses; full returns whole records"`
@@ -147,7 +147,12 @@ type HitOut struct {
 
 // MaxLimit bounds a page of results, so a caller asking for the vault gets a
 // page and a cursor.
-const MaxLimit = 50
+//
+// At the ceiling the page equals recall.DefaultCandidates, so the tag and type
+// boost still reorders what came back but can no longer promote a record that
+// similarity did not already retrieve. That is benign, because everything
+// fetched is returned, but the filter's measured gain does not apply there.
+const MaxLimit = 100
 
 func (s *Server) recall(ctx context.Context, _ *sdk.CallToolRequest, in RecallIn) (*sdk.CallToolResult, RecallOut, error) {
 	if err := s.ready(); err != nil {

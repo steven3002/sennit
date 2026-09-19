@@ -161,6 +161,23 @@ An empty result is a real answer. It means the vault does not hold this. Say so 
 presenting the closest record as if it were responsive, the user knows what they told you, and a
 confident wrong memory is worse than none.
 
+ONE SEARCH IS OFTEN NOT ENOUGH, AND YOU MAY RUN MORE. Use what a search returns to decide what to
+search for next, then search again. This matters most when the user asks for something in words
+that describe what they WANT rather than what they ARE: "suggest a hotel", "what should I cook",
+"recommend something to watch". The vault stores both the durable fact about the user and the
+record of them having asked for the same thing before, and a question in the user's own words
+matches the asking, which ranks the fact that would actually answer it far down. A first search
+phrased their way is still the right opening move, because it is correct for most questions. When
+it comes back holding requests rather than facts about the user, search again for the attribute:
+what they own, prefer, or habitually do.
+
+Search again too when the results disagree with each other. A vault can hold two records that
+cannot both be true, and a second search aimed at the disagreement is how you find out which is
+current rather than averaging them into an answer the user never gave you.
+
+Stop when you have enough to answer. Each search costs the user context, so two or three aimed
+searches beat five speculative ones.
+
 Results are snippets with addresses, not whole records. Call "open" on an address when you need the
 full statement and its context. Each result carries the similarity it earned and the boost the filter
 gave it, so you can see how much of a record's position came from meaning and how much from matching

@@ -56,6 +56,29 @@ func TestRecallDescriptionSaysFiltersPreferRatherThanExclude(t *testing.T) {
 	}
 }
 
+// A blind study of 60 agent sessions found the shipped single-shot configuration
+// answered 0 of 8 vague preference questions, and that the same query text with
+// a licence to search more than once answered 5 of 8. The licence is what
+// carries that gain, so it is locked here rather than left to a future edit.
+func TestRecallDescriptionLicensesMoreThanOneSearch(t *testing.T) {
+	text := strings.ToLower(mcp.RecallTool.Description)
+	for _, must := range []string{
+		"search again", // the instruction itself
+		"attribute",    // what the second search is for
+		"disagree",     // the other case a second search resolves
+		"stop when",    // and that it is bounded, because each search costs context
+	} {
+		if !strings.Contains(text, must) {
+			t.Errorf("the recall description never mentions %q", must)
+		}
+	}
+	// The failure mode the licence exists for: a question in the user's own
+	// words matches the record of them asking, not the fact that answers it.
+	if !strings.Contains(text, "asked for the same thing before") {
+		t.Error("the recall description does not say why one search can miss a durable fact")
+	}
+}
+
 // Every type in the vocabulary needs a gloss, or an agent has to guess what one
 // means. A type added without one should fail here rather than in the field.
 func TestEveryTypeHasGuidance(t *testing.T) {
