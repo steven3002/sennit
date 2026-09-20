@@ -36,7 +36,7 @@ Two record types today on one encrypted, content-addressed, versioned substrate,
 | `session` | past conversations you can resume | metadata + version | yes |
 | `skill` | reusable procedures an agent can load | name + version | not yet |
 
-Agents talk to it over **[MCP](https://modelcontextprotocol.io)** (Model Context Protocol), so any MCP-capable client can use the same memory.
+Agents talk to it over **[MCP](https://modelcontextprotocol.io)** (Model Context Protocol) on stdio, so any MCP client that launches a local server, such as Claude Code, Claude Desktop or Cursor, can use the same memory. Clients that only connect to a remote MCP server over HTTP cannot reach it yet.
 
 **The search never leaves your machine.** Query embedding and vector search run locally against a local index; only opaque fetches of already-identified records hit the network. Nobody learns what you searched for.
 
