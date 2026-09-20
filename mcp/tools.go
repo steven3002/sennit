@@ -84,6 +84,20 @@ REQUIRED FIELDS, and why each one matters:
   The response reports how many records already carry each tag you used. A tag already on most of
   the vault will not narrow anything, and that is worth correcting on the next write.
 
+SUPPLY THE TRAIL BACK. "session" is the address of the conversation this came from and "span" is
+which turns of it, as first..last message ids. Give both whenever the memory came from a
+conversation you have saved.
+
+The reason is the statement itself. You are asked above to write one self-contained proposition,
+which means what gets stored is your rewrite and not what the user actually said, and a rewrite
+loses detail quietly. "I went to the Ash Wednesday service at the cathedral on February 1st"
+becomes "User attended an Ash Wednesday service at a cathedral", and the date is gone. That record
+still reads correctly and can no longer answer how many days passed. With a session and a span the
+original wording is one call to "open" away. Without them it is gone for good.
+
+A span without a session is refused rather than dropped, because a range of turns means nothing
+without the conversation it indexes into.
+
 OPTIONAL, and worth supplying when you know them:
 
 - supersedes: the id of a record this one replaces. The old record is kept and stays retrievable as

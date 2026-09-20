@@ -315,8 +315,8 @@ type RememberIn struct {
 	Confidence float64  `json:"confidence,omitempty" jsonschema:"your own judgement, 0 to 1"`
 	ValidFrom  string   `json:"validFrom,omitempty" jsonschema:"when the statement became true OF THE WORLD, as distinct from when you learned it; RFC 3339"`
 	ValidUntil string   `json:"validUntil,omitempty" jsonschema:"when the statement stopped being true of the world; RFC 3339"`
-	Session    string   `json:"session,omitempty" jsonschema:"the address of the conversation this was drawn from, so the claim can be traced back to it"`
-	Span       string   `json:"span,omitempty" jsonschema:"which turns of that conversation, as first..last message ids"`
+	Session    string   `json:"session,omitempty" jsonschema:"EXPECTED. The address of the conversation this was drawn from. The statement above is a rewrite, not what the user said, and a rewrite silently loses detail: a dropped date makes a record that still looks right and can no longer answer. This address is the way back to the words themselves, so supply it whenever the memory came from a conversation you have saved"`
+	Span       string   `json:"span,omitempty" jsonschema:"EXPECTED with session. Which turns of that conversation, as first..last message ids, so the trail leads to the exact exchange rather than the whole transcript"`
 	Keywords   []string `json:"keywords,omitempty" jsonschema:"extra words this record should be findable by, beyond the ones in the statement"`
 }
 
@@ -383,6 +383,13 @@ func (s *Server) remember(ctx context.Context, _ *sdk.CallToolRequest, in Rememb
 			return nil, RememberOut{}, fmt.Errorf("supersedes: %w", err)
 		}
 		req.Supersedes = &id
+	}
+	// A span is a range inside a session, so it cannot stand alone. It used to
+	// be read only inside this branch, which meant a caller that sent a span and
+	// no session lost it with no error and no warning.
+	if in.Session == "" && strings.TrimSpace(in.Span) != "" {
+		return nil, RememberOut{}, errors.New(
+			"span names turns inside a conversation, so it needs the session it belongs to: pass session too, or drop span")
 	}
 	if in.Session != "" {
 		id, err := addressOf(in.Session, FormSession)

@@ -79,6 +79,29 @@ func TestRecallDescriptionLicensesMoreThanOneSearch(t *testing.T) {
 	}
 }
 
+// A stored statement is a rewrite, and a rewrite loses detail silently. The
+// trail back to the source is the only way to recover what was actually said,
+// so the description has to ask for it rather than list it as an optional
+// extra. Published ablation behind this: arXiv:2601.00821 measures the cost of
+// substituting an LLM rewrite for source text at 22 points on LongMemEval-S.
+func TestRememberDescriptionAsksForTheTrailBackToSource(t *testing.T) {
+	text := strings.ToLower(mcp.RememberTool.Description)
+	for _, must := range []string{
+		"session", // the conversation the claim came from
+		"span",    // and where in it
+		"rewrite", // why the trail is needed at all
+	} {
+		if !strings.Contains(text, must) {
+			t.Errorf("the remember description never mentions %q", must)
+		}
+	}
+	// Provenance listed under OPTIONAL is what this change exists to undo.
+	opt := strings.Index(text, "optional, and worth supplying")
+	if opt >= 0 && strings.Index(text, "session") > opt {
+		t.Error("the remember description introduces session only in the optional section")
+	}
+}
+
 // Every type in the vocabulary needs a gloss, or an agent has to guess what one
 // means. A type added without one should fail here rather than in the field.
 func TestEveryTypeHasGuidance(t *testing.T) {
