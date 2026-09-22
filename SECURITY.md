@@ -31,7 +31,7 @@ Especially interested in:
 Stated plainly so reports can be triaged fairly:
 
 - **Access is key possession.** Anyone with the recovery phrase has full access. There is no server-side revocation, and no delegated or programmable sharing.
-- **Local plaintext.** The local working copy is readable on a trusted device, this is deliberate, as in local-first note tools.
+- **Local plaintext.** The local working copy is readable on a trusted device, this is deliberate, as in local-first note tools. We considered encrypting it and decided against it: the process that searches your memory is the process that holds your key, and an MCP host starts that process unattended, so on a machine where an attacker can read the vault they can read the key beside it. Full-disk encryption is the control that works here. `SENNIT_HOME` can point inside an encrypted volume if you want a second one.
 - **Durability is Sia's.** Redundancy and repair are the network's guarantees, not ours.
 
 ## Supported versions

@@ -2,7 +2,7 @@
 
 **User-owned storage for an AI's memory, sessions, and skills, encrypted, on the [Sia](https://sia.tech) network.**
 
-Sennit gives an AI agent a long-term memory that belongs to **you** rather than to a vendor: encrypted on your device, stored on decentralized infrastructure that cannot read it, retrieved by meaning, and portable across apps, models and machines.
+Sennit gives an AI agent a long-term memory that belongs to **you** rather than to a vendor: encrypted on your device before it is sent, stored on decentralized infrastructure that cannot read it, retrieved by meaning, and portable across apps, models and machines.
 
 > **Status: beta.** The substrate, the CLI and the MCP server are built and measured against the live
 > Sia network, and the [quickstart](docs/quickstart.md) is tested end to end. **Prebuilt binaries are
@@ -20,7 +20,8 @@ An AI assistant's memory is trapped. It lives inside one provider, it can't move
 Sennit takes the other path:
 
 - **You own it.** Keys are derived from your recovery phrase and never leave your device.
-- **Nobody can read it.** Records are encrypted client-side before they touch the network; storage providers and the coordinating indexer see only ciphertext.
+- **Nobody on the network can read it.** Records are encrypted client-side before they touch the network; storage providers and the coordinating indexer see only ciphertext of your records.
+- **The copy on your own machine is readable.** Your device keeps a working copy in the clear, because the search, the ranking and the decryption all happen there. This is the same choice a local-first notes app makes: protect the device the way you protect those, and see [SECURITY.md](SECURITY.md).
 - **It's portable.** Memory follows you across agents, tools and machines, not locked to one vendor.
 - **It's searched by meaning.** Semantic recall over your own records, computed locally.
 
@@ -38,7 +39,7 @@ Two record types today on one encrypted, content-addressed, versioned substrate,
 
 Agents talk to it over **[MCP](https://modelcontextprotocol.io)** (Model Context Protocol) on stdio, so any MCP client that launches a local server, such as Claude Code, Claude Desktop or Cursor, can use the same memory. Clients that only connect to a remote MCP server over HTTP cannot reach it yet.
 
-**The search never leaves your machine.** Query embedding and vector search run locally against a local index; only opaque fetches of already-identified records hit the network. Nobody learns what you searched for.
+**The search never leaves your machine.** Query embedding and vector search run locally against a local index; only opaque fetches of already-identified records hit the network. Nobody learns the words you searched for, though the indexer does see which records you then fetched.
 
 ```
 remember ──▶ embed + encrypt locally ──▶ pack ──▶ Sia
@@ -54,8 +55,9 @@ something. About ten minutes, most of it one download and one approval click.
 
 **→ [Quickstart](docs/quickstart.md)**
 
-No Sia node, no wallet and no payment are needed; the hosted indexer's free tier covers it. Every
-command also takes `--offline` if you want to see recall working before connecting to Sia.
+No Sia node, no wallet and no payment are needed; the hosted indexer's free tier covers it.
+`init`, `remember`, `recall` and `status` also take `--offline` if you want to see recall working
+before connecting to Sia; the commands that move data to or from the network need the indexer.
 
 ## Documentation
 
