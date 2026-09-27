@@ -176,7 +176,10 @@ func renderRemember(out RememberOut) string {
 func renderBrowse(out BrowseOut) string {
 	var text strings.Builder
 	if len(out.Rows) == 0 {
-		fmt.Fprintf(&text, "Nothing matches.\n\n%s\n", out.Hint)
+		// The hint is the whole answer, because it names what emptied the page.
+		// A heading saying nothing matches would name a filter even when none
+		// was set.
+		fmt.Fprintf(&text, "%s\n", out.Hint)
 		return text.String()
 	}
 	fmt.Fprintf(&text, "%d record(s), newest first:\n\n", len(out.Rows))

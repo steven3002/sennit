@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -548,11 +549,72 @@ func (s *Server) browse(_ context.Context, _ *sdk.CallToolRequest, in BrowseIn) 
 		links = append(links, HitOut{URI: URI(row.Kind, row.ID), Kind: string(row.Kind), Title: row.Label})
 	}
 	if len(out.Rows) == 0 {
-		out.Hint = "Nothing matches. Every filter here EXCLUDES, so this is not evidence the vault " +
-			"holds nothing related, drop a tag, or use `recall` with the same words, where filters " +
-			"only prefer and cannot empty a result."
+		if out.Hint, err = s.browseHint(in, hasFilter(kinds, types, in.Tags)); err != nil {
+			return nil, BrowseOut{}, err
+		}
 	}
 	return &sdk.CallToolResult{Content: withLinks(renderBrowse(out), links)}, out, nil
+}
+
+// browseHint says why a page came back empty.
+//
+// It names what emptied this page and nothing else. A filter is the usual
+// cause, and the one the tool's description warns about, but it is a cause only
+// when one was set. A hint that blames a filter nobody set sends the model to
+// `recall` or to an apology about tags, when the cause is somewhere else: an
+// empty vault, a cursor at the end of the listing, or replaced records held
+// back past it.
+func (s *Server) browseHint(in BrowseIn, filtered bool) (string, error) {
+	switch {
+	case filtered:
+		return "Nothing matches. Every filter here EXCLUDES, so this is not evidence the vault " +
+			"holds nothing related, drop a tag, or use `recall` with the same words, where filters " +
+			"only prefer and cannot empty a result.", nil
+	case in.Cursor == "":
+		// Supersession cannot empty a first page. Remember refuses to replace a
+		// record the vault does not already hold, so every chain of replacements
+		// ends in a record nothing has replaced, and that one is listed. With no
+		// filter and no cursor nothing else holds a record back, so an empty
+		// first page is an empty vault.
+		return "This vault holds nothing to list yet. Records arrive through `remember` and " +
+			"`save_session`.", nil
+	}
+	// A page after a cursor lists only what comes after it, so an empty one says
+	// nothing about the records before it. What can lie past the cursor unlisted
+	// is replaced records, held back by default, and asking for the same page
+	// with history included tells a listing that has ended from a page of them.
+	if !in.IncludeSuperseded {
+		history, err := s.vault.Browse(vault.BrowseRequest{
+			IncludeSuperseded: true,
+			Limit:             1,
+			Cursor:            local.Cursor(in.Cursor),
+		})
+		if err != nil {
+			return "", err
+		}
+		if len(history.Rows) > 0 {
+			return "Every record past this cursor has been replaced by a newer one, and replaced " +
+				"records are held back by default. Pass the same cursor with includeSuperseded set " +
+				"to list them, or call `browse` without a cursor to start again from the newest.", nil
+		}
+	}
+	return "Nothing lies past this cursor, so the listing ends here. An empty page after a cursor " +
+		"says nothing about the records before it: call `browse` without a cursor to start again " +
+		"from the newest.", nil
+}
+
+// hasFilter reports whether a listing's query could have excluded a record.
+//
+// It reads the query that ran rather than the arguments as they were sent. A
+// blank tag is dropped before the query is built, and a kinds list naming both
+// classes excludes nothing because the vault holds no third class, so neither
+// is a filter an empty page can be blamed on.
+func hasFilter(kinds []record.Kind, types []record.Type, tags []string) bool {
+	if len(types) > 0 || len(local.NormalizeTags(tags)) > 0 {
+		return true
+	}
+	return len(kinds) > 0 &&
+		!(slices.Contains(kinds, record.KindMemory) && slices.Contains(kinds, record.KindSession))
 }
 
 // ── open ────────────────────────────────────────────────────────────────────

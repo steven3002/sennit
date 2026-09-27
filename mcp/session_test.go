@@ -1448,6 +1448,258 @@ func TestBrowsePagesWithACursorThatIsNotAnOffset(t *testing.T) {
 	}
 }
 
+// An unfiltered browse of an empty vault says the vault is empty and how records
+// get into it, instead of blaming a filter nobody set.
+//
+// The hint is what the model acts on. One that blames the filters sends it to
+// `recall` or to an apology about tags, when what the user needs to hear is that
+// nothing has been stored yet. A blank tag and a kinds list naming both classes
+// are in the request without excluding anything, so they get the same answer.
+func TestAnUnfilteredBrowseOfAnEmptyVaultSaysTheVaultIsEmpty(t *testing.T) {
+	session, _ := serve(t)
+
+	for name, in := range map[string]mcp.BrowseIn{
+		"no arguments":       {},
+		"history included":   {IncludeSuperseded: true},
+		"a blank tag":        {Tags: []string{" "}},
+		"both classes named": {Kinds: []string{"memory", "session"}},
+	} {
+		var out mcp.BrowseOut
+		result := call(t, session, "browse", in, &out)
+		if len(out.Rows) != 0 {
+			t.Fatalf("%s: an empty vault listed %d row(s)", name, len(out.Rows))
+		}
+		if !strings.Contains(out.Hint, "holds nothing to list yet") {
+			t.Errorf("%s: the hint does not say the vault is empty: %q", name, out.Hint)
+		}
+		if !strings.Contains(out.Hint, "`remember`") || !strings.Contains(out.Hint, "`save_session`") {
+			t.Errorf("%s: the hint does not say how records get in: %q", name, out.Hint)
+		}
+		// The text is the half a model reads, so neither the hint nor anything
+		// printed above it may point at a filter.
+		text := resultText(result)
+		if !strings.Contains(text, out.Hint) {
+			t.Errorf("%s: the text a model reads does not carry the hint: %q", name, text)
+		}
+		for _, blame := range []string{"filter", "drop a tag", "matches"} {
+			if strings.Contains(strings.ToLower(text), blame) {
+				t.Errorf("%s: an unfiltered browse says %q: %q", name, blame, text)
+			}
+		}
+	}
+}
+
+// A browse with a filter set keeps the hint that every filter here excludes, on
+// an empty vault as on a full one. There the filter is a cause the model can act
+// on, by dropping it or by asking `recall`, where filters only prefer.
+func TestAFilteredBrowseThatListsNothingStillSaysItsFiltersExclude(t *testing.T) {
+	session, _ := serve(t)
+	filters := map[string]mcp.BrowseIn{
+		"a tag nothing carries": {Tags: []string{"no-record-carries-this"}},
+		"a type nothing has":    {Types: []string{"preference"}},
+		"one class named":       {Kinds: []string{"session"}},
+	}
+	check := func(holding string) {
+		t.Helper()
+		for name, in := range filters {
+			var out mcp.BrowseOut
+			result := call(t, session, "browse", in, &out)
+			if len(out.Rows) != 0 {
+				t.Fatalf("%s, %s: listed %d row(s), want none", holding, name, len(out.Rows))
+			}
+			if !strings.Contains(out.Hint, "EXCLUDES") || !strings.Contains(out.Hint, "`recall`") {
+				t.Errorf("%s, %s: the hint does not say the filters exclude: %q", holding, name, out.Hint)
+			}
+			if strings.Contains(out.Hint, "holds nothing to list") {
+				t.Errorf("%s, %s: a filtered browse called the vault empty: %q", holding, name, out.Hint)
+			}
+			if !strings.Contains(resultText(result), out.Hint) {
+				t.Errorf("%s, %s: the text a model reads does not carry the hint: %q",
+					holding, name, resultText(result))
+			}
+		}
+	}
+
+	check("an empty vault")
+	storeMemory(t, session, mcp.RememberIn{
+		Statement: "The west gauge reads a metre high at the spring tide.",
+		Context:   "Written so the filters have a record to exclude.",
+		Type:      "fact",
+		Tags:      []string{"west", "gauge"},
+	})
+	check("a vault holding one memory")
+}
+
+// Replacing records never empties the first page of an unfiltered browse.
+//
+// A record can replace only one the vault already holds, so a chain of
+// replacements always ends in a record nothing has replaced, and that one is
+// listed. It is what lets an empty first page be called an empty vault.
+func TestReplacingRecordsNeverEmptiesTheFirstPage(t *testing.T) {
+	session, _ := serve(t)
+
+	newest := storeMemory(t, session, mcp.RememberIn{
+		Statement: "The reading rollup runs hourly, at ten past the hour.",
+		Context:   "The first of three schedules, each replacing the one before it.",
+		Type:      "fact",
+		Tags:      []string{"rollup", "schedule"},
+	})
+	for _, statement := range []string{
+		"The reading rollup runs every thirty minutes.",
+		"The reading rollup runs every ten minutes.",
+	} {
+		time.Sleep(2 * time.Millisecond)
+		newest = storeMemory(t, session, mcp.RememberIn{
+			Statement:  statement,
+			Context:    "The dashboard still lagged the sensors, so the rollup was run more often.",
+			Type:       "fact",
+			Tags:       []string{"rollup", "schedule"},
+			Supersedes: newest,
+		})
+	}
+
+	var out mcp.BrowseOut
+	call(t, session, "browse", mcp.BrowseIn{}, &out)
+	if len(out.Rows) != 1 || out.Rows[0].URI != newest {
+		t.Fatalf("a vault where every record but the newest is replaced listed %+v, want only %s",
+			out.Rows, newest)
+	}
+	if out.Hint != "" {
+		t.Errorf("a page that listed a record carried a hint: %q", out.Hint)
+	}
+}
+
+// Past a cursor, replaced records can be all that is left. That page says so and
+// names includeSuperseded rather than calling the vault empty, and following it
+// lists them.
+func TestAPageOfOnlyReplacedRecordsPointsAtIncludeSuperseded(t *testing.T) {
+	session, _ := serve(t)
+
+	schedule := storeMemory(t, session, mcp.RememberIn{
+		Statement: "The reading rollup runs hourly, at ten past the hour.",
+		Context:   "Written first, so it is the oldest record and lies past the first page.",
+		Type:      "fact",
+		Tags:      []string{"rollup", "schedule"},
+	})
+	time.Sleep(2 * time.Millisecond)
+	survey := storeMemory(t, session, mcp.RememberIn{
+		Statement: "The harbour survey found silting at the east approach.",
+		Context:   "Written second, so a first page of one row holds it and nothing else.",
+		Type:      "fact",
+		Tags:      []string{"harbour", "survey"},
+	})
+
+	var first mcp.BrowseOut
+	call(t, session, "browse", mcp.BrowseIn{Limit: 1}, &first)
+	if len(first.Rows) != 1 || first.Rows[0].URI != survey || first.NextCursor == "" {
+		t.Fatalf("a limit of 1 over two records returned %+v and cursor %q", first.Rows, first.NextCursor)
+	}
+
+	// The schedule changes while the listing is being paged, so the one record
+	// past the cursor is now a replaced one.
+	time.Sleep(2 * time.Millisecond)
+	replacement := storeMemory(t, session, mcp.RememberIn{
+		Statement:  "The reading rollup runs every thirty minutes.",
+		Context:    "The hourly rollup left the dashboard too far behind the sensors.",
+		Type:       "fact",
+		Tags:       []string{"rollup", "schedule"},
+		Supersedes: schedule,
+	})
+
+	var past mcp.BrowseOut
+	result := call(t, session, "browse", mcp.BrowseIn{Cursor: first.NextCursor}, &past)
+	if len(past.Rows) != 0 {
+		t.Fatalf("the page past the cursor listed %+v, want nothing current", past.Rows)
+	}
+	if !strings.Contains(past.Hint, "includeSuperseded") {
+		t.Errorf("a page of replaced records does not name includeSuperseded: %q", past.Hint)
+	}
+	for _, wrong := range []string{"holds nothing", "filter"} {
+		if strings.Contains(strings.ToLower(past.Hint), wrong) {
+			t.Errorf("a page of replaced records says %q: %q", wrong, past.Hint)
+		}
+	}
+	if !strings.Contains(resultText(result), past.Hint) {
+		t.Errorf("the text a model reads does not carry the hint: %q", resultText(result))
+	}
+
+	// Following the hint lists the record the cursor had not reached yet.
+	var history mcp.BrowseOut
+	call(t, session, "browse", mcp.BrowseIn{Cursor: first.NextCursor, IncludeSuperseded: true}, &history)
+	if len(history.Rows) != 1 || history.Rows[0].URI != schedule || !history.Rows[0].Superseded {
+		t.Errorf("the same cursor with history listed %+v, want the replaced schedule", history.Rows)
+	}
+
+	// And a listing from the start holds the replacement and the survey.
+	var again mcp.BrowseOut
+	call(t, session, "browse", mcp.BrowseIn{}, &again)
+	if len(again.Rows) != 2 || again.Rows[0].URI != replacement || again.Rows[1].URI != survey {
+		t.Errorf("a listing from the start returned %+v, want the replacement and then the survey", again.Rows)
+	}
+}
+
+// A page after a cursor with nothing at all past it says the listing ends there,
+// not that the vault is empty: the records before the cursor are untouched, and
+// the hint says how to list them again.
+func TestAnEmptyPageAfterACursorSaysTheListingEndsThere(t *testing.T) {
+	session, _ := serve(t)
+
+	older := saveConversation(t, session, mcp.SaveSessionIn{
+		Title:    "Harbour survey",
+		Summary:  "Surveyed the harbour approaches and found silting at the east.",
+		Messages: conversation("ended"),
+	})
+	time.Sleep(2 * time.Millisecond)
+	newer := storeMemory(t, session, mcp.RememberIn{
+		Statement: "The east approach needs dredging before the autumn tides.",
+		Context:   "Concluded from the harbour survey, and written after it so it heads the listing.",
+		Type:      "insight",
+		Tags:      []string{"harbour", "dredging"},
+	})
+
+	var first mcp.BrowseOut
+	call(t, session, "browse", mcp.BrowseIn{Limit: 1}, &first)
+	if len(first.Rows) != 1 || first.Rows[0].URI != newer || first.NextCursor == "" {
+		t.Fatalf("a limit of 1 over two records returned %+v and cursor %q", first.Rows, first.NextCursor)
+	}
+
+	// What lay past the cursor is forgotten before the next page is asked for.
+	var forgotten mcp.ForgetOut
+	call(t, session, "forget", mcp.ForgetIn{URI: older.URI, Confirm: true}, &forgotten)
+
+	for _, includeSuperseded := range []bool{false, true} {
+		var past mcp.BrowseOut
+		result := call(t, session, "browse", mcp.BrowseIn{
+			Cursor: first.NextCursor, IncludeSuperseded: includeSuperseded,
+		}, &past)
+		if len(past.Rows) != 0 {
+			t.Fatalf("includeSuperseded %t: the page past the cursor listed %+v", includeSuperseded, past.Rows)
+		}
+		if !strings.Contains(past.Hint, "without a cursor") {
+			t.Errorf("includeSuperseded %t: the hint does not say how to list the vault again: %q",
+				includeSuperseded, past.Hint)
+		}
+		// Nothing past the cursor was replaced, so a hint that pointed at
+		// history would send the model after records that are not there.
+		for _, wrong := range []string{"holds nothing", "includeSuperseded", "filter"} {
+			if strings.Contains(past.Hint, wrong) {
+				t.Errorf("includeSuperseded %t: the hint says %q: %q", includeSuperseded, wrong, past.Hint)
+			}
+		}
+		if !strings.Contains(resultText(result), past.Hint) {
+			t.Errorf("includeSuperseded %t: the text a model reads does not carry the hint: %q",
+				includeSuperseded, resultText(result))
+		}
+	}
+
+	// The vault still holds the record before the cursor.
+	var again mcp.BrowseOut
+	call(t, session, "browse", mcp.BrowseIn{}, &again)
+	if len(again.Rows) != 1 || again.Rows[0].URI != newer {
+		t.Errorf("a listing from the start returned %+v, want %s", again.Rows, newer)
+	}
+}
+
 func keysOf(m map[string]string) []string {
 	out := make([]string, 0, len(m))
 	for key := range m {
