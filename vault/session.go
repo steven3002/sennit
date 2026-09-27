@@ -513,6 +513,13 @@ func (v *Vault) ListSessions(query local.SessionQuery) ([]local.SessionRow, erro
 // CountSessions reports how many sessions this device holds.
 func (v *Vault) CountSessions() (int, error) { return v.local.CountSessions() }
 
+// CountMatchingSessions reports how many sessions ListSessions would return for
+// this query across all of its pages, so a caller showing one page can say how
+// many there are.
+func (v *Vault) CountMatchingSessions(query local.SessionQuery) (int, error) {
+	return v.local.CountMatchingSessions(query)
+}
+
 // A SessionStats counts what reading sessions has cost.
 //
 // Chunk reads are counted separately from everything else because the claim

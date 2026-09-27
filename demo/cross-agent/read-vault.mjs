@@ -109,7 +109,10 @@ check(vaultResource.contents.length > 0, "sennit://vault reads as a resource");
 check(vaultResource.cacheScope === "private",
   `resources/read is cacheable as ${JSON.stringify(vaultResource.cacheScope)}, want "private"`);
 
-const resume = await client.getPrompt({ name: "resume", arguments: {} });
+// `recent` resumes the most recent conversation. With no arguments the prompt
+// lists recent conversations to choose from instead, and this client, which
+// cannot show a dialog, would get that list rather than a conversation.
+const resume = await client.getPrompt({ name: "resume", arguments: { session: "recent" } });
 const resumeText = JSON.stringify(resume);
 console.log(`\n  resume prompt: ${resume.messages.length} message(s), ${resumeText.length} B`);
 check(resume.messages.length > 0, "the resume prompt returns a conversation to continue");

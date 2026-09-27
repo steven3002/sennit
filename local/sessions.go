@@ -156,47 +156,28 @@ func (s *Store) CountSessions() (int, error) {
 	return n, nil
 }
 
+// CountMatchingSessions reports how many session heads a listing with this
+// query holds across all of its pages. Limit and Offset are ignored.
+//
+// It is what lets a caller that shows one page say how many there are, and it
+// counts through the same filter as the listing, so the two cannot disagree
+// about what an archived session or a filter excludes.
+func (s *Store) CountMatchingSessions(query SessionQuery) (int, error) {
+	where, args := sessionFilter(query)
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM session_heads WHERE `+where, args...).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count sessions: %w", err)
+	}
+	return n, nil
+}
+
 // ListSessions returns session heads newest first.
 //
 // The head column is deliberately not selected. Reading it would make listing
 // cost the size of every transcript's chunk list, which is the one thing this
 // shape exists to avoid.
 func (s *Store) ListSessions(query SessionQuery) ([]SessionRow, error) {
-	where := []string{"1 = 1"}
-	var args []any
-
-	if !query.IncludeArchived {
-		where = append(where, "archived = 0")
-	}
-	if len(query.Kinds) > 0 {
-		placeholders := make([]string, len(query.Kinds))
-		for i, kind := range query.Kinds {
-			placeholders[i] = "?"
-			args = append(args, string(kind))
-		}
-		where = append(where, "kind IN ("+strings.Join(placeholders, ",")+")")
-	}
-	if query.Parent != nil {
-		where = append(where, "parent = ?")
-		args = append(args, query.Parent.String())
-	}
-	if query.Project != "" {
-		where = append(where, "project = ?")
-		args = append(args, query.Project)
-	}
-	if query.Since != nil {
-		where = append(where, "updated_at >= ?")
-		args = append(args, query.Since.String())
-	}
-	if query.Until != nil {
-		where = append(where, "updated_at <= ?")
-		args = append(args, query.Until.String())
-	}
-	for _, tag := range NormalizeTags(query.Tags) {
-		where = append(where,
-			"EXISTS (SELECT 1 FROM record_tags WHERE record_tags.record_id = session_heads.session_id AND record_tags.tag = ?)")
-		args = append(args, tag)
-	}
+	where, args := sessionFilter(query)
 
 	limit := query.Limit
 	if limit <= 0 {
@@ -208,7 +189,7 @@ func (s *Store) ListSessions(query SessionQuery) ([]SessionRow, error) {
 		`SELECT session_id, version, title, summary, kind, project, agent, parent,
 		        created_at, updated_at, archived, messages, chunks, bytes
 		 FROM session_heads
-		 WHERE `+strings.Join(where, " AND ")+`
+		 WHERE `+where+`
 		 ORDER BY updated_at DESC, session_id ASC
 		 LIMIT ? OFFSET ?`, args...)
 	if err != nil {
@@ -251,6 +232,46 @@ func (s *Store) ListSessions(query SessionQuery) ([]SessionRow, error) {
 		out = append(out, row)
 	}
 	return out, rows.Err()
+}
+
+// sessionFilter is the WHERE clause of a session listing and its arguments.
+func sessionFilter(query SessionQuery) (string, []any) {
+	where := []string{"1 = 1"}
+	var args []any
+
+	if !query.IncludeArchived {
+		where = append(where, "archived = 0")
+	}
+	if len(query.Kinds) > 0 {
+		placeholders := make([]string, len(query.Kinds))
+		for i, kind := range query.Kinds {
+			placeholders[i] = "?"
+			args = append(args, string(kind))
+		}
+		where = append(where, "kind IN ("+strings.Join(placeholders, ",")+")")
+	}
+	if query.Parent != nil {
+		where = append(where, "parent = ?")
+		args = append(args, query.Parent.String())
+	}
+	if query.Project != "" {
+		where = append(where, "project = ?")
+		args = append(args, query.Project)
+	}
+	if query.Since != nil {
+		where = append(where, "updated_at >= ?")
+		args = append(args, query.Since.String())
+	}
+	if query.Until != nil {
+		where = append(where, "updated_at <= ?")
+		args = append(args, query.Until.String())
+	}
+	for _, tag := range NormalizeTags(query.Tags) {
+		where = append(where,
+			"EXISTS (SELECT 1 FROM record_tags WHERE record_tags.record_id = session_heads.session_id AND record_tags.tag = ?)")
+		args = append(args, tag)
+	}
+	return strings.Join(where, " AND "), args
 }
 
 // DefaultSessionLimit is how many sessions a listing returns when the caller

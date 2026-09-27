@@ -2,8 +2,12 @@ package mcp_test
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
+	"unicode/utf8"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/steven3002/sennit/mcp"
@@ -251,9 +255,12 @@ func TestTheResumePromptReturnsTheConversationAndWhatWasLearnedInIt(t *testing.T
 		t.Fatalf("the server offers prompts %+v, want just %q", listed.Prompts, mcp.ResumePrompt)
 	}
 
-	// No arguments at all: the most recent conversation. This is the demo, one
-	// keystroke in a different agent.
-	got, err := session.GetPrompt(ctx, &sdk.GetPromptParams{Name: mcp.ResumePrompt})
+	// `recent`: the most recent conversation, with nothing asked. It is the one
+	// word that carries on in a different agent without choosing.
+	got, err := session.GetPrompt(ctx, &sdk.GetPromptParams{
+		Name:      mcp.ResumePrompt,
+		Arguments: map[string]string{"session": mcp.ResumeRecent},
+	})
 	if err != nil {
 		t.Fatalf("get prompt: %v", err)
 	}
@@ -391,6 +398,436 @@ func TestResumingByTopicFindsTheConversationAndNeverAMemory(t *testing.T) {
 		Arguments: map[string]string{"topic": "anything"},
 	}); err == nil {
 		t.Error("a vault holding no conversations resumed one anyway")
+	}
+}
+
+// saveInOrder stores conversations oldest first and returns their addresses in
+// the same order.
+//
+// Each is saved a moment after the one before. A head's timestamp is kept to the
+// millisecond, two saves inside one would tie, and a tie is broken by id, which
+// is random, so "most recent" would stop having one answer.
+func saveInOrder(t *testing.T, session *sdk.ClientSession, conversations ...mcp.SaveSessionIn) []string {
+	t.Helper()
+	uris := make([]string, 0, len(conversations))
+	for i, in := range conversations {
+		if i > 0 {
+			time.Sleep(2 * time.Millisecond)
+		}
+		uris = append(uris, saveConversation(t, session, in).URI)
+	}
+	return uris
+}
+
+// A choice is one conversation as the dialog offers it.
+type choice struct {
+	Const string `json:"const"`
+	Title string `json:"title"`
+}
+
+// choicesIn reads the conversations a dialog offers, in the order it offers them.
+func choicesIn(t *testing.T, params *sdk.ElicitParams) []choice {
+	t.Helper()
+	encoded, err := json.Marshal(params.RequestedSchema)
+	if err != nil {
+		t.Fatalf("encode the dialog's schema: %v", err)
+	}
+	var schema struct {
+		Properties map[string]struct {
+			OneOf []choice `json:"oneOf"`
+		} `json:"properties"`
+		Required []string `json:"required"`
+	}
+	if err := json.Unmarshal(encoded, &schema); err != nil {
+		t.Fatalf("read the dialog's schema: %v", err)
+	}
+	if len(schema.Required) != 1 || schema.Required[0] != "conversation" {
+		t.Fatalf("the dialog requires %v, want the one choice of conversation", schema.Required)
+	}
+	return schema.Properties["conversation"].OneOf
+}
+
+// pick answers a dialog with the conversation whose label starts with title.
+func pick(t *testing.T, params *sdk.ElicitParams, title string) string {
+	t.Helper()
+	for _, offered := range choicesIn(t, params) {
+		if strings.HasPrefix(offered.Title, title) {
+			return offered.Const
+		}
+	}
+	t.Fatalf("the dialog does not offer %q", title)
+	return ""
+}
+
+// updatedDay is the day a list should show for a conversation: when it last
+// changed, in this machine's time zone, with the year only if it is not this
+// one.
+func updatedDay(t *testing.T, session *sdk.ClientSession, uri string) string {
+	t.Helper()
+	var opened mcp.OpenOut
+	call(t, session, "open", mcp.OpenIn{URI: uri}, &opened)
+	updated, _ := opened.Detail.(map[string]any)["updated"].(string)
+	parsed, err := time.Parse(time.RFC3339, updated)
+	if err != nil {
+		t.Fatalf("%s was last updated at %q: %v", uri, updated, err)
+	}
+	day := parsed.Local()
+	if day.Year() != time.Now().Year() {
+		return day.Format("Jan 2 2006")
+	}
+	return day.Format("Jan 2")
+}
+
+// A resume that names nothing puts the recent conversations to the user as a
+// dialog, and resumes the one they pick, which need not be the newest.
+//
+// This client is on the 2026-07-28 revision and never sends initialize. It
+// declares that it can show a dialog on every request, the way a stateless host
+// does, and it retries the prompt with the answer itself.
+func TestResumingWithNothingNamedResumesTheConversationTheUserPicks(t *testing.T) {
+	ctx := context.Background()
+	var asked []*sdk.ElicitParams
+	session := connectWith(t, mcp.New(openVault(t, t.TempDir())), &sdk.ClientOptions{
+		ElicitationHandler: func(_ context.Context, req *sdk.ElicitRequest) (*sdk.ElicitResult, error) {
+			asked = append(asked, req.Params)
+			return &sdk.ElicitResult{Action: "accept", Content: map[string]any{
+				"conversation": pick(t, req.Params, "Harbour survey"),
+			}}, nil
+		},
+	})
+	if got := session.InitializeResult().ProtocolVersion; got != "2026-07-28" {
+		t.Fatalf("the client negotiated %s, so this is not the path it is meant to cover", got)
+	}
+
+	saved := saveInOrder(t, session,
+		mcp.SaveSessionIn{
+			Title:    "Harbour survey",
+			Summary:  "Surveyed the harbour approaches and found silting at the east.",
+			Messages: conversation("harbour"),
+			Agent:    mcp.AgentIn{Name: "codex", Version: "0.9"},
+		},
+		mcp.SaveSessionIn{
+			Title:    "Rollup schedule",
+			Summary:  "Settled that the rollup runs hourly at ten past.",
+			Messages: conversation("rollup"),
+		},
+	)
+	harbour, rollup := saved[0], saved[1]
+
+	got, err := session.GetPrompt(ctx, &sdk.GetPromptParams{Name: mcp.ResumePrompt})
+	if err != nil {
+		t.Fatalf("get prompt: %v", err)
+	}
+
+	// One dialog, with both conversations newest first, each by its title, its
+	// agent and the day it last changed.
+	if len(asked) != 1 {
+		t.Fatalf("the prompt asked %d time(s), want once", len(asked))
+	}
+	if !strings.Contains(asked[0].Message, "Showing all 2.") {
+		t.Errorf("the dialog does not say how much of the vault it shows: %q", asked[0].Message)
+	}
+	choices := choicesIn(t, asked[0])
+	if len(choices) != 2 || choices[0].Const != rollup || choices[1].Const != harbour {
+		t.Fatalf("the dialog offered %+v, want the two conversations, newest first", choices)
+	}
+	if want := "Harbour survey · codex · " + updatedDay(t, session, harbour); choices[1].Title != want {
+		t.Errorf("a conversation is labelled %q, want %q", choices[1].Title, want)
+	}
+	// A head that does not know its agent is labelled without one, not with a
+	// blank where the agent would be.
+	if want := "Rollup schedule · " + updatedDay(t, session, rollup); choices[0].Title != want {
+		t.Errorf("a conversation with no agent is labelled %q, want %q", choices[0].Title, want)
+	}
+
+	// The pick is resumed, and not the newest, exactly as a resume by address
+	// would resume it.
+	if !strings.Contains(got.Description, "Harbour survey") {
+		t.Fatalf("the prompt resumed something other than the pick: %q", got.Description)
+	}
+	framing, _ := got.Messages[0].Content.(*sdk.TextContent)
+	if framing == nil || !strings.Contains(framing.Text,
+		"How it was chosen: picked by the user from a list of recent conversations.") {
+		t.Error("the framing does not say the conversation was picked from a list")
+	}
+	head, _ := got.Messages[1].Content.(*sdk.EmbeddedResource)
+	if head == nil || head.Resource.URI != harbour {
+		t.Errorf("the head embedded is not the pick's, want %s", harbour)
+	}
+	closing, _ := got.Messages[len(got.Messages)-1].Content.(*sdk.TextContent)
+	if closing == nil || !strings.Contains(closing.Text, "wait for the user") {
+		t.Error("a picked conversation does not end on the same closing as any other resume")
+	}
+}
+
+// Closing the list resumes nothing, and says so without spending a model turn:
+// the prompt fails with a sentence for the user that names the one-word way to
+// resume the latest conversation instead.
+//
+// The list is shown even when there is only one conversation to choose, so the
+// command behaves the same whatever the vault holds.
+func TestClosingTheListResumesNothingAndSaysHowToResumeTheLatest(t *testing.T) {
+	for _, action := range []string{"decline", "cancel"} {
+		t.Run(action, func(t *testing.T) {
+			var asked []string
+			session := connectWith(t, mcp.New(openVault(t, t.TempDir())), &sdk.ClientOptions{
+				ElicitationHandler: func(_ context.Context, req *sdk.ElicitRequest) (*sdk.ElicitResult, error) {
+					asked = append(asked, req.Params.Message)
+					return &sdk.ElicitResult{Action: action}, nil
+				},
+			})
+			saveConversation(t, session, mcp.SaveSessionIn{
+				Title:    "Harbour survey",
+				Summary:  "Surveyed the harbour approaches and found silting at the east.",
+				Messages: conversation("harbour"),
+			})
+
+			got, err := session.GetPrompt(context.Background(), &sdk.GetPromptParams{Name: mcp.ResumePrompt})
+			if err == nil {
+				t.Fatalf("a list closed with %s resumed %q anyway", action, got.Description)
+			}
+			if len(asked) != 1 || !strings.Contains(asked[0], "Showing the only one.") {
+				t.Errorf("one conversation was not offered as a list of one: %q", asked)
+			}
+			if !strings.Contains(err.Error(), "nothing was resumed") {
+				t.Errorf("the refusal does not say that nothing was resumed: %v", err)
+			}
+			// In the form Claude Code accepts typed out in full, which is not the
+			// name its menu shows.
+			if !strings.Contains(err.Error(), "/mcp__sennit__resume recent") {
+				t.Errorf("the refusal does not say how to resume the most recent one: %v", err)
+			}
+		})
+	}
+}
+
+// A client that cannot show a dialog gets the same list as text, with an
+// instruction to put the choice to the user, and nothing is resumed yet.
+func TestAClientWithoutDialogsIsGivenTheListAndNothingIsResumed(t *testing.T) {
+	session, _ := serve(t)
+	ctx := context.Background()
+
+	long := "A conversation whose title runs on well past anything a list can show on one line, " +
+		"because an agent wrote it and nothing bounds how long it is"
+	saved := saveInOrder(t, session,
+		mcp.SaveSessionIn{
+			Title:    "Harbour survey",
+			Summary:  "Surveyed the harbour approaches and found silting at the east.",
+			Messages: conversation("harbour"),
+			Agent:    mcp.AgentIn{Name: "codex", Version: "0.9"},
+		},
+		mcp.SaveSessionIn{
+			Title:    long,
+			Summary:  "Written to give the list a title too long to show whole.",
+			Messages: conversation("long"),
+		},
+	)
+
+	got, err := session.GetPrompt(ctx, &sdk.GetPromptParams{Name: mcp.ResumePrompt})
+	if err != nil {
+		t.Fatalf("get prompt: %v", err)
+	}
+	var texts []string
+	for _, message := range got.Messages {
+		text, ok := message.Content.(*sdk.TextContent)
+		if !ok {
+			t.Fatalf("the list carried a %T; nothing is embedded before the user has chosen", message.Content)
+		}
+		texts = append(texts, text.Text)
+	}
+	if len(texts) != 2 {
+		t.Fatalf("the list came back as %d message(s), want the list and its closing", len(texts))
+	}
+	list, closing := texts[0], texts[1]
+
+	if strings.Contains(list, "Resume this conversation") {
+		t.Error("a resume that names nothing resumed a conversation without asking")
+	}
+	if !strings.Contains(list, "These are all 2 it holds") {
+		t.Errorf("the list does not say how much of the vault it shows: %.200q", list)
+	}
+	// Each entry names its conversation the way the dialog does and gives the
+	// address the model opens once the user has chosen.
+	if !strings.Contains(list, "Harbour survey · codex · "+updatedDay(t, session, saved[0])) {
+		t.Errorf("the list does not label a conversation by title, agent and date: %q", list)
+	}
+	for _, uri := range saved {
+		if !strings.Contains(list, uri) {
+			t.Errorf("the list does not give %s, so the choice cannot be opened", uri)
+		}
+	}
+	if strings.Contains(list, long) || !strings.Contains(list, "A conversation whose title runs on") ||
+		!strings.Contains(list, "… · ") {
+		t.Errorf("a long title was not shortened and marked as cut: %q", list)
+	}
+
+	// Its own closing, which hands the choice to the user.
+	if !strings.Contains(closing, "ask which conversation to resume") ||
+		!strings.Contains(closing, "Do not pick one yourself") || !strings.Contains(closing, "`open`") {
+		t.Errorf("the closing does not leave the choice to the user: %q", closing)
+	}
+	if strings.Contains(closing, "That is everything brought back") {
+		t.Error("the list ends on a resume's closing, as though something had been resumed")
+	}
+}
+
+// `recent` resumes the newest conversation and asks nothing, even of a client
+// that could show a dialog, in whatever case it was typed.
+func TestRecentResumesTheNewestWithoutAsking(t *testing.T) {
+	ctx := context.Background()
+	session := connectWith(t, mcp.New(openVault(t, t.TempDir())), &sdk.ClientOptions{
+		ElicitationHandler: func(context.Context, *sdk.ElicitRequest) (*sdk.ElicitResult, error) {
+			t.Error("recent asked the user which conversation to resume")
+			return &sdk.ElicitResult{Action: "cancel"}, nil
+		},
+	})
+	saveInOrder(t, session,
+		mcp.SaveSessionIn{
+			Title:    "Harbour survey",
+			Summary:  "Surveyed the harbour approaches and found silting at the east.",
+			Messages: conversation("harbour"),
+		},
+		mcp.SaveSessionIn{
+			Title:    "Rollup schedule",
+			Summary:  "Settled that the rollup runs hourly at ten past.",
+			Messages: conversation("rollup"),
+		},
+	)
+
+	for _, word := range []string{"recent", "RECENT", "Recent"} {
+		got, err := session.GetPrompt(ctx, &sdk.GetPromptParams{
+			Name:      mcp.ResumePrompt,
+			Arguments: map[string]string{"session": word},
+		})
+		if err != nil {
+			t.Fatalf("resume %s: %v", word, err)
+		}
+		if !strings.Contains(got.Description, "Rollup schedule") ||
+			!strings.Contains(got.Description, "the most recent conversation") {
+			t.Errorf("resume %s resumed %q, want the most recent conversation", word, got.Description)
+		}
+	}
+
+	// An empty vault has nothing to list and nothing recent, and says so the
+	// same way either way it is asked.
+	empty := connect(t, mcp.New(openVault(t, t.TempDir())))
+	for _, arguments := range []map[string]string{nil, {"session": mcp.ResumeRecent}} {
+		_, err := empty.GetPrompt(ctx, &sdk.GetPromptParams{Name: mcp.ResumePrompt, Arguments: arguments})
+		if err == nil || !strings.Contains(err.Error(), "no conversations yet") {
+			t.Errorf("an empty vault asked with %v answered %v", arguments, err)
+		}
+	}
+}
+
+// The list offers the most recent conversations and no more, says how many it
+// leaves out, and resumes only what it offered.
+//
+// This client hands the dialog back instead of answering it, so the test can
+// answer with things a real dialog would never let a user pick. On the
+// 2026-07-28 revision the client sends the answer back itself, and nothing but
+// this server checks it.
+func TestTheListOffersTheRecentOnesAndResumesOnlyWhatItOffered(t *testing.T) {
+	ctx := context.Background()
+	session := connectWith(t, mcp.New(openVault(t, t.TempDir())), &sdk.ClientOptions{
+		Capabilities:   &sdk.ClientCapabilities{Elicitation: &sdk.ElicitationCapabilities{}},
+		MultiRoundTrip: &sdk.MultiRoundTripOptions{Disabled: true},
+	})
+
+	long := strings.Repeat("A title an agent let run on and on, ", 4)
+	conversations := []mcp.SaveSessionIn{{
+		Title:    "The oldest conversation",
+		Summary:  "Saved first, so a full list leaves it out.",
+		Messages: conversation("oldest"),
+	}}
+	for i := range mcp.ResumeChoices {
+		in := mcp.SaveSessionIn{
+			Title:    fmt.Sprintf("Conversation %d", i),
+			Summary:  "One of enough conversations to fill the list.",
+			Messages: conversation(fmt.Sprintf("c%d", i)),
+		}
+		if i == mcp.ResumeChoices-1 {
+			in.Title, in.Agent = long, mcp.AgentIn{Name: "claude-code", Version: "2.1.283"}
+		}
+		conversations = append(conversations, in)
+	}
+	saved := saveInOrder(t, session, conversations...)
+	oldest, leastRecentOffered := saved[0], saved[1]
+
+	asked, err := session.GetPrompt(ctx, &sdk.GetPromptParams{Name: mcp.ResumePrompt})
+	if err != nil {
+		t.Fatalf("get prompt: %v", err)
+	}
+	if !asked.NeedsInput() || len(asked.Messages) != 0 {
+		t.Fatalf("a resume that names nothing answered with %d message(s) instead of asking",
+			len(asked.Messages))
+	}
+	request, ok := asked.InputRequests["conversation"].(*sdk.ElicitParams)
+	if !ok || len(asked.InputRequests) != 1 {
+		t.Fatalf("the prompt asked for %+v, want one dialog", asked.InputRequests)
+	}
+
+	choices := choicesIn(t, request)
+	if len(choices) != mcp.ResumeChoices {
+		t.Fatalf("the list offers %d conversations, want %d", len(choices), mcp.ResumeChoices)
+	}
+	want := fmt.Sprintf("Showing the %d most recent of %d.", mcp.ResumeChoices, mcp.ResumeChoices+1)
+	if !strings.Contains(request.Message, want) || !strings.Contains(request.Message, "ask your agent to find it") {
+		t.Errorf("the dialog does not say what it leaves out and where to find it: %q", request.Message)
+	}
+	var clipped bool
+	for _, offered := range choices {
+		if offered.Const == oldest {
+			t.Error("the list offered a conversation older than the ones it shows")
+		}
+		// Every label fits what a dialog shows whole, so the agent and the date
+		// at its end are never what gets cut.
+		if n := utf8.RuneCountInString(offered.Title); n > mcp.ChoiceWidth {
+			t.Errorf("a choice is %d characters, over the %d a dialog shows: %q",
+				n, mcp.ChoiceWidth, offered.Title)
+		}
+		if strings.HasPrefix(offered.Title, "A title an agent") {
+			title, about, _ := strings.Cut(offered.Title, " · ")
+			clipped = strings.HasSuffix(title, "…") && strings.HasPrefix(about, "claude-code · ")
+		}
+	}
+	if !clipped {
+		t.Errorf("a %d-character title was not shortened to leave room for its agent and date",
+			utf8.RuneCountInString(long))
+	}
+
+	answer := func(action, value, state string) (*sdk.GetPromptResult, error) {
+		return session.GetPrompt(ctx, &sdk.GetPromptParams{
+			Name: mcp.ResumePrompt,
+			InputResponses: sdk.InputResponseMap{"conversation": &sdk.ElicitResult{
+				Action: action, Content: map[string]any{"conversation": value},
+			}},
+			RequestState: state,
+		})
+	}
+
+	// A conversation this vault holds but the list did not offer is refused, and
+	// so is an answer that is not an address at all.
+	for _, value := range []string{oldest, "The oldest conversation", ""} {
+		got, err := answer("accept", value, asked.RequestState)
+		if err == nil {
+			t.Errorf("an answer of %q resumed %q", value, got.Description)
+			continue
+		}
+		if !strings.Contains(err.Error(), "not one it offered") {
+			t.Errorf("an answer of %q was refused for another reason: %v", value, err)
+		}
+	}
+
+	// One it offered is resumed, and a client that dropped the state it was sent
+	// is held to the same list read again.
+	for _, state := range []string{asked.RequestState, ""} {
+		got, err := answer("accept", leastRecentOffered, state)
+		if err != nil {
+			t.Fatalf("an offered answer with state %.40q: %v", state, err)
+		}
+		if !strings.Contains(got.Description, "Conversation 0") {
+			t.Errorf("an offered answer resumed %q, want Conversation 0", got.Description)
+		}
 	}
 }
 

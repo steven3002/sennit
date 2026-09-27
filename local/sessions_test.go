@@ -121,6 +121,61 @@ func TestListingSessionsIsOrderedAndFiltered(t *testing.T) {
 	}
 }
 
+// A count agrees with the listing it counts, including what the listing leaves
+// out. A page that says it shows 15 of 40 is only honest if the 40 are the
+// population the 15 were drawn from, and an archived conversation is in the
+// store without being in an ordinary listing.
+func TestCountingSessionsAgreesWithTheListing(t *testing.T) {
+	store := openStore(t)
+
+	base := record.Now()
+	head(t, store, sessionID(t, 1), "first run", record.SessionMain, base)
+	head(t, store, sessionID(t, 2), "second run", record.SessionMain, base)
+	head(t, store, sessionID(t, 3), "delegated run", record.SessionSubagent, base)
+	archived := head(t, store, sessionID(t, 4), "put away", record.SessionMain, base)
+	archived.Version = 2
+	archived.Archived = true
+	body, err := record.MarshalSession(archived)
+	if err != nil {
+		t.Fatalf("marshal archived: %v", err)
+	}
+	if err := store.PutSessionHead(archived, body, 1); err != nil {
+		t.Fatalf("archive: %v", err)
+	}
+
+	for _, query := range []local.SessionQuery{
+		{},
+		{IncludeArchived: true},
+		{Kinds: []record.SessionKind{record.SessionMain}},
+		{Project: "somewhere/else"},
+	} {
+		listed, err := store.ListSessions(query)
+		if err != nil {
+			t.Fatalf("list %+v: %v", query, err)
+		}
+		counted, err := store.CountMatchingSessions(query)
+		if err != nil {
+			t.Fatalf("count %+v: %v", query, err)
+		}
+		if counted != len(listed) {
+			t.Errorf("a query %+v lists %d sessions and counts %d", query, len(listed), counted)
+		}
+	}
+
+	// A page is a slice of what is counted, not a limit on it.
+	if counted, err := store.CountMatchingSessions(local.SessionQuery{Limit: 1}); err != nil {
+		t.Fatalf("count with a limit: %v", err)
+	} else if counted != 3 {
+		t.Errorf("a count with a limit of 1 reported %d, want the 3 an unlimited listing holds", counted)
+	}
+	// And it is not the device-wide total, which holds the archived head too.
+	if held, err := store.CountSessions(); err != nil {
+		t.Fatalf("count all: %v", err)
+	} else if held != 4 {
+		t.Errorf("the device holds %d heads, want 4", held)
+	}
+}
+
 // A head is rewritten in place on every append, and the listing has to follow
 // it: the version, the counts and the timestamp are what a browser renders.
 func TestASessionHeadIsReplacedInPlace(t *testing.T) {

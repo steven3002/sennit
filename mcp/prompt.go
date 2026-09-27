@@ -2,9 +2,13 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/steven3002/sennit/local"
@@ -25,6 +29,38 @@ const ResumePrompt = "resume"
 // spend the context the resumed conversation is supposed to use.
 const ResumeTurns = 30
 
+// ResumeRecent is the session argument that resumes the most recent
+// conversation without asking which.
+const ResumeRecent = "recent"
+
+// ResumeChoices is how many recent conversations a resume offers when nothing
+// after it names one.
+//
+// The list is read whole rather than searched, so it is kept to what a person
+// takes in at a glance. It has to be quick to read for a second reason, measured
+// rather than assumed: Claude Code 2.1.283 gives a prompt sixty seconds, and a
+// dialog still open when they run out closes and takes the prompt with it. A
+// conversation older than the list is better found by what it was about, with
+// `recall`, than by scrolling, and the list says so.
+const ResumeChoices = 15
+
+// ChoiceWidth is how many characters of one choice a dialog shows.
+//
+// Measured rather than assumed: Claude Code 2.1.283 shows a choice of up to 48
+// characters whole and cuts a longer one to 47 and an ellipsis, at every
+// terminal width tried from 80 columns to 160. The agent and the date come last
+// in a label, so a title that ran on would push them out of sight. The title is
+// shortened instead, to the room they leave.
+const ChoiceWidth = 48
+
+// ChoiceTitle is how many characters of a title a list given as text shows.
+//
+// An agent writes the title and nothing bounds its length. Text has no width
+// to fit, but a list is still one line per conversation, and seventy-two
+// characters keep enough of a long title to recognise it by. The whole title is
+// one `open` away.
+const ChoiceTitle = 72
+
 // registerPrompts publishes the prompt surface.
 //
 // A prompt matters here out of proportion to its size, because prompts are
@@ -43,14 +79,19 @@ func (s *Server) registerPrompts() {
 	s.sdk.AddPrompt(&sdk.Prompt{
 		Name:  ResumePrompt,
 		Title: "Resume a stored conversation",
-		Description: "Bring back a conversation stored in Sennit, its summary, its most recent " +
-			"turns, and the memories drawn from it, so you can carry on where you left off, " +
-			"including in a different agent from the one it happened in.",
+		// How to use the prompt comes first, because Claude Code's command menu
+		// shows only the start of the description, and the menu is where the
+		// user finds this prompt: typed in full, the name it shows there is an
+		// unknown command.
+		Description: "Choose a stored conversation to resume, or add " + ResumeRecent + " for the " +
+			"newest one. Brings back its summary, its most recent turns and the memories drawn " +
+			"from it, in this agent or a different one.",
 		Arguments: []*sdk.PromptArgument{
 			{
 				Name: "session",
-				Description: "The address of the conversation to resume, as sennit://session/{id}. " +
-					"Leave empty for the most recent one.",
+				Description: "The conversation to resume: its address, as sennit://session/{id}, or " +
+					ResumeRecent + " for the most recent one. Leave it and topic empty to choose from " +
+					"a list of recent conversations.",
 			},
 			{
 				Name: "topic",
@@ -79,7 +120,23 @@ func (s *Server) resume(ctx context.Context, req *sdk.GetPromptRequest) (*sdk.Ge
 		turns = parsed
 	}
 
-	session, how, err := s.findSession(ctx, args["session"], args["topic"])
+	var (
+		session record.ID
+		how     string
+		err     error
+	)
+	if args["session"] == "" && args["topic"] == "" {
+		// Nothing named, so nothing is guessed: the user chooses. The first
+		// time through, the list goes out; the second, the answer is here.
+		answer, answered := req.Params.InputResponses[choiceInput]
+		if !answered {
+			return s.offerRecent(req)
+		}
+		session, err = s.chosen(answer, req.Params.RequestState)
+		how = "picked by the user from a list of recent conversations"
+	} else {
+		session, how, err = s.findSession(ctx, args["session"], args["topic"])
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -175,7 +232,7 @@ func resumeFraming(loaded vault.LoadedSession, replayed []record.Message, skippe
 	// conversation rather than only an exact one. If this is not the
 	// conversation the user meant, that is visible here rather than three turns
 	// later.
-	fmt.Fprintf(&text, "It was chosen as %s.\n\n", how)
+	fmt.Fprintf(&text, "How it was chosen: %s.\n\n", how)
 	fmt.Fprintf(&text, "# %s\n\n", session.Title)
 	if session.Summary != "" {
 		fmt.Fprintf(&text, "%s\n\n", session.Summary)
@@ -270,13 +327,19 @@ func renderPart(text *strings.Builder, part record.Part) {
 	}
 }
 
-// findSession resolves which conversation to bring back.
+// findSession resolves the conversation a resume names.
 //
-// Three ways in, in order of how sure each is: an address the caller already
-// has, a search over titles and summaries, and the most recent conversation.
-// The last is what makes /resume work with no arguments at all, which is the
-// whole demo.
+// Three ways to name one: an address the caller already has, `recent` for the
+// conversation that changed last, and a search over titles and summaries, which
+// is the only one of the three that can come back with a near miss. A resume that
+// names nothing is not guessed at. It never reaches here, because the user is
+// given the recent conversations to choose from instead.
 func (s *Server) findSession(ctx context.Context, address, topic string) (record.ID, string, error) {
+	// Matched regardless of case, because a person types it after a slash
+	// command and the host passes the word on exactly as it was typed.
+	if strings.EqualFold(strings.TrimSpace(address), ResumeRecent) {
+		return s.mostRecent()
+	}
 	if address != "" {
 		id, err := addressOf(address, FormSession)
 		if err != nil {
@@ -315,14 +378,296 @@ func (s *Server) findSession(ctx context.Context, address, topic string) (record
 			fmt.Sprintf("the closest match for %q, at similarity %.3f", topic, found.Hits[0].Similarity),
 			nil
 	}
+	return record.ID{}, "", fmt.Errorf("name the conversation to resume by its address, by a "+
+		"topic, or with %s", ResumeRecent)
+}
 
+// mostRecent is the conversation `recent` resumes: the one that changed last,
+// which is also the first a list of recent conversations shows.
+func (s *Server) mostRecent() (record.ID, string, error) {
 	recent, err := s.vault.ListSessions(local.SessionQuery{Limit: 1})
 	if err != nil {
 		return record.ID{}, "", err
 	}
 	if len(recent) == 0 {
-		return record.ID{}, "", fmt.Errorf("this vault holds no conversations yet. " +
-			"They are stored with `save_session`")
+		return record.ID{}, "", errNoConversations
 	}
 	return recent[0].ID, "the most recent conversation", nil
 }
+
+// errNoConversations is what a resume says when the vault holds nothing to
+// resume, whether it was asked for the most recent conversation or for a list.
+var errNoConversations = errors.New("this vault holds no conversations yet. " +
+	"They are stored with `save_session`")
+
+// offerRecent answers a resume that names nothing with the recent
+// conversations, for the user to choose from.
+//
+// A client that can show a form gets them as a dialog, and the model hears
+// nothing until the user has chosen. The dialog goes back as an input request
+// rather than through Session.Elicit because that is the one shape both sides of
+// the protocol's 2026-07-28 revision accept. A client on that revision retries
+// the prompt with the answer itself, and the SDK refuses Session.Elicit there.
+// For a client on an earlier revision, Claude Code among them, the SDK asks the
+// question on the prompt's behalf and runs this handler once more with the
+// answer. That leaves one question per prompt, which is why the list is the
+// whole dialog. A client that cannot show a form gets the same list as text.
+func (s *Server) offerRecent(req *sdk.GetPromptRequest) (*sdk.GetPromptResult, error) {
+	rows, err := s.recentConversations()
+	if err != nil {
+		return nil, err
+	}
+	total, err := s.vault.CountMatchingSessions(local.SessionQuery{})
+	if err != nil {
+		return nil, err
+	}
+	// Two reads, so a conversation archived between them could leave the count
+	// short of the page it counts.
+	total = max(total, len(rows))
+
+	if !canAsk(req) {
+		return listRecent(rows, total), nil
+	}
+	offered := make([]string, len(rows))
+	for i, row := range rows {
+		offered[i] = URI(record.KindSession, row.ID)
+	}
+	return &sdk.GetPromptResult{
+		InputRequests: sdk.InputRequestMap{
+			choiceInput: &sdk.ElicitParams{
+				Message:         choiceMessage(len(rows), total),
+				RequestedSchema: choiceSchema(rows),
+			},
+		},
+		// What was offered goes out with the question and comes back with the
+		// answer, so the answer is checked against the list the user saw and not
+		// against one that has moved since.
+		RequestState: strings.Join(offered, " "),
+	}, nil
+}
+
+// recentConversations is what a resume that names nothing offers, newest first.
+//
+// It is the listing `recent` reads, with a longer limit, so the first choice is
+// always the conversation `recent` would resume, and an archived conversation is
+// no more offered here than it is listed anywhere else.
+func (s *Server) recentConversations() ([]local.SessionRow, error) {
+	rows, err := s.vault.ListSessions(local.SessionQuery{Limit: ResumeChoices})
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, errNoConversations
+	}
+	return rows, nil
+}
+
+// canAsk reports whether the client can show the user a form, which is what the
+// list of conversations becomes when it can.
+//
+// It reads the request that asks, not the session. A client on the 2026-07-28
+// revision need never send initialize: it declares its capabilities on every
+// request, and the session keeps only what its first request declared. A client
+// on an earlier revision declared them once, at initialize, and the SDK's
+// accessor falls back to that. Elicitation declared with no mode means form,
+// which is what it meant before modes existed, and a client that declares only
+// the URL mode cannot show a list.
+func canAsk(req *sdk.GetPromptRequest) bool {
+	capabilities := req.ClientCapabilities()
+	if capabilities == nil || capabilities.Elicitation == nil {
+		return false
+	}
+	return capabilities.Elicitation.Form != nil || capabilities.Elicitation.URL == nil
+}
+
+// choiceInput names the one question the dialog asks, in the request that asks
+// it and in the answer that comes back.
+const choiceInput = "conversation"
+
+// choiceMessage is what the dialog says above the list: the question, how much
+// of the vault the list shows, and where an older conversation is found.
+func choiceMessage(shown, total int) string {
+	const question = "Which conversation do you want to resume? "
+	switch {
+	case total == 1:
+		return question + "Showing the only one."
+	case shown == total:
+		return question + fmt.Sprintf("Showing all %d.", total)
+	default:
+		return question + fmt.Sprintf("Showing the %d most recent of %d. For an older one, "+
+			"close this and ask your agent to find it.", shown, total)
+	}
+}
+
+// choiceSchema is the dialog's form: one required choice among the offered
+// conversations, each shown by its label and answered with its address.
+//
+// A titled single choice, a oneOf of const and title, is the shape the
+// elicitation schema has for a choice whose label is not its value. It is what
+// lets the user read a title while the answer carries an address, and it is the
+// shape the SDK checks both the form and the answer against.
+func choiceSchema(rows []local.SessionRow) map[string]any {
+	now := time.Now()
+	choices := make([]map[string]string, len(rows))
+	for i, row := range rows {
+		about := choiceAbout(row, now)
+		// A floor under the title, so an agent with a very long name costs the
+		// label its date rather than the whole of its title.
+		room := max(ChoiceWidth-utf8.RuneCountInString(about), ChoiceWidth/3)
+		choices[i] = map[string]string{
+			"const": URI(record.KindSession, row.ID),
+			"title": clipTitle(row.Title, room) + about,
+		}
+	}
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			choiceInput: map[string]any{
+				"type":  "string",
+				"title": "Conversation",
+				"oneOf": choices,
+			},
+		},
+		"required": []string{choiceInput},
+	}
+}
+
+// choiceAbout is what a label says after a conversation's title: the agent it
+// happened in and the day it last changed, which is the order a list is in.
+func choiceAbout(row local.SessionRow, now time.Time) string {
+	var about strings.Builder
+	// A head rebuilt from the network on another device does not know which
+	// agent wrote it, so the agent is left out rather than shown as a blank.
+	if row.Agent != "" {
+		fmt.Fprintf(&about, " · %s", row.Agent)
+	}
+	// In this machine's time zone, because the server runs on the user's own
+	// machine and a person remembers the day in theirs. It is written short,
+	// with no year when it is this year's, because every character it does not
+	// use is one more of the title a dialog can show.
+	day := row.Updated.Local()
+	layout := "Jan 2"
+	if day.Year() != now.Year() {
+		layout = "Jan 2 2006"
+	}
+	fmt.Fprintf(&about, " · %s", day.Format(layout))
+	return about.String()
+}
+
+// clipTitle shortens a title to at most limit characters, the mark of the cut
+// included, cutting at a word boundary when one is near. Line breaks and runs of
+// spaces become single spaces first, because a choice is one line.
+func clipTitle(title string, limit int) string {
+	title = strings.Join(strings.Fields(title), " ")
+	runes := []rune(title)
+	if len(runes) <= limit {
+		return title
+	}
+	cut := limit - 1
+	for cut > limit/2 && runes[cut] != ' ' {
+		cut--
+	}
+	if runes[cut] != ' ' {
+		cut = limit - 1
+	}
+	return strings.TrimSpace(string(runes[:cut])) + "…"
+}
+
+// chosen reads the user's answer to the dialog and checks it against what the
+// dialog offered.
+//
+// The offer comes back in the request state. For a client on an earlier
+// revision it never left this process. A client on the 2026-07-28 revision
+// echoes it back, so there it is untrusted input like the answer itself. It is
+// only ever used to test the answer, and the answer still has to parse as a
+// conversation's address and load from this vault to be resumed. A client that
+// dropped the state is checked against the same list read again.
+func (s *Server) chosen(answer sdk.InputResponse, state string) (record.ID, error) {
+	result, ok := answer.(*sdk.ElicitResult)
+	if !ok {
+		return record.ID{}, fmt.Errorf("the list of conversations came back as %T rather than as an "+
+			"answer, so nothing was resumed", answer)
+	}
+	if result.Action != "accept" {
+		return record.ID{}, errNothingChosen
+	}
+	choice, _ := result.Content[choiceInput].(string)
+
+	offered := strings.Fields(state)
+	if len(offered) == 0 {
+		rows, err := s.recentConversations()
+		if err != nil {
+			return record.ID{}, err
+		}
+		for _, row := range rows {
+			offered = append(offered, URI(record.KindSession, row.ID))
+		}
+	}
+	if !slices.Contains(offered, choice) {
+		return record.ID{}, fmt.Errorf("the list of conversations came back with %q, which is not "+
+			"one it offered, so nothing was resumed", choice)
+	}
+	return addressOf(choice, FormSession)
+}
+
+// errNothingChosen is the answer to a dialog closed without a choice.
+//
+// It is an error rather than a message on purpose, and the reason was measured
+// in Claude Code 2.1.283 rather than assumed. A host sends a prompt's messages to
+// the model the moment the prompt returns, so a message saying nothing was
+// resumed costs a whole model turn to repeat one sentence, and in that
+// measurement the model's paraphrase dropped the words saying nothing was
+// resumed. A result with no messages was worse: the model was handed the bare
+// command and went through the project looking for what it meant. An error is
+// shown under the command, word for word, and the model is never called.
+//
+// It names the command in the one form that works typed out in full in Claude
+// Code 2.1.283. /sennit:resume is only the name its menu shows: typed with an
+// argument after it, it is reported as an unknown command.
+var errNothingChosen = errors.New("nothing was resumed, because the list was closed without " +
+	"choosing a conversation. Run /mcp__sennit__resume recent to resume the most recent one")
+
+// listRecent is the list for a client that cannot show a dialog: the same
+// conversations as text, each with the address it opens at, and an instruction
+// to put the choice to the user.
+func listRecent(rows []local.SessionRow, total int) *sdk.GetPromptResult {
+	var text strings.Builder
+	fmt.Fprint(&text, "The user asked to resume a conversation from their own Sennit vault "+
+		"without naming one, so none has been loaded. ")
+	switch {
+	case total == 1:
+		fmt.Fprint(&text, "This is the only one it holds.\n\n")
+	case len(rows) == total:
+		fmt.Fprintf(&text, "These are all %d it holds, most recent first.\n\n", total)
+	default:
+		fmt.Fprintf(&text, "These are the %d most recent of the %d it holds.\n\n", len(rows), total)
+	}
+	now := time.Now()
+	for i, row := range rows {
+		fmt.Fprintf(&text, "%d. %s%s\n   %s\n", i+1, clipTitle(row.Title, ChoiceTitle),
+			choiceAbout(row, now), URI(record.KindSession, row.ID))
+	}
+	if len(rows) < total {
+		fmt.Fprint(&text, "\nAn older one is found by what it was about, with `recall` scoped to "+
+			"session.\n")
+	}
+	return &sdk.GetPromptResult{
+		Description: fmt.Sprintf("%d of %d conversation(s) to choose from", len(rows), total),
+		Messages: []*sdk.PromptMessage{
+			{Role: "user", Content: &sdk.TextContent{Text: text.String()}},
+			{Role: "user", Content: &sdk.TextContent{Text: chooseClosing}},
+		},
+	}
+}
+
+// chooseClosing is what the model is asked to do with a list it was handed in
+// place of a conversation.
+//
+// The one thing it must not do is choose. Picking the likeliest entry is what a
+// helpful model does with a list, and here it would take the decision from the
+// user it belongs to. Opening one waits for the answer for the same reason, and
+// what follows is the same short reply and wait as any other resume.
+const chooseClosing = "Show the user this list and ask which conversation to resume. Do not pick " +
+	"one yourself, and do not open any of them until the user has chosen. When they choose, call " +
+	"`open` on its address, then reply in one or two sentences saying what that conversation was " +
+	"about and where it stopped, and wait for the user."

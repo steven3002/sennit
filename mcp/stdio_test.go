@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -135,6 +136,43 @@ func (c *client) try(method string, params any) (json.RawMessage, json.RawMessag
 	}
 }
 
+// tryAnswering sends one request and, while it is outstanding, answers every
+// request the server makes of the client, the way a host shows a dialog in the
+// middle of a prompt and sends back what the user chose.
+func (c *client) tryAnswering(method string, params any, answer func(method string, params json.RawMessage) any) (json.RawMessage, json.RawMessage) {
+	c.t.Helper()
+	c.next++
+	id := strconv.Itoa(c.next)
+	request := map[string]any{"jsonrpc": "2.0", "id": c.next, "method": method}
+	if params != nil {
+		request["params"] = params
+	}
+	c.send(request)
+
+	for {
+		var message struct {
+			ID     json.RawMessage `json:"id"`
+			Method string          `json:"method"`
+			Params json.RawMessage `json:"params"`
+			Result json.RawMessage `json:"result"`
+			Error  json.RawMessage `json:"error"`
+		}
+		line := c.readLine()
+		if err := json.Unmarshal(line, &message); err != nil {
+			c.t.Fatalf("%s: server wrote a line that is not JSON-RPC: %.200q", method, line)
+		}
+		switch {
+		case message.Method != "" && message.ID != nil:
+			// The server's own request, whose id is in the server's numbering
+			// and is echoed back exactly as it came.
+			c.send(map[string]any{"jsonrpc": "2.0", "id": message.ID,
+				"result": answer(message.Method, message.Params)})
+		case message.Method == "" && string(message.ID) == id:
+			return message.Result, message.Error
+		}
+	}
+}
+
 func (c *client) notify(method string, params any) {
 	c.t.Helper()
 	request := map[string]any{"jsonrpc": "2.0", "method": method}
@@ -171,10 +209,16 @@ const legacyVersion = "2025-11-25"
 // handshake performs the legacy initialize exchange and returns the result.
 func (c *client) handshake(version string) map[string]any {
 	c.t.Helper()
+	return c.handshakeDeclaring(version, map[string]any{})
+}
+
+// handshakeDeclaring is handshake from a client that declares capabilities.
+func (c *client) handshakeDeclaring(version string, capabilities map[string]any) map[string]any {
+	c.t.Helper()
 	raw := c.rpc("initialize", map[string]any{
 		"protocolVersion": version,
 		"clientInfo":      map[string]any{"name": "legacy-probe", "version": "1"},
-		"capabilities":    map[string]any{},
+		"capabilities":    capabilities,
 	})
 	var result map[string]any
 	if err := json.Unmarshal(raw, &result); err != nil {
@@ -343,6 +387,217 @@ func TestTheCurrentRevisionIsReachableOnlyOnItsOwnStatelessPath(t *testing.T) {
 	}
 	if discovered.Capabilities.Logging != nil {
 		t.Error("the stateless path advertises logging")
+	}
+}
+
+// Claude Code's path: a client that sent initialize on the earlier revision is
+// asked which conversation to resume in the middle of the prompt, and the
+// conversation resumed is the one the user picked.
+//
+// It is not the in-process tests' path. On this revision a server cannot hand a
+// question back for the client to retry, so the SDK sends elicitation/create
+// while prompts/get is still open, and runs the prompt's handler once more with
+// the answer. A list closed without a choice has to come back from here as a
+// sentence for the user, because that is what Claude Code shows.
+func TestALegacyHostIsAskedInTheMiddleOfThePromptAndResumesThePick(t *testing.T) {
+	server := spawn(t, t.TempDir())
+	server.handshakeDeclaring(legacyVersion, map[string]any{"elicitation": map[string]any{}})
+
+	var saved []string
+	for i, title := range []string{"Harbour survey", "Rollup schedule"} {
+		if i > 0 {
+			// A head's timestamp is kept to the millisecond, and two saves
+			// inside one would tie on which is the more recent.
+			time.Sleep(2 * time.Millisecond)
+		}
+		stored := server.callTool("save_session", map[string]any{
+			"title":    title,
+			"summary":  "One of two conversations to choose between.",
+			"messages": messagesJSON(fmt.Sprintf("legacy-%d", i), 2),
+		})
+		uri, _ := stored["uri"].(string)
+		saved = append(saved, uri)
+	}
+
+	type question struct {
+		Message         string `json:"message"`
+		RequestedSchema struct {
+			Properties struct {
+				Conversation struct {
+					OneOf []struct {
+						Const string `json:"const"`
+						Title string `json:"title"`
+					} `json:"oneOf"`
+				} `json:"conversation"`
+			} `json:"properties"`
+		} `json:"requestedSchema"`
+	}
+	var asked []question
+	resume := func(answer map[string]any) (json.RawMessage, json.RawMessage) {
+		return server.tryAnswering("prompts/get", map[string]any{"name": mcp.ResumePrompt},
+			func(method string, params json.RawMessage) any {
+				if method != "elicitation/create" {
+					t.Errorf("the server asked the client for %s, want elicitation/create", method)
+				}
+				var q question
+				if err := json.Unmarshal(params, &q); err != nil {
+					t.Errorf("elicitation/create params: %v", err)
+				}
+				asked = append(asked, q)
+				return answer
+			})
+	}
+
+	// Closed without a choice: nothing is resumed, and the prompt fails with a
+	// sentence meant for the user rather than returning a turn for the model.
+	result, rpcErr := resume(map[string]any{"action": "cancel"})
+	if rpcErr == nil {
+		t.Fatalf("a list closed without a choice resumed %.200s", result)
+	}
+	if !strings.Contains(string(rpcErr), "nothing was resumed") ||
+		!strings.Contains(string(rpcErr), "/mcp__sennit__resume recent") {
+		t.Errorf("the refusal does not say that nothing was resumed and what to run: %s", rpcErr)
+	}
+
+	// Picked: the older of the two, so the newest is not what comes back by
+	// accident.
+	result, rpcErr = resume(map[string]any{
+		"action":  "accept",
+		"content": map[string]any{"conversation": saved[0]},
+	})
+	if rpcErr != nil {
+		t.Fatalf("resuming the pick: %s", rpcErr)
+	}
+	if len(asked) != 2 {
+		t.Fatalf("the two prompts asked %d question(s), want one each", len(asked))
+	}
+	offered := asked[1].RequestedSchema.Properties.Conversation.OneOf
+	if len(offered) != 2 || offered[0].Const != saved[1] || offered[1].Const != saved[0] {
+		t.Fatalf("the dialog offered %+v, want both conversations, newest first", offered)
+	}
+	if !strings.HasPrefix(offered[1].Title, "Harbour survey · ") {
+		t.Errorf("a choice is labelled %q, want its title first", offered[1].Title)
+	}
+	if !strings.Contains(asked[1].Message, "Showing all 2.") {
+		t.Errorf("the dialog does not say how much it shows: %q", asked[1].Message)
+	}
+
+	var prompt struct {
+		Description string `json:"description"`
+		Messages    []struct {
+			Content struct {
+				Type     string `json:"type"`
+				Text     string `json:"text"`
+				Resource struct {
+					URI string `json:"uri"`
+				} `json:"resource"`
+			} `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(result, &prompt); err != nil {
+		t.Fatalf("prompts/get result: %v", err)
+	}
+	if !strings.Contains(prompt.Description, "Harbour survey") ||
+		!strings.Contains(prompt.Description, "picked by the user") {
+		t.Fatalf("the prompt resumed %q, want the pick", prompt.Description)
+	}
+	var head bool
+	for _, message := range prompt.Messages {
+		if message.Content.Type == "resource" && message.Content.Resource.URI == saved[0] {
+			head = true
+		}
+	}
+	if !head {
+		t.Errorf("the pick's head was not embedded, want %s", saved[0])
+	}
+}
+
+// A client on the 2026-07-28 revision declares what it can do on each request,
+// and the list becomes a dialog on the strength of the request that asks for
+// it.
+//
+// The session is no substitute. With no initialize, the SDK keeps the first
+// request's declaration as the session's and never revisits it, so a client
+// whose first request declared nothing would read, from the session, as one
+// that can never show a dialog. Antigravity's command line talks to this server
+// this way, with no initialize and its capabilities on every request.
+func TestAStatelessClientIsAskedOnTheStrengthOfTheRequestThatAsks(t *testing.T) {
+	server := spawn(t, t.TempDir())
+	meta := func(capabilities map[string]any) map[string]any {
+		return map[string]any{
+			sdk.MetaKeyProtocolVersion:    currentVersion,
+			sdk.MetaKeyClientInfo:         map[string]any{"name": "stateless-probe", "version": "1"},
+			sdk.MetaKeyClientCapabilities: capabilities,
+		}
+	}
+	plain := meta(map[string]any{})
+	dialogs := meta(map[string]any{"elicitation": map[string]any{"form": map[string]any{}}})
+
+	// The first request declares nothing, and that is what the session keeps.
+	var saved struct {
+		StructuredContent struct {
+			URI string `json:"uri"`
+		} `json:"structuredContent"`
+	}
+	stored := server.rpc("tools/call", map[string]any{
+		"_meta": plain,
+		"name":  "save_session",
+		"arguments": map[string]any{
+			"title":    "Harbour survey",
+			"summary":  "The one conversation there is to choose.",
+			"messages": messagesJSON("stateless", 2),
+		},
+	})
+	if err := json.Unmarshal(stored, &saved); err != nil || saved.StructuredContent.URI == "" {
+		t.Fatalf("save_session on the stateless path: %v, %.200s", err, stored)
+	}
+
+	type promptResult struct {
+		ResultType    string `json:"resultType"`
+		InputRequests map[string]struct {
+			Method string `json:"method"`
+		} `json:"inputRequests"`
+		RequestState string            `json:"requestState"`
+		Description  string            `json:"description"`
+		Messages     []json.RawMessage `json:"messages"`
+	}
+	get := func(params map[string]any) promptResult {
+		t.Helper()
+		var result promptResult
+		if err := json.Unmarshal(server.rpc("prompts/get", params), &result); err != nil {
+			t.Fatalf("prompts/get result: %v", err)
+		}
+		return result
+	}
+
+	// A request that declares it can show a dialog is asked, whatever the first
+	// request said.
+	asked := get(map[string]any{"_meta": dialogs, "name": mcp.ResumePrompt})
+	if asked.ResultType != "input_required" || asked.InputRequests["conversation"].Method != "elicitation/create" {
+		t.Fatalf("a request that can show a dialog was answered with %q and %+v, want a dialog",
+			asked.ResultType, asked.InputRequests)
+	}
+	// One that does not declare it gets the list as text, whatever an earlier
+	// request said.
+	if listed := get(map[string]any{"_meta": plain, "name": mcp.ResumePrompt}); len(listed.InputRequests) != 0 ||
+		len(listed.Messages) != 2 {
+		t.Errorf("a request that cannot show a dialog got %d question(s) and %d message(s), want the list as text",
+			len(listed.InputRequests), len(listed.Messages))
+	}
+
+	// The client retries with the answer and the state it was sent.
+	resumed := get(map[string]any{
+		"_meta": dialogs,
+		"name":  mcp.ResumePrompt,
+		"inputResponses": map[string]any{"conversation": map[string]any{
+			"action":  "accept",
+			"content": map[string]any{"conversation": saved.StructuredContent.URI},
+		}},
+		"requestState": asked.RequestState,
+	})
+	if !strings.Contains(resumed.Description, "Harbour survey") ||
+		!strings.Contains(resumed.Description, "picked by the user") {
+		t.Errorf("the retry resumed %q, want the pick", resumed.Description)
 	}
 }
 

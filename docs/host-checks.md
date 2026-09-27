@@ -103,12 +103,22 @@ Then:
 1. Type `/` and look for **`resume`** in the command list. It may be namespaced, hosts commonly
    prefix MCP prompts with the server name, so look for `resume`, `sennit:resume`, or
    `/mcp__sennit__resume`.
-2. Run it **with no arguments**. It should resume the most recent conversation.
-3. Run it again with a topic, e.g. `resume host check`.
+2. Run it **with no arguments**. It should open a dialog listing your recent conversations, each
+   with its title, the agent it happened in and the date, and resume nothing until you pick one.
+   Pick "Host check". A host that cannot show a dialog gets the same list as text instead: the
+   assistant should show it and ask which one to resume, not choose one itself.
+3. Run it with `recent` after it. It should resume the most recent conversation without asking.
+   In Claude Code, type `/mcp__sennit__resume recent`, which is also the form the prompt names
+   when its list is closed without a choice, or choose `/sennit:resume` from the menu, which fills
+   in `/mcp__sennit__resume`, and type `recent` after it. Typed out in full,
+   `/sennit:resume recent` is not recognised as a command (Claude Code 2.1.283).
+4. Run it again with a topic, e.g. `resume host check`.
 
 **A pass looks like:**
 
 - The prompt appears in the list without being typed out in full.
+- With no arguments, nothing is resumed until a conversation has been picked, and closing the
+  dialog without picking one resumes nothing and says so.
 - Running it fills the input with, or sends, a block that begins
   *"Resume this conversation from the user's own Sennit vault"* and names how the conversation was
   chosen.
@@ -123,12 +133,12 @@ server connected. Record what the host *does* show.
 
 ### Record, per host
 
-| Host | Version | Prompt visible? | How it is named | Arguments work? | Notes |
-|---|---|---|---|---|---|
-| Claude Code | | | | | |
-| Claude Desktop | | | | | |
-| Cursor | | | | | |
-| VS Code | | | | | |
+| Host | Version | Prompt visible? | How it is named | List shown as | Arguments work? | Notes |
+|---|---|---|---|---|---|---|
+| Claude Code | | | | | | |
+| Claude Desktop | | | | | | |
+| Cursor | | | | | | |
+| VS Code | | | | | | |
 
 ---
 

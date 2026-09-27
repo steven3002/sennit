@@ -51,6 +51,14 @@ func openVault(t *testing.T, home string) *vault.Vault {
 // person.
 func connect(t *testing.T, server *mcp.Server) *sdk.ClientSession {
 	t.Helper()
+	return connectWith(t, server, nil)
+}
+
+// connectWith is connect with a client built from opts, for a test that needs
+// a client able to do something the default one cannot, such as show the user
+// a dialog.
+func connectWith(t *testing.T, server *mcp.Server, opts *sdk.ClientOptions) *sdk.ClientSession {
+	t.Helper()
 	clientSide, serverSide := sdk.NewInMemoryTransports()
 
 	serverSession, err := server.Connect(context.Background(), serverSide)
@@ -59,7 +67,7 @@ func connect(t *testing.T, server *mcp.Server) *sdk.ClientSession {
 	}
 	t.Cleanup(func() { serverSession.Wait() })
 
-	client := sdk.NewClient(&sdk.Implementation{Name: "sennit-test", Version: "0"}, nil)
+	client := sdk.NewClient(&sdk.Implementation{Name: "sennit-test", Version: "0"}, opts)
 	session, err := client.Connect(context.Background(), clientSide, nil)
 	if err != nil {
 		t.Fatalf("connect client: %v", err)
