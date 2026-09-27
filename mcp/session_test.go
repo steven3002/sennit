@@ -261,19 +261,30 @@ func TestTheResumePromptReturnsTheConversationAndWhatWasLearnedInIt(t *testing.T
 		t.Errorf("the prompt does not say what it is resuming: %q", got.Description)
 	}
 
-	var framing, transcript string
+	var texts []string
 	embedded := map[string]string{}
 	for _, message := range got.Messages {
 		switch content := message.Content.(type) {
 		case *sdk.TextContent:
-			if framing == "" {
-				framing = content.Text
-			} else {
-				transcript = content.Text
-			}
+			texts = append(texts, content.Text)
 		case *sdk.EmbeddedResource:
 			embedded[content.Resource.URI] = content.Resource.Text
 		}
+	}
+	if len(texts) != 3 {
+		t.Fatalf("the prompt returned %d text message(s), want the framing, the turns and the closing", len(texts))
+	}
+	framing, transcript, closing := texts[0], texts[1], texts[2]
+
+	// The closing is the last thing the model reads, and it asks for a short
+	// answer and a wait. A host sends the result to the model as soon as the
+	// user runs the prompt, so an instruction to carry on would start work the
+	// user has not asked for.
+	if last, ok := got.Messages[len(got.Messages)-1].Content.(*sdk.TextContent); !ok || last.Text != closing {
+		t.Error("the closing is not the last message, so the model reads the turns after it")
+	}
+	if !strings.Contains(closing, "wait for the user") {
+		t.Errorf("the closing does not ask the model to wait for the user: %q", closing)
 	}
 
 	if !strings.Contains(framing, "Traced the dashboard's hour-long lag") {

@@ -141,8 +141,24 @@ func (s *Server) resume(ctx context.Context, req *sdk.GetPromptRequest) (*sdk.Ge
 		Role:    "user",
 		Content: &sdk.TextContent{Text: renderTranscript(replayed)},
 	})
+	result.Messages = append(result.Messages, &sdk.PromptMessage{
+		Role:    "user",
+		Content: &sdk.TextContent{Text: resumeClosing},
+	})
 	return result, nil
 }
+
+// resumeClosing is what the model is asked to do with what it was handed.
+//
+// It comes after the turns because it is what the model reads last, and it asks
+// for a short answer and a wait because a host sends a prompt's result to the
+// model the moment the user runs it. An instruction to carry on sends the model
+// straight into the open work, spending a reply, and often tool calls, on
+// something the user has not asked for yet. What happens next in a resumed
+// conversation is the user's to say.
+const resumeClosing = "That is everything brought back. Reply in one or two sentences, saying what " +
+	"this conversation was about and where it stopped. Then wait for the user. Do not call a " +
+	"tool, save anything or start on open work until they ask."
 
 // resumeFraming tells the model what it has been handed and what it has not.
 //
@@ -197,7 +213,7 @@ func resumeFraming(loaded vault.LoadedSession, replayed []record.Message, skippe
 		}
 		fmt.Fprint(&text, "\n")
 	}
-	fmt.Fprintf(&text, "Continue from where it left off. Append new turns with `save_session` and "+
+	fmt.Fprintf(&text, "To keep this conversation's new turns, append them with `save_session` and "+
 		"the address %s, sending only the new ones.\n", URI(record.KindSession, session.ID))
 	return text.String()
 }
