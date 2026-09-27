@@ -112,7 +112,14 @@ Then:
    when its list is closed without a choice, or choose `/sennit:resume` from the menu, which fills
    in `/mcp__sennit__resume`, and type `recent` after it. Typed out in full,
    `/sennit:resume recent` is not recognised as a command (Claude Code 2.1.283).
-4. Run it again with a topic, e.g. `resume host check`.
+4. Run it again with what the conversation was about after it, e.g.
+   `/mcp__sennit__resume host check`. It should resume "Host check", and say it was the closest
+   match for "host check" and how closely it matched. Claude Code passes the words typed after the
+   command to the prompt one per argument, and the prompt has three, so up to three words reach the
+   search and a fourth is dropped without a warning. A positive whole number as the third word is
+   the number of turns to replay instead, e.g. `/mcp__sennit__resume host check 5`. Leave quotes
+   out: Claude Code passes them on as part of the words rather than keeping a phrase together
+   (2.1.283).
 
 **A pass looks like:**
 

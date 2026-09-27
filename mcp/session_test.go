@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -694,7 +695,7 @@ func TestRecentResumesTheNewestWithoutAsking(t *testing.T) {
 		},
 	)
 
-	for _, word := range []string{"recent", "RECENT", "Recent"} {
+	for _, word := range []string{"recent", "RECENT", "Recent", " recent "} {
 		got, err := session.GetPrompt(ctx, &sdk.GetPromptParams{
 			Name:      mcp.ResumePrompt,
 			Arguments: map[string]string{"session": word},
@@ -708,6 +709,21 @@ func TestRecentResumesTheNewestWithoutAsking(t *testing.T) {
 		}
 	}
 
+	// It is read before a topic can be, so a word after it, which a host that
+	// fills arguments in order puts in topic, does not turn it into a search
+	// for the conversation that word describes.
+	got, err := session.GetPrompt(ctx, &sdk.GetPromptParams{
+		Name:      mcp.ResumePrompt,
+		Arguments: map[string]string{"session": mcp.ResumeRecent, "topic": "harbour"},
+	})
+	if err != nil {
+		t.Fatalf("resume recent harbour: %v", err)
+	}
+	if !strings.Contains(got.Description, "Rollup schedule") ||
+		!strings.Contains(got.Description, "the most recent conversation") {
+		t.Errorf("resume recent harbour resumed %q, want the most recent conversation", got.Description)
+	}
+
 	// An empty vault has nothing to list and nothing recent, and says so the
 	// same way either way it is asked.
 	empty := connect(t, mcp.New(openVault(t, t.TempDir())))
@@ -715,6 +731,188 @@ func TestRecentResumesTheNewestWithoutAsking(t *testing.T) {
 		_, err := empty.GetPrompt(ctx, &sdk.GetPromptParams{Name: mcp.ResumePrompt, Arguments: arguments})
 		if err == nil || !strings.Contains(err.Error(), "no conversations yet") {
 			t.Errorf("an empty vault asked with %v answered %v", arguments, err)
+		}
+	}
+}
+
+// A host that fills a prompt's arguments in order, one typed word each, reaches
+// the topic search. The words arrive spread across session, topic and turns, and
+// they are searched for together.
+//
+// Claude Code fills them that way, measured in 2.1.283, so
+// `/mcp__sennit__resume harbour survey` arrives as session "harbour" and topic
+// "survey". The in-process client fills arguments by name, so each case below
+// puts the words where that host puts them.
+func TestWordsFilledInOrderAreSearchedForAsOneTopic(t *testing.T) {
+	session, _ := serve(t)
+	ctx := context.Background()
+
+	saved := saveInOrder(t, session,
+		mcp.SaveSessionIn{
+			Title:    "Harbour survey",
+			Summary:  "Surveyed the harbour approaches and found silting at the east.",
+			Messages: conversation("harbour"),
+		},
+		mcp.SaveSessionIn{
+			Title:    "Rollup schedule",
+			Summary:  "Settled that the rollup runs hourly at ten past.",
+			Messages: conversation("rollup"),
+		},
+	)
+	harbour, rollup := saved[0], saved[1]
+
+	// The declared order is the order such a host fills, so it is part of the
+	// prompt's interface.
+	listed, err := session.ListPrompts(ctx, nil)
+	if err != nil {
+		t.Fatalf("list prompts: %v", err)
+	}
+	var declared []string
+	for _, argument := range listed.Prompts[0].Arguments {
+		declared = append(declared, argument.Name)
+	}
+	if want := []string{"session", "topic", "turns"}; !slices.Equal(declared, want) {
+		t.Fatalf("the prompt declares %v, want %v in that order", declared, want)
+	}
+
+	for _, c := range []struct {
+		typed    string            // what the user typed after the command
+		words    map[string]string // where a host that fills in order puts it
+		resumes  string            // the conversation that should come back
+		searched string            // the words that should be searched for
+		turns    int               // how many of its four turns should be replayed
+	}{
+		{"harbour", map[string]string{"session": "harbour"}, harbour, "harbour", 4},
+		{"harbour survey", map[string]string{"session": "harbour", "topic": "survey"},
+			harbour, "harbour survey", 4},
+		{"rollup schedule", map[string]string{"session": "rollup", "topic": "schedule"},
+			rollup, "rollup schedule", 4},
+		// A third word that is not a count is one more word of the topic.
+		{"harbour survey silting", map[string]string{"session": "harbour", "topic": "survey", "turns": "silting"},
+			harbour, "harbour survey silting", 4},
+		// A number as the third word is the count, and it is not searched for.
+		{"harbour survey 2", map[string]string{"session": "harbour", "topic": "survey", "turns": "2"},
+			harbour, "harbour survey", 2},
+		// A number that belongs to the topic is searched for when it comes
+		// earlier.
+		{"harbour 2024 survey", map[string]string{"session": "harbour", "topic": "2024", "turns": "survey"},
+			harbour, "harbour 2024 survey", 4},
+		// The word recent is reserved only when it comes first.
+		{"harbour recent", map[string]string{"session": "harbour", "topic": "recent"},
+			harbour, "harbour recent", 4},
+		// Quotes do not hold a phrase together there. They arrive inside the
+		// words, and the topic is still found.
+		{`"harbour survey" 2`, map[string]string{"session": `"harbour`, "topic": `survey"`, "turns": "2"},
+			harbour, `"harbour survey"`, 2},
+	} {
+		t.Run(c.typed, func(t *testing.T) {
+			got, err := session.GetPrompt(ctx, &sdk.GetPromptParams{Name: mcp.ResumePrompt, Arguments: c.words})
+			if err != nil {
+				t.Fatalf("resume %s: %v", c.typed, err)
+			}
+			if head, _ := got.Messages[1].Content.(*sdk.EmbeddedResource); head == nil || head.Resource.URI != c.resumes {
+				t.Errorf("resume %s resumed %q, want %s", c.typed, got.Description, c.resumes)
+			}
+			if want := fmt.Sprintf("the closest match for %q,", c.searched); !strings.Contains(got.Description, want) {
+				t.Errorf("resume %s was chosen as %q, want %s", c.typed, got.Description, want)
+			}
+			if want := fmt.Sprintf("%d of 4 turn(s)", c.turns); !strings.Contains(got.Description, want) {
+				t.Errorf("resume %s replayed %q, want %s", c.typed, got.Description, want)
+			}
+		})
+	}
+
+	// A host that fills arguments by name reaches the same search with a topic
+	// alone, and a count beside it.
+	got, err := session.GetPrompt(ctx, &sdk.GetPromptParams{
+		Name:      mcp.ResumePrompt,
+		Arguments: map[string]string{"topic": "rollup schedule", "turns": "2"},
+	})
+	if err != nil {
+		t.Fatalf("resume by a topic given by name: %v", err)
+	}
+	if !strings.Contains(got.Description, `Resuming "Rollup schedule", 2 of 4 turn(s), `+
+		`the closest match for "rollup schedule"`) {
+		t.Errorf("a topic given by name resumed %q", got.Description)
+	}
+	// There a word in turns that is not a count is still refused. Only a topic
+	// that starts in session takes the words after it, because that is where a
+	// host that fills arguments in order puts the first one.
+	_, err = session.GetPrompt(ctx, &sdk.GetPromptParams{
+		Name:      mcp.ResumePrompt,
+		Arguments: map[string]string{"topic": "harbour", "turns": "survey"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "turns must be a positive whole number") {
+		t.Errorf("a topic given by name with a word in turns answered %v", err)
+	}
+}
+
+// An address resumes the conversation it names, however long ago that changed,
+// and anything written as an address that does not name a conversation is
+// refused rather than searched for as a topic.
+func TestAnAddressResumesItsConversationAndAMalformedOneIsRefused(t *testing.T) {
+	session, _ := serve(t)
+	ctx := context.Background()
+
+	saved := saveInOrder(t, session,
+		mcp.SaveSessionIn{
+			Title:    "Harbour survey",
+			Summary:  "Surveyed the harbour approaches and found silting at the east.",
+			Messages: conversation("harbour"),
+		},
+		mcp.SaveSessionIn{
+			Title:    "Rollup schedule",
+			Summary:  "Settled that the rollup runs hourly at ten past.",
+			Messages: conversation("rollup"),
+		},
+	)
+	harbour := saved[0]
+	memory := storeMemory(t, session, mcp.RememberIn{
+		Statement: "The harbour survey found silting at the eastern approach.",
+		Context:   "Recorded from the harbour survey conversation.",
+		Type:      "fact",
+		Tags:      []string{"harbour", "survey"},
+	})
+
+	// The older of the two, so the newest is not what comes back by accident.
+	got, err := session.GetPrompt(ctx, &sdk.GetPromptParams{
+		Name:      mcp.ResumePrompt,
+		Arguments: map[string]string{"session": harbour},
+	})
+	if err != nil {
+		t.Fatalf("resume by address: %v", err)
+	}
+	if !strings.Contains(got.Description, `Resuming "Harbour survey"`) ||
+		!strings.Contains(got.Description, "by address") {
+		t.Errorf("resuming %s resumed %q", harbour, got.Description)
+	}
+	if head, _ := got.Messages[1].Content.(*sdk.EmbeddedResource); head == nil || head.Resource.URI != harbour {
+		t.Errorf("resuming by address embedded a head other than %s", harbour)
+	}
+
+	id := strings.TrimPrefix(harbour, mcp.Scheme+"session/")
+	for _, address := range []string{
+		mcp.Scheme + "session/not-an-id",
+		mcp.Scheme + "sessions/" + id,
+		harbour + "/transcript",
+		memory,
+		// The scheme in capitals is still meant as an address, and it is
+		// refused as one rather than searched for.
+		"SENNIT://session/" + id,
+	} {
+		// With a word after it, the way a host that fills arguments in order
+		// sends a word typed after an address, so a refusal is not a search
+		// that happened to fail.
+		_, err := session.GetPrompt(ctx, &sdk.GetPromptParams{
+			Name:      mcp.ResumePrompt,
+			Arguments: map[string]string{"session": address, "topic": "harbour"},
+		})
+		if err == nil {
+			t.Errorf("%s resumed a conversation", address)
+			continue
+		}
+		if !strings.Contains(err.Error(), address) {
+			t.Errorf("the refusal of %s does not name it: %v", address, err)
 		}
 	}
 }

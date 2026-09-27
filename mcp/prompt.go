@@ -29,8 +29,12 @@ const ResumePrompt = "resume"
 // spend the context the resumed conversation is supposed to use.
 const ResumeTurns = 30
 
-// ResumeRecent is the session argument that resumes the most recent
-// conversation without asking which.
+// ResumeRecent is the word that resumes the most recent conversation without
+// asking which.
+//
+// It is reserved only as the first word after the command, where it is read
+// before a topic can be. Anywhere later in a topic it is one more word to search
+// for.
 const ResumeRecent = "recent"
 
 // ResumeChoices is how many recent conversations a resume offers when nothing
@@ -83,24 +87,34 @@ func (s *Server) registerPrompts() {
 		// shows only the start of the description, and the menu is where the
 		// user finds this prompt: typed in full, the name it shows there is an
 		// unknown command.
-		Description: "Choose a stored conversation to resume, or add " + ResumeRecent + " for the " +
-			"newest one. Brings back its summary, its most recent turns and the memories drawn " +
-			"from it, in this agent or a different one.",
+		Description: "Choose a stored conversation to resume, or add what it was about, or " +
+			ResumeRecent + " for the newest one. Brings back its summary, its most recent turns and " +
+			"the memories drawn from it, in this agent or a different one.",
+		// A host that fills arguments in order puts the first word typed into
+		// the first argument declared, so the order here is part of the
+		// interface. Each argument is read for what it holds rather than for its
+		// name (see readResume), and each description says what it accepts from
+		// a host that fills them in order as well as from one that fills them by
+		// name.
 		Arguments: []*sdk.PromptArgument{
 			{
 				Name: "session",
 				Description: "The conversation to resume: its address, as sennit://session/{id}, or " +
-					ResumeRecent + " for the most recent one. Leave it and topic empty to choose from " +
-					"a list of recent conversations.",
+					ResumeRecent + " for the most recent one. Anything else is the start of what the " +
+					"conversation was about, searched for together with the words in topic. Leave it " +
+					"and topic empty to choose from a list of recent conversations.",
 			},
 			{
 				Name: "topic",
-				Description: "Words to find the conversation by, when you do not have its address. " +
+				Description: "What the conversation was about, or more of it after the words in session. " +
 					"Searched against titles and summaries.",
 			},
 			{
-				Name:        "turns",
-				Description: "How many recent turns to replay. Default " + strconv.Itoa(ResumeTurns) + ".",
+				Name: "turns",
+				Description: "How many recent turns to replay. Default " + strconv.Itoa(ResumeTurns) + ". " +
+					"A positive whole number here is always the count. When session starts a topic, " +
+					"anything else here is searched for as one more word of it, so a number that belongs " +
+					"to the topic has to come earlier.",
 			},
 		},
 	}, s.resume)
@@ -110,22 +124,16 @@ func (s *Server) resume(ctx context.Context, req *sdk.GetPromptRequest) (*sdk.Ge
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
-	args := req.Params.Arguments
-	turns := ResumeTurns
-	if raw := args["turns"]; raw != "" {
-		parsed, err := strconv.Atoi(raw)
-		if err != nil || parsed <= 0 {
-			return nil, fmt.Errorf("turns must be a positive whole number, not %q", raw)
-		}
-		turns = parsed
+	want, err := readResume(req.Params.Arguments)
+	if err != nil {
+		return nil, err
 	}
 
 	var (
 		session record.ID
 		how     string
-		err     error
 	)
-	if args["session"] == "" && args["topic"] == "" {
+	if want.namesNothing() {
 		// Nothing named, so nothing is guessed: the user chooses. The first
 		// time through, the list goes out; the second, the answer is here.
 		answer, answered := req.Params.InputResponses[choiceInput]
@@ -135,7 +143,7 @@ func (s *Server) resume(ctx context.Context, req *sdk.GetPromptRequest) (*sdk.Ge
 		session, err = s.chosen(answer, req.Params.RequestState)
 		how = "picked by the user from a list of recent conversations"
 	} else {
-		session, how, err = s.findSession(ctx, args["session"], args["topic"])
+		session, how, err = s.findSession(ctx, want)
 	}
 	if err != nil {
 		return nil, err
@@ -147,8 +155,8 @@ func (s *Server) resume(ctx context.Context, req *sdk.GetPromptRequest) (*sdk.Ge
 	}
 	replayed := loaded.Messages
 	var skipped int
-	if len(replayed) > turns {
-		skipped = len(replayed) - turns
+	if len(replayed) > want.turns {
+		skipped = len(replayed) - want.turns
 		replayed = replayed[skipped:]
 	}
 
@@ -327,28 +335,129 @@ func renderPart(text *strings.Builder, part record.Part) {
 	}
 }
 
+// A resumeRequest is what the words after the command ask for: a conversation,
+// named in one of three ways or in none, and how many of its turns to replay.
+type resumeRequest struct {
+	// address is a conversation's address, as it arrived.
+	address string
+	// recent asks for the conversation that changed last.
+	recent bool
+	// topic is the words to search titles and summaries for.
+	topic string
+	// turns is how many of the most recent turns to replay.
+	turns int
+}
+
+// namesNothing reports whether the words named no conversation at all, which is
+// when the user is given the recent ones to choose from.
+func (r resumeRequest) namesNothing() bool {
+	return r.address == "" && !r.recent && r.topic == ""
+}
+
+// readResume reads the words after the command for what they name.
+//
+// They are read for what they hold rather than for the argument each arrived
+// in, because hosts disagree about where a word goes. A host that fills
+// arguments by name, the MCP Inspector among them, puts each value where the
+// user put it. Claude Code fills them in the order they are declared, one typed
+// word each, and that was measured in 2.1.283 rather than assumed: a word past
+// the last argument is dropped without a warning, and quotes stay in the words
+// instead of holding a phrase together. There, /mcp__sennit__resume harbour
+// survey arrives as session "harbour" and topic "survey", so a topic can only
+// start in the first argument.
+//
+// The first argument is resolved in a fixed order: an address, then the
+// reserved word, then a topic. A topic takes the words in all three arguments.
+// From a host that fills them one each that is at most three words, because a
+// fourth is lost before it arrives. The exception is a positive whole number in
+// turns, which is always the count of turns to replay, because the third word
+// is the only place such a host can put one. That settles the one ambiguity
+// left, a topic whose third word is a number, toward the count. A number meant
+// as part of the topic is searched for as one when it comes first or second,
+// and the framing quotes the words that were searched, so a number read as a
+// count shows there rather than going missing.
+func readResume(args map[string]string) (resumeRequest, error) {
+	first := strings.TrimSpace(args["session"])
+	topic := strings.TrimSpace(args["topic"])
+	last := strings.TrimSpace(args["turns"])
+	want := resumeRequest{turns: ResumeTurns}
+	count, err := strconv.Atoi(last)
+	counted := err == nil && count > 0
+	if counted {
+		want.turns = count
+	}
+
+	switch {
+	case isAddress(first):
+		// A malformed address is refused when it is resolved. Searching for it
+		// instead would resume whichever conversation lies nearest to a string
+		// the user meant as an address.
+		want.address = first
+	case strings.EqualFold(first, ResumeRecent):
+		// Matched regardless of case, because a person types it after a slash
+		// command and the host passes the word on exactly as it was typed.
+		want.recent = true
+
+	// A conversation's name is matched here, once a conversation can be given
+	// one: after the reserved word, so that no name can hide the newest
+	// conversation, and before a topic, so that a name resumes the one
+	// conversation it names rather than the nearest match for its words.
+
+	case first != "":
+		// Every word that arrived is part of the topic, the last one as well
+		// unless it is a count.
+		words := []string{first}
+		if topic != "" {
+			words = append(words, topic)
+		}
+		if last != "" && !counted {
+			words = append(words, last)
+		}
+		want.topic = strings.Join(words, " ")
+		return want, nil
+	default:
+		// Only a host that fills arguments by name can leave the first one
+		// empty and still send a topic.
+		want.topic = topic
+	}
+	// Only a topic that starts in the first argument makes a word in turns part
+	// of it. After an address, the reserved word or nothing at all, a word there
+	// that is not a count is a mistake the user is told about.
+	if last != "" && !counted {
+		return resumeRequest{}, fmt.Errorf("turns must be a positive whole number, not %q", last)
+	}
+	return want, nil
+}
+
+// isAddress reports whether a word is meant as an address, which is whether it
+// starts with the scheme. The scheme's case is not held against it here, so an
+// address typed in capitals is refused as an address rather than searched for as
+// a topic.
+func isAddress(word string) bool {
+	return len(word) >= len(Scheme) && strings.EqualFold(word[:len(Scheme)], Scheme)
+}
+
 // findSession resolves the conversation a resume names.
 //
 // Three ways to name one: an address the caller already has, `recent` for the
 // conversation that changed last, and a search over titles and summaries, which
-// is the only one of the three that can come back with a near miss. A resume that
-// names nothing is not guessed at. It never reaches here, because the user is
-// given the recent conversations to choose from instead.
-func (s *Server) findSession(ctx context.Context, address, topic string) (record.ID, string, error) {
-	// Matched regardless of case, because a person types it after a slash
-	// command and the host passes the word on exactly as it was typed.
-	if strings.EqualFold(strings.TrimSpace(address), ResumeRecent) {
-		return s.mostRecent()
-	}
-	if address != "" {
-		id, err := addressOf(address, FormSession)
+// is the only one of the three that can come back with a near miss. Which of the
+// three a resume's words mean is settled by readResume. A resume that names
+// nothing is not guessed at. It never reaches here, because the user is given
+// the recent conversations to choose from instead.
+func (s *Server) findSession(ctx context.Context, want resumeRequest) (record.ID, string, error) {
+	if want.address != "" {
+		id, err := addressOf(want.address, FormSession)
 		if err != nil {
 			return record.ID{}, "", err
 		}
 		return id, "by address", nil
 	}
+	if want.recent {
+		return s.mostRecent()
+	}
 
-	if topic != "" {
+	if topic := want.topic; topic != "" {
 		// Scoped to sessions because the caller named a container: /resume is a
 		// request for a conversation, and answering it with a memory would be
 		// the wrong answer rather than a worse one. This is the one place in the
