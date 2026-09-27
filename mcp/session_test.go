@@ -500,9 +500,9 @@ func TestAResumeDatesTheConversationByItsTurnsAndNotByItsSaves(t *testing.T) {
 //
 // It is saved in two parts, so the head's first and last writes differ, and the
 // bound has to be the last: turns appended after the first save were saved
-// after it. The bound holds on a device that rebuilt the head from the network
-// as well, which is how a second machine comes to hold a head, and where both of
-// the head's times are when the rebuild ran.
+// after it. On a device that rebuilt the head from the network, which is how a
+// second machine comes to hold a head, the head knows nothing of when these
+// turns were saved, so no bound is given there rather than when the rebuild ran.
 func TestAResumeOfUndatedTurnsGivesWhenTheyWereSavedAndNotASpan(t *testing.T) {
 	session, v := serve(t)
 	const n = mcp.ResumeTurns + 4
@@ -550,17 +550,16 @@ func TestAResumeOfUndatedTurnsGivesWhenTheyWereSavedAndNotASpan(t *testing.T) {
 		t.Fatalf("the rebuild stored %d head(s), want the one dropped", report.Stored)
 	}
 	// A rebuilt head does not know the agent, and these turns name no model for
-	// it to find, so the sentence before the bound is shorter here.
-	_, rebuilt := headTimes(t, session, saved.URI)
+	// it to find, so the sentence is shorter here, and it ends where the bound
+	// would be.
 	framing, _ = resumeByAddress(t, session, saved.URI)
 	want = fmt.Sprintf("It ran for %d turn(s). Its turns do not record when they were said, so when it "+
-		"took place is not known. It was saved no later than %s.\n", n, rebuilt)
+		"took place is not known.\n", n)
 	if !strings.Contains(framing, want) {
 		t.Errorf("on a rebuilt head the framing does not say %q:\n%s", want, framing)
 	}
-	// The times are written in one fixed layout in UTC, so they compare as text.
-	if rebuilt < updated {
-		t.Errorf("a rebuilt head gives %s as the bound, before the save at %s", rebuilt, updated)
+	if strings.Contains(framing, "saved no later than") {
+		t.Errorf("a rebuilt head that does not know when it was saved gives a bound:\n%s", framing)
 	}
 }
 
@@ -969,6 +968,93 @@ func TestRecentResumesTheNewestWithoutAsking(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "no conversations yet") {
 			t.Errorf("an empty vault asked with %v answered %v", arguments, err)
 		}
+	}
+}
+
+// On a device that rebuilt its conversations from the network, one whose turns
+// do not record when they were said is not the most recent. `recent` resumes the
+// one its turns date, the list offers that same conversation first, and the
+// undated one comes after it, labelled without a day rather than with the day
+// the rebuild ran.
+//
+// The undated conversation is saved first, so it is the older of the two. Dated
+// when the rebuild ran, it was put ahead of the newer one on exactly the device
+// where a user can least tell a wrong order from a right one.
+func TestARebuiltConversationWithoutTurnTimesIsNotTheMostRecent(t *testing.T) {
+	ctx := context.Background()
+	var asked []*sdk.ElicitParams
+	v := openVault(t, t.TempDir())
+	session := connectWith(t, mcp.New(v), &sdk.ClientOptions{
+		ElicitationHandler: func(_ context.Context, req *sdk.ElicitRequest) (*sdk.ElicitResult, error) {
+			asked = append(asked, req.Params)
+			return &sdk.ElicitResult{Action: "cancel"}, nil
+		},
+	})
+	saved := saveInOrder(t, session,
+		mcp.SaveSessionIn{
+			Title:    "Harbour survey",
+			Summary:  "Surveyed the harbour approaches and found silting at the east.",
+			Messages: datedConversation("undated", 4, func(int) bool { return false }),
+		},
+		mcp.SaveSessionIn{
+			Title:    "Tide gauge calibration",
+			Summary:  "Calibrated the north pier gauge against the harbour reference.",
+			Messages: datedConversation("dated", 4, func(int) bool { return true }),
+		},
+	)
+	undated, dated := saved[0], saved[1]
+
+	// Both heads are dropped and rebuilt from their transcripts, which is how a
+	// second machine comes to hold them.
+	for _, uri := range saved {
+		address, err := mcp.Parse(uri)
+		if err != nil {
+			t.Fatalf("parse %s: %v", uri, err)
+		}
+		if err := v.ForgetSessionHead(address.ID); err != nil {
+			t.Fatalf("drop the head of %s: %v", uri, err)
+		}
+	}
+	report, err := v.RebuildSessions(ctx, vault.RebuildRequest{})
+	if err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+	if report.Stored != 2 {
+		t.Fatalf("the rebuild stored %d head(s), want the two dropped", report.Stored)
+	}
+
+	// A rebuilt head takes its title from the first turn, and both first turns
+	// say the same thing, so what was resumed is told apart by its address.
+	got, err := session.GetPrompt(ctx, &sdk.GetPromptParams{
+		Name:      mcp.ResumePrompt,
+		Arguments: map[string]string{"session": mcp.ResumeRecent},
+	})
+	if err != nil {
+		t.Fatalf("resume recent: %v", err)
+	}
+	head, _ := got.Messages[1].Content.(*sdk.EmbeddedResource)
+	if head == nil || head.Resource.URI != dated {
+		t.Errorf("recent did not resume the dated conversation %s: %q", dated, got.Description)
+	}
+
+	if _, err := session.GetPrompt(ctx, &sdk.GetPromptParams{Name: mcp.ResumePrompt}); err == nil {
+		t.Fatal("a list closed without a choice resumed a conversation anyway")
+	}
+	if len(asked) != 1 {
+		t.Fatalf("the prompt asked %d time(s), want once", len(asked))
+	}
+	choices := choicesIn(t, asked[0])
+	if len(choices) != 2 || choices[0].Const != dated || choices[1].Const != undated {
+		t.Fatalf("the list offered %+v, want the dated conversation %s and then the undated %s",
+			choices, dated, undated)
+	}
+	// A rebuilt head does not know its agent, and the undated one does not know
+	// when it last changed either, so it is labelled by its title alone.
+	if want := "Turn 0. · " + updatedDay(t, session, dated); choices[0].Title != want {
+		t.Errorf("the dated conversation is labelled %q, want %q", choices[0].Title, want)
+	}
+	if want := "Turn 0."; choices[1].Title != want {
+		t.Errorf("the undated conversation is labelled %q, want %q", choices[1].Title, want)
 	}
 }
 

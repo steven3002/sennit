@@ -273,17 +273,20 @@ func resumeFraming(loaded vault.LoadedSession, replayed []record.Message, skippe
 	case first < 0:
 		// Nothing dates the conversation, so what is given is when it was
 		// saved, as a bound on when it happened and not as a span. The head's
-		// Updated is set by whatever last wrote the head, and that comes after
-		// the last save wherever the head came from. Where the
+		// Updated is that bound wherever it is set, because whatever sets it
+		// does so after the last save. Where the
 		// conversation was saved, it is the last save or a later change such as
 		// a memory drawn from it. On a device that rebuilt the head from the
-		// network, it is the rebuild or a later change. Created would not do as
-		// the bound, since where the conversation was saved it is only the first
-		// save, and turns appended after it were saved later. Nor is it the
-		// first save everywhere: on a device that rebuilt the head, it is when
-		// the rebuild ran.
-		fmt.Fprintf(&text, " Its turns do not record when they were said, so when it took place is "+
-			"not known. It was saved no later than %s.", session.Updated.String())
+		// network it is unset, because a rebuild dates a head only by its turns,
+		// until a change on that device sets it, and until then no bound is
+		// given. Created would not do as the bound, since where the conversation
+		// was saved it is only the first save, and turns appended after it were
+		// saved later.
+		fmt.Fprint(&text, " Its turns do not record when they were said, so when it took place is "+
+			"not known.")
+		if !session.Updated.IsZero() {
+			fmt.Fprintf(&text, " It was saved no later than %s.", session.Updated.String())
+		}
 	case !spanned:
 		// Some turns are dated and at least one end is not. A turn before the
 		// first dated one was said before it, and a turn after the last dated
@@ -718,6 +721,12 @@ func choiceAbout(row local.SessionRow, now time.Time) string {
 	// agent wrote it, so the agent is left out rather than shown as a blank.
 	if row.Agent != "" {
 		fmt.Fprintf(&about, " · %s", row.Agent)
+	}
+	// A head rebuilt from turns that do not record when they were said does not
+	// know when it last changed either, and a list puts it after every head that
+	// does, so the day is left out rather than shown as the first day of year one.
+	if row.Updated.IsZero() {
+		return about.String()
 	}
 	// In this machine's time zone, because the server runs on the user's own
 	// machine and a person remembers the day in theirs. It is written short,

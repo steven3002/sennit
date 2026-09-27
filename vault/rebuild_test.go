@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/steven3002/sennit/record"
 	"github.com/steven3002/sennit/vault"
@@ -237,6 +238,83 @@ func TestARebuiltHeadTakesItsTitleFromTheFirstThingTheUserSaid(t *testing.T) {
 	title := report.Heads[0].Session.Title
 	if want := "How many tide stations report hourly?"; title != want {
 		t.Errorf("synthesised title %q, want %q", title, want)
+	}
+}
+
+// TestARebuiltHeadIsDatedByTheFirstAndLastTurnsThatSayWhen pins where a rebuilt
+// head's two times come from: the first and last turns that record one, in the
+// order the turns were said. A turn between them dated before the first or after
+// the last, as a device with a skewed clock would date it, moves neither, and a
+// turn that records no time is passed over.
+//
+// A conversation none of whose turns records a time is left without either, and
+// both are reported lost. An invented time, such as when the rebuild ran, is
+// what listed such a conversation ahead of every conversation its turns date.
+func TestARebuiltHeadIsDatedByTheFirstAndLastTurnsThatSayWhen(t *testing.T) {
+	at := func(minute int) record.Time {
+		start := time.Date(2025, time.March, 14, 9, 0, 0, 0, time.UTC)
+		return record.At(start.Add(time.Duration(minute) * time.Minute))
+	}
+	var none record.Time
+	for _, tc := range []struct {
+		name string
+		// said is when each turn was said, in the order they were said. The
+		// first four are saved, then the last four appended, so the transcript
+		// is two chunks and the ends are read across them.
+		said             [8]record.Time
+		created, updated record.Time
+		origin           vault.FieldOrigin
+	}{
+		{
+			name:    "some turns dated, out of clock order",
+			said:    [8]record.Time{none, at(10), at(0), at(90), at(20), none, none, none},
+			created: at(10), updated: at(20),
+			origin: vault.OriginObserved,
+		},
+		{
+			name:   "no turn dated",
+			origin: vault.OriginLost,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			v := offlineVault(t)
+			ctx := context.Background()
+
+			turns := append(conversation("a"), conversation("b")...)
+			for i := range turns {
+				turns[i].Created = tc.said[i]
+			}
+			saved, err := v.SaveSession(ctx, vault.SaveSessionRequest{
+				Title: "A conversation whose head will be lost", Messages: turns[:4],
+			})
+			if err != nil {
+				t.Fatalf("save: %v", err)
+			}
+			if _, err := v.SaveSession(ctx, vault.SaveSessionRequest{ID: saved.ID, Messages: turns[4:]}); err != nil {
+				t.Fatalf("append: %v", err)
+			}
+			if err := v.ForgetSessionHead(saved.ID); err != nil {
+				t.Fatalf("drop the head: %v", err)
+			}
+
+			report, err := v.RebuildSessions(ctx, vault.RebuildRequest{})
+			if err != nil {
+				t.Fatalf("rebuild: %v", err)
+			}
+			rebuilt := headFor(t, report, saved.ID)
+			if rebuilt.Chunks != 2 {
+				t.Fatalf("the rebuild read %d chunk(s), want the 2 the transcript was saved in", rebuilt.Chunks)
+			}
+			if !rebuilt.Session.Created.Equal(tc.created.Time) || !rebuilt.Session.Updated.Equal(tc.updated.Time) {
+				t.Errorf("the rebuilt head runs from %s to %s, want %s to %s",
+					rebuilt.Session.Created, rebuilt.Session.Updated, tc.created, tc.updated)
+			}
+			for _, field := range []string{"created", "updated"} {
+				if got := rebuilt.Origins[field]; got != tc.origin {
+					t.Errorf("field %s came back as %q, want %q", field, got, tc.origin)
+				}
+			}
+		})
 	}
 }
 

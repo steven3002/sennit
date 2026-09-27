@@ -353,16 +353,18 @@ func (v *Vault) rebuildHead(ctx context.Context, id record.ID, chunks []*record.
 		built.Origins["counts.tokens"] = OriginObserved
 	}
 
+	// When no turn records a time, both are left unset and reported lost, like
+	// every other field the chunks do not carry, because a head can be stored
+	// without them. Invented, they would be when the rebuild ran, which is later
+	// than every turn on the network, and a listing is newest first, so each such
+	// conversation would come ahead of every one its turns date, however old it
+	// was. Unset, it is listed after them until a change on this device sets
+	// Updated.
 	if !observed.first.IsZero() {
 		session.Created, session.Updated = record.At(observed.first), record.At(observed.last)
 		// When the first turn happened, not when the session was opened.
 		built.Origins["created"] = OriginObserved
 		built.Origins["updated"] = OriginObserved
-	} else {
-		now := record.Now()
-		session.Created, session.Updated = now, now
-		built.Origins["created"] = OriginSynthesised
-		built.Origins["updated"] = OriginSynthesised
 	}
 
 	if len(observed.models) > 0 {
@@ -520,13 +522,16 @@ func observeTranscript(chunks []*record.Chunk) transcriptFacts {
 			for _, ref := range message.Meta.MemoryRefs {
 				facts.memoryRefs = append(facts.memoryRefs, ref)
 			}
+			// The first and last turns that record a time, in the order they
+			// were said, and not the earliest and latest times. Order comes from
+			// the sequence and never from the clock, as record.Message says of
+			// the field, so a turn dated by a device with a skewed clock does not
+			// change which turn begins the conversation or ends it.
 			if at := message.Created.Time; !at.IsZero() {
-				if facts.first.IsZero() || at.Before(facts.first) {
+				if facts.first.IsZero() {
 					facts.first = at
 				}
-				if at.After(facts.last) {
-					facts.last = at
-				}
+				facts.last = at
 			}
 			facts.headMessage = message.ID
 		}
