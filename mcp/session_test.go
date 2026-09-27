@@ -13,6 +13,7 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/steven3002/sennit/mcp"
 	"github.com/steven3002/sennit/record"
+	"github.com/steven3002/sennit/vault"
 )
 
 // saveConversation stores a conversation through the protocol.
@@ -324,6 +325,242 @@ func TestTheResumePromptReturnsTheConversationAndWhatWasLearnedInIt(t *testing.T
 	call(t, session, "open", mcp.OpenIn{URI: saved.URI}, &opened)
 	if embedded[saved.URI] != opened.Content {
 		t.Error("the prompt embedded a different rendering of the head from the one `open` returns")
+	}
+}
+
+// datedConversation is a transcript of n turns, each said a minute after the
+// one before, in which only the turns dated reports on record when they were
+// said.
+func datedConversation(prefix string, n int, dated func(turn int) bool) []record.Message {
+	messages := make([]record.Message, n)
+	for i := range messages {
+		messages[i] = record.Message{
+			ID:    fmt.Sprintf("%s-%d", prefix, i),
+			Role:  record.RoleUser,
+			Parts: []record.Part{{Type: record.PartText, Text: fmt.Sprintf("Turn %d.", i)}},
+		}
+		if i%2 == 1 {
+			messages[i].Role = record.RoleAssistant
+		}
+		if i > 0 {
+			messages[i].Parent = messages[i-1].ID
+		}
+		if dated(i) {
+			messages[i].Created = saidAt(i)
+		}
+	}
+	return messages
+}
+
+// saidAt is when turn i of a dated conversation was said. It is long before any
+// test runs, so a time the head was written can never be mistaken for it.
+func saidAt(turn int) record.Time {
+	start := time.Date(2025, time.March, 14, 9, 0, 0, 0, time.UTC)
+	return record.At(start.Add(time.Duration(turn) * time.Minute))
+}
+
+// resumeByAddress resumes a conversation by its address and returns the
+// framing and the replayed turns, which are the first two of the prompt's text
+// messages.
+func resumeByAddress(t *testing.T, session *sdk.ClientSession, uri string) (framing, transcript string) {
+	t.Helper()
+	got, err := session.GetPrompt(context.Background(), &sdk.GetPromptParams{
+		Name:      mcp.ResumePrompt,
+		Arguments: map[string]string{"session": uri},
+	})
+	if err != nil {
+		t.Fatalf("resume %s: %v", uri, err)
+	}
+	var texts []string
+	for _, message := range got.Messages {
+		if text, ok := message.Content.(*sdk.TextContent); ok {
+			texts = append(texts, text.Text)
+		}
+	}
+	if len(texts) != 3 {
+		t.Fatalf("the prompt returned %d text message(s), want the framing, the turns and the closing",
+			len(texts))
+	}
+	return texts[0], texts[1]
+}
+
+// headTimes are the two times a conversation's head carries, as `open` returns
+// them.
+func headTimes(t *testing.T, session *sdk.ClientSession, uri string) (created, updated string) {
+	t.Helper()
+	var opened mcp.OpenOut
+	call(t, session, "open", mcp.OpenIn{URI: uri}, &opened)
+	detail, _ := opened.Detail.(map[string]any)
+	created, _ = detail["created"].(string)
+	updated, _ = detail["updated"].(string)
+	if created == "" || updated == "" {
+		t.Fatalf("%s has a head without both of its times: %v", uri, detail)
+	}
+	return created, updated
+}
+
+// A resume says when a conversation happened by the times its turns record,
+// and not by when it was saved.
+//
+// Each conversation is longer than a resume replays, so the turn that dates its
+// start is left out of the replay and has to be read from the whole transcript.
+// A turn's time is optional, so a conversation with only some turns dated is
+// ordinary, and for one whose first or last turn has no time the framing says
+// only what the dated turns show.
+func TestAResumeDatesTheConversationByItsTurnsAndNotByItsSaves(t *testing.T) {
+	const n = mcp.ResumeTurns + 4
+	const last = n - 1
+	for _, tc := range []struct {
+		name  string
+		dated func(turn int) bool
+		// clock replaces the times of some dated turns.
+		clock map[int]record.Time
+		// first is the first dated turn, the one that dates the start.
+		first int
+		want  string
+	}{
+		{
+			name:  "every turn dated",
+			dated: func(int) bool { return true },
+			want:  fmt.Sprintf("It ran from %s to %s across %d turn(s).\n", saidAt(0), saidAt(last), n),
+		},
+		{
+			// The ends are the first and last turns in the order they were said.
+			// A turn between them dated before the first or after the last, as a
+			// device with a skewed clock would date it, moves neither.
+			name:  "turns between the ends dated out of order",
+			dated: func(int) bool { return true },
+			clock: map[int]record.Time{1: saidAt(-60), last - 1: saidAt(last + 60)},
+			want:  fmt.Sprintf("It ran from %s to %s across %d turn(s).\n", saidAt(0), saidAt(last), n),
+		},
+		{
+			// A span needs only its ends, so the turns between them may carry no
+			// time and the span is still whole.
+			name:  "only the first and last dated",
+			dated: func(turn int) bool { return turn == 0 || turn == last },
+			want:  fmt.Sprintf("It ran from %s to %s across %d turn(s).\n", saidAt(0), saidAt(last), n),
+		},
+		{
+			name:  "the first turns undated",
+			dated: func(turn int) bool { return turn >= 2 },
+			first: 2,
+			want: fmt.Sprintf("It ran for %d turn(s). Only some of its turns record when they were said, "+
+				"and they show it began before %s and ended at %s.\n", n, saidAt(2), saidAt(last)),
+		},
+		{
+			name:  "the last turns undated",
+			dated: func(turn int) bool { return turn <= last-2 },
+			want: fmt.Sprintf("It ran for %d turn(s). Only some of its turns record when they were said, "+
+				"and they show it began at %s and ended after %s.\n", n, saidAt(0), saidAt(last-2)),
+		},
+		{
+			name:  "both ends undated",
+			dated: func(turn int) bool { return turn >= 2 && turn <= last-2 },
+			first: 2,
+			want: fmt.Sprintf("It ran for %d turn(s). Only some of its turns record when they were said, "+
+				"and they show it began before %s and ended after %s.\n", n, saidAt(2), saidAt(last-2)),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			session, _ := serve(t)
+			messages := datedConversation("dated", n, tc.dated)
+			for turn, at := range tc.clock {
+				messages[turn].Created = at
+			}
+			saved := saveConversation(t, session, mcp.SaveSessionIn{
+				Title:    "Tide gauge calibration",
+				Summary:  "Calibrated the north pier gauge against the harbour reference.",
+				Messages: messages,
+			})
+			framing, transcript := resumeByAddress(t, session, saved.URI)
+
+			if !strings.Contains(framing, tc.want) {
+				t.Errorf("the framing does not say %q:\n%s", tc.want, framing)
+			}
+			if strings.Contains(transcript, fmt.Sprintf("Turn %d.", tc.first)) {
+				t.Fatalf("turn %d was replayed, so this does not show that the start is read from "+
+					"the whole transcript", tc.first)
+			}
+			// Neither of the head's times is when the conversation happened, and
+			// a conversation its turns date is not described by when it was saved.
+			created, updated := headTimes(t, session, saved.URI)
+			if strings.Contains(framing, created) || strings.Contains(framing, updated) {
+				t.Errorf("the framing gives a time the head was written, %s or %s:\n%s",
+					created, updated, framing)
+			}
+			if strings.Contains(framing, "saved no later than") {
+				t.Errorf("a conversation its turns date is described by when it was saved:\n%s", framing)
+			}
+		})
+	}
+}
+
+// A conversation whose turns carry no time is not given a span. The resume says
+// that when it happened is not known, and gives when it was saved as a bound.
+//
+// It is saved in two parts, so the head's first and last writes differ, and the
+// bound has to be the last: turns appended after the first save were saved
+// after it. The bound holds on a device that rebuilt the head from the network
+// as well, which is how a second machine comes to hold a head, and where both of
+// the head's times are when the rebuild ran.
+func TestAResumeOfUndatedTurnsGivesWhenTheyWereSavedAndNotASpan(t *testing.T) {
+	session, v := serve(t)
+	const n = mcp.ResumeTurns + 4
+	turns := datedConversation("undated", n, func(int) bool { return false })
+
+	saved := saveConversation(t, session, mcp.SaveSessionIn{
+		Title:    "Tide gauge calibration",
+		Summary:  "Calibrated the north pier gauge against the harbour reference.",
+		Messages: turns[:n/2],
+		Agent:    mcp.AgentIn{Name: "codex", Version: "0.9"},
+		Models:   []string{"claude-opus-5"},
+	})
+	// A head's times are kept to the millisecond, so the append waits long
+	// enough for its write to carry a later one.
+	time.Sleep(2 * time.Millisecond)
+	saveConversation(t, session, mcp.SaveSessionIn{Session: saved.URI, Messages: turns[n/2:]})
+
+	created, updated := headTimes(t, session, saved.URI)
+	if created == updated {
+		t.Fatalf("the head was written at %s both times, so this cannot tell which one is given", created)
+	}
+	framing, _ := resumeByAddress(t, session, saved.URI)
+	want := fmt.Sprintf("It ran for %d turn(s) in codex, with claude-opus-5. Its turns do not record "+
+		"when they were said, so when it took place is not known. It was saved no later than %s.\n",
+		n, updated)
+	if !strings.Contains(framing, want) {
+		t.Errorf("the framing does not say %q:\n%s", want, framing)
+	}
+	if strings.Contains(framing, "It ran from") || strings.Contains(framing, created) {
+		t.Errorf("the framing presents when the conversation was saved as when it ran:\n%s", framing)
+	}
+
+	address, err := mcp.Parse(saved.URI)
+	if err != nil {
+		t.Fatalf("parse %s: %v", saved.URI, err)
+	}
+	if err := v.ForgetSessionHead(address.ID); err != nil {
+		t.Fatalf("drop the head: %v", err)
+	}
+	report, err := v.RebuildSessions(context.Background(), vault.RebuildRequest{})
+	if err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+	if report.Stored != 1 {
+		t.Fatalf("the rebuild stored %d head(s), want the one dropped", report.Stored)
+	}
+	// A rebuilt head does not know the agent, and these turns name no model for
+	// it to find, so the sentence before the bound is shorter here.
+	_, rebuilt := headTimes(t, session, saved.URI)
+	framing, _ = resumeByAddress(t, session, saved.URI)
+	want = fmt.Sprintf("It ran for %d turn(s). Its turns do not record when they were said, so when it "+
+		"took place is not known. It was saved no later than %s.\n", n, rebuilt)
+	if !strings.Contains(framing, want) {
+		t.Errorf("on a rebuilt head the framing does not say %q:\n%s", want, framing)
+	}
+	// The times are written in one fixed layout in UTC, so they compare as text.
+	if rebuilt < updated {
+		t.Errorf("a rebuilt head gives %s as the bound, before the save at %s", rebuilt, updated)
 	}
 }
 

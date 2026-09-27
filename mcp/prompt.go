@@ -245,15 +245,63 @@ func resumeFraming(loaded vault.LoadedSession, replayed []record.Message, skippe
 	if session.Summary != "" {
 		fmt.Fprintf(&text, "%s\n\n", session.Summary)
 	}
-	fmt.Fprintf(&text, "It ran from %s to %s across %d turn(s)",
-		session.Created.String(), session.Updated.String(), session.Counts.Messages)
+	// When it happened is read from its turns, which record when each was said,
+	// and not from the head. On the device that saved the conversation, the
+	// head's two times are when its record was first and last written, so one
+	// saved in a single call at its end would show a span of milliseconds. The
+	// turns are the whole transcript and not only the ones replayed below, so a
+	// first turn left out of the replay still dates the start.
+	turns := loaded.Messages
+	first, last := datedEnds(turns)
+	// Both ends dated is all a span needs, whatever the turns between them
+	// record.
+	spanned := first == 0 && last == len(turns)-1
+	if spanned {
+		fmt.Fprintf(&text, "It ran from %s to %s across %d turn(s)",
+			turns[first].Created.String(), turns[last].Created.String(), session.Counts.Messages)
+	} else {
+		fmt.Fprintf(&text, "It ran for %d turn(s)", session.Counts.Messages)
+	}
 	if session.Agent.Name != "" {
 		fmt.Fprintf(&text, " in %s", session.Agent.Name)
 	}
 	if len(session.Models) > 0 {
 		fmt.Fprintf(&text, ", with %s", strings.Join(session.Models, " and "))
 	}
-	fmt.Fprint(&text, ".\n\n")
+	fmt.Fprint(&text, ".")
+	switch {
+	case first < 0:
+		// Nothing dates the conversation, so what is given is when it was
+		// saved, as a bound on when it happened and not as a span. The head's
+		// Updated is set by whatever last wrote the head, and that comes after
+		// the last save wherever the head came from. Where the
+		// conversation was saved, it is the last save or a later change such as
+		// a memory drawn from it. On a device that rebuilt the head from the
+		// network, it is the rebuild or a later change. Created would not do as
+		// the bound, since where the conversation was saved it is only the first
+		// save, and turns appended after it were saved later. Nor is it the
+		// first save everywhere: on a device that rebuilt the head, it is when
+		// the rebuild ran.
+		fmt.Fprintf(&text, " Its turns do not record when they were said, so when it took place is "+
+			"not known. It was saved no later than %s.", session.Updated.String())
+	case !spanned:
+		// Some turns are dated and at least one end is not. A turn before the
+		// first dated one was said before it, and a turn after the last dated
+		// one was said after it, which is as far as the dated turns go. No save
+		// time is given as a bound on the end, because the head's times are not
+		// always save times: a head rebuilt from the network takes both from
+		// these dated turns, and the undated turns after them were said later.
+		began, ended := "at "+turns[first].Created.String(), "at "+turns[last].Created.String()
+		if first > 0 {
+			began = "before " + turns[first].Created.String()
+		}
+		if last < len(turns)-1 {
+			ended = "after " + turns[last].Created.String()
+		}
+		fmt.Fprintf(&text, " Only some of its turns record when they were said, and they show it "+
+			"began %s and ended %s.", began, ended)
+	}
+	fmt.Fprint(&text, "\n\n")
 
 	if skipped > 0 {
 		fmt.Fprintf(&text, "⚠ You are being given the LAST %d turn(s). The %d before them are stored "+
@@ -281,6 +329,27 @@ func resumeFraming(loaded vault.LoadedSession, replayed []record.Message, skippe
 	fmt.Fprintf(&text, "To keep this conversation's new turns, append them with `save_session` and "+
 		"the address %s, sending only the new ones.\n", URI(record.KindSession, session.ID))
 	return text.String()
+}
+
+// datedEnds finds the first and last turns that record when they were said, as
+// positions in the transcript, or -1 for both when none does.
+//
+// They are the first and last in the order the turns were said, and not the
+// earliest and latest times. Order comes from the sequence and never from the
+// clock, as record.Message says of the field, so a turn dated by a device with a
+// skewed clock does not change which turn begins the conversation or ends it.
+func datedEnds(turns []record.Message) (first, last int) {
+	first, last = -1, -1
+	for i := range turns {
+		if turns[i].Created.IsZero() {
+			continue
+		}
+		if first < 0 {
+			first = i
+		}
+		last = i
+	}
+	return first, last
 }
 
 // renderTranscript replays turns as text.
