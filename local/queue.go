@@ -2,6 +2,7 @@ package local
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -157,6 +158,52 @@ func (s *Store) ReleaseQueued(ids []record.ID) error {
 // and loses nothing.
 func (s *Store) DropQueued(ids []record.ID) error {
 	return s.eachQueued(ids, `DELETE FROM queue WHERE record_id = ?`, "drop")
+}
+
+// ErrClaimed reports that a queued record is held by a flush in progress, which
+// has its payload in hand and is writing it to the network.
+var ErrClaimed = errors.New("a flush in progress has claimed it and is writing it to the network")
+
+// WithdrawQueued takes a record back out of the queue before any flush writes
+// it, and reports whether it was queued at all.
+//
+// A record a flush has claimed is left where it is, and ErrClaimed says why.
+// That flush read the payload when it made the claim and catalogues the record
+// once it lands, so deleting the row now would stop neither. A claim older than
+// staleAfter is one ClaimQueued would take over, left by a flush that is no
+// longer running, and it holds nothing back; a staleAfter of zero treats every
+// claim that way, as it does there.
+//
+// The claim is checked by the same statement that deletes the row, so no flush
+// can claim the record in between.
+func (s *Store) WithdrawQueued(id record.ID, staleAfter time.Duration) (bool, error) {
+	unclaimed := `claimed_at IS NULL OR claimed_at < ?`
+	args := []any{id.String(), stamp(time.Now().Add(-staleAfter))}
+	if staleAfter <= 0 {
+		unclaimed = `1 = 1`
+		args = args[:1]
+	}
+	result, err := s.db.Exec(`DELETE FROM queue WHERE record_id = ? AND (`+unclaimed+`)`, args...)
+	if err != nil {
+		return false, fmt.Errorf("withdraw queued record %s: %w", id, err)
+	}
+	deleted, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("withdraw queued record %s: %w", id, err)
+	}
+	if deleted > 0 {
+		return true, nil
+	}
+
+	// Nothing was deleted, so the record is either not queued or claimed.
+	var claimed int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM queue WHERE record_id = ?`, id.String()).Scan(&claimed); err != nil {
+		return false, fmt.Errorf("withdraw queued record %s: %w", id, err)
+	}
+	if claimed > 0 {
+		return false, fmt.Errorf("withdraw queued record %s: %w", id, ErrClaimed)
+	}
+	return false, nil
 }
 
 func (s *Store) eachQueued(ids []record.ID, stmt, verb string) error {

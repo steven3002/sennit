@@ -263,6 +263,77 @@ func TestFailedFlushReturnsRecordsToTheQueue(t *testing.T) {
 	}
 }
 
+// A record taken back out of the queue must not reach a slab. The queue holds
+// the sealed payload itself, so a record deleted from everything else on the
+// device would otherwise still be written by the next flush.
+func TestAWithdrawnRecordIsLeftOutOfTheNextFlush(t *testing.T) {
+	device := deviceStore(t, t.TempDir())
+	p, err := packer.New(nil, device, packer.DefaultPolicy(40<<20))
+	if err != nil {
+		t.Fatalf("new packer: %v", err)
+	}
+	kept, withdrawn := queued(t, 256), queued(t, 512)
+	for _, item := range []packer.Queued{kept, withdrawn} {
+		if _, err := p.Add(t.Context(), item); err != nil {
+			t.Fatalf("add: %v", err)
+		}
+	}
+
+	if ok, err := p.Withdraw(withdrawn.ID); err != nil || !ok {
+		t.Fatalf("withdrawing a queued record returned %v, %v", ok, err)
+	}
+	// The packer's own counts are what the flush deadlines are measured
+	// against, so they have to drop with the row.
+	if p.Pending() != 1 || p.PendingBytes() != 256 {
+		t.Fatalf("%d record(s) of %d bytes pending after a withdrawal, want 1 of 256", p.Pending(), p.PendingBytes())
+	}
+	claimed, err := device.ClaimQueued("flush", packer.DefaultClaimTimeout, 0)
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].ID != kept.ID {
+		t.Fatalf("the next flush would write %d record(s), want only the one still queued", len(claimed))
+	}
+
+	// Withdrawing what is not queued is not an error. What that means is the
+	// caller's to decide.
+	if ok, err := p.Withdraw(withdrawn.ID); err != nil || ok {
+		t.Fatalf("withdrawing a record twice returned %v, %v", ok, err)
+	}
+}
+
+// A record a flush has claimed is not withdrawn. That flush has read the
+// payload and writes it whatever the queue says, so a withdrawal would report a
+// record kept off the network that is on its way there.
+func TestARecordAFlushHasClaimedIsNotWithdrawn(t *testing.T) {
+	device := deviceStore(t, t.TempDir())
+	p, err := packer.New(nil, device, packer.DefaultPolicy(40<<20))
+	if err != nil {
+		t.Fatalf("new packer: %v", err)
+	}
+	item := queued(t, 256)
+	if _, err := p.Add(t.Context(), item); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if claimed, err := device.ClaimQueued("flush", packer.DefaultClaimTimeout, 0); err != nil || len(claimed) != 1 {
+		t.Fatalf("claim: %d record(s), %v", len(claimed), err)
+	}
+
+	ok, err := p.Withdraw(item.ID)
+	if !errors.Is(err, local.ErrClaimed) || ok {
+		t.Fatalf("withdrawing a claimed record returned %v, %v; want ErrClaimed", ok, err)
+	}
+	if p.Pending() != 1 {
+		t.Fatalf("a refused withdrawal left %d record(s) pending, want 1", p.Pending())
+	}
+
+	// A claim past its timeout was left by a flush that is no longer running,
+	// and holds nothing back. A timeout of zero makes every claim one.
+	if ok, err := device.WithdrawQueued(item.ID, 0); err != nil || !ok {
+		t.Fatalf("withdrawing past an expired claim returned %v, %v", ok, err)
+	}
+}
+
 // Records must reach a slab in the order they were remembered, whatever order
 // the database hands them back in.
 func TestQueuePreservesArrivalOrder(t *testing.T) {

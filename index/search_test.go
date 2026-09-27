@@ -97,6 +97,65 @@ func TestAddReplacesAnExistingVector(t *testing.T) {
 	}
 }
 
+// A removed record has to leave the search, and whatever is moved into the gap
+// it leaves must still be found by its own vector. Every record is removed in
+// turn, so the run makes both a removal that moves another vector into the gap
+// and one from the end, which moves nothing.
+func TestRemoveTakesAVectorOutOfTheSearch(t *testing.T) {
+	idx := index.New("test", 3)
+	vectors := [][]float32{unit(1, 0, 0), unit(0, 1, 0), unit(0, 0, 1)}
+	ids := make([]record.ID, len(vectors))
+	for n := range ids {
+		ids[n], _ = record.NewID()
+		if err := idx.Add(ids[n], "test", vectors[n]); err != nil {
+			t.Fatalf("add: %v", err)
+		}
+	}
+
+	for n := range ids {
+		if !idx.Remove(ids[n]) {
+			t.Fatalf("removing vector %d reported that the index did not hold it", n)
+		}
+		if idx.Remove(ids[n]) {
+			t.Fatalf("removing vector %d a second time reported a second removal", n)
+		}
+		if idx.Has(ids[n]) || idx.Len() != len(ids)-n-1 {
+			t.Fatalf("after removing vector %d the index holds %d, the removed one among them: %v",
+				n, idx.Len(), idx.Has(ids[n]))
+		}
+		matches, err := idx.Search(vectors[n], len(ids))
+		if err != nil {
+			t.Fatalf("search: %v", err)
+		}
+		for _, match := range matches {
+			if match.ID == ids[n] {
+				t.Fatalf("removed vector %d still answers a search", n)
+			}
+		}
+		for rest := n + 1; rest < len(ids); rest++ {
+			matches, err := idx.Search(vectors[rest], 1)
+			if err != nil {
+				t.Fatalf("search: %v", err)
+			}
+			if len(matches) != 1 || matches[0].ID != ids[rest] || matches[0].Score < 0.99 {
+				t.Fatalf("after removing vector %d, vector %d no longer finds itself: %+v", n, rest, matches)
+			}
+		}
+	}
+
+	// A record that was removed can be added back.
+	if err := idx.Add(ids[0], "test", vectors[0]); err != nil {
+		t.Fatalf("add back: %v", err)
+	}
+	matches, err := idx.Search(vectors[0], 1)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(matches) != 1 || matches[0].ID != ids[0] {
+		t.Fatalf("a record added back after its removal is not found: %+v", matches)
+	}
+}
+
 func TestSearchRejectsAMismatchedQuery(t *testing.T) {
 	idx := index.New("test", 384)
 	if _, err := idx.Search(unit(1, 0), 1); err == nil {

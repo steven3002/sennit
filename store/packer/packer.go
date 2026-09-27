@@ -119,6 +119,25 @@ func (p *Packer) Add(ctx context.Context, item Queued) (Result, error) {
 	return p.flush(ctx, reason)
 }
 
+// Withdraw takes a record back out of the queue, so that no flush writes it,
+// and reports whether it was queued at all.
+//
+// It is how a record deleted before it reached the network stays off it. The
+// queue holds the sealed payload itself, so a record removed from everything
+// else on the device would still be written by the next flush.
+//
+// A record a flush in progress has claimed is refused with an error wrapping
+// local.ErrClaimed. That flush already has the payload and reports the record
+// written when it lands, so taking it out of the queue now would stop nothing;
+// the caller has to wait for that flush to finish instead.
+func (p *Packer) Withdraw(id record.ID) (bool, error) {
+	withdrawn, err := p.queue.WithdrawQueued(id, p.policy.claimTimeout())
+	if err != nil || !withdrawn {
+		return withdrawn, err
+	}
+	return true, p.refresh()
+}
+
 // Due reports whether the queue has become flushable through the passage of
 // time alone.
 func (p *Packer) Due(now time.Time) (Reason, bool) {

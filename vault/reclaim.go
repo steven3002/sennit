@@ -2,8 +2,10 @@ package vault
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	"github.com/steven3002/sennit/local"
 	"github.com/steven3002/sennit/manifest"
 	"github.com/steven3002/sennit/record"
 	"github.com/steven3002/sennit/sia"
@@ -232,14 +234,38 @@ func (v *Vault) DropUnreadable(ctx context.Context) ([]sia.ObjectRef, error) {
 // own; the space returns when a later reclaim finds a slab with nothing live
 // left in it. Saying so plainly is better than a delete that appears to work
 // and returns no quota.
+//
+// A record still waiting for a flush is taken out of the queue before anything
+// else is touched. The queue holds the sealed record itself, so a record
+// forgotten everywhere else would otherwise be written to the network by the
+// next flush and catalogued as though it had never been forgotten. Never having
+// been written, it has no catalog entry either, and that is nothing to remove
+// rather than a reason to stop.
+//
+// An id with neither a queue row nor a catalog entry is still refused. The rows
+// removed below are shared with other kinds of record, so a session's id passed
+// here would cost that session its vector and its ranking rows and leave the
+// conversation half forgotten.
+//
+// A record a flush is already writing is refused with nothing removed, because
+// that write has the payload and catalogues the record whatever happens here.
+// Once it lands, the record is forgotten like any other.
 func (v *Vault) Forget(id record.ID) error {
-	if err := v.manifest.Remove(id); err != nil {
+	withdrawn, err := v.packer.Withdraw(id)
+	if errors.Is(err, local.ErrClaimed) {
+		return fmt.Errorf("forget %s: %w, so nothing was removed: forget it again once that flush has finished",
+			id, local.ErrClaimed)
+	}
+	if err != nil {
+		return err
+	}
+	if err := v.manifest.Remove(id); err != nil && !(withdrawn && errors.Is(err, manifest.ErrNotFound)) {
 		return err
 	}
 	if err := v.local.ForgetBody(id); err != nil {
 		return err
 	}
-	if err := v.vectors.Remove(id); err != nil {
+	if err := v.removeVector(id); err != nil {
 		return err
 	}
 	return v.local.ForgetRankingMeta(id)

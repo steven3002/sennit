@@ -30,6 +30,27 @@ func (v *Vault) putVector(id record.ID, vector []float32) error {
 	return v.compactVectorsIfDue()
 }
 
+// removeVector takes a record out of the durable index and then out of the
+// searchable one.
+//
+// Both halves are needed. The searchable index is loaded once, when the vault
+// opens, so a vector removed only from disk goes on answering queries in this
+// process for a record nothing else holds any more, until something reopens.
+//
+// The durable half goes first, as it does in putVector and for the same reason:
+// a removal that fails to reach disk leaves the record searchable here and in
+// every later process alike. The other order would hide it from this process
+// alone, and the next open would bring it back.
+func (v *Vault) removeVector(id record.ID) error {
+	if err := v.vectors.Remove(id); err != nil {
+		return err
+	}
+	if v.index.Remove(id) {
+		v.health.Indexed--
+	}
+	return nil
+}
+
 // compactVectorsIfDue folds the deltas into a new base once they have outgrown
 // it, at the ratio the catalog uses.
 //

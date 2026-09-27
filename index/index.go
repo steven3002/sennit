@@ -75,6 +75,36 @@ func (i *Index) Add(id record.ID, model string, vector []float32) error {
 	return nil
 }
 
+// Remove withdraws a record's vector, reporting whether the index held one.
+//
+// The index lives as long as the process does, so a vector left behind by a
+// deletion keeps answering queries for a record nothing else holds any more.
+//
+// The last vector is moved into the gap rather than every later one being
+// shifted down. Search scores every vector it holds, so the order they are held
+// in is not a ranking, and a shift would make forgetting one record cost a copy
+// of everything written after it.
+func (i *Index) Remove(id record.ID) bool {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	position, ok := i.at[id]
+	if !ok {
+		return false
+	}
+	last := len(i.ids) - 1
+	if position != last {
+		moved := i.ids[last]
+		i.ids[position] = moved
+		i.at[moved] = position
+		copy(i.vectors[position*i.dim:(position+1)*i.dim], i.vectors[last*i.dim:])
+	}
+	delete(i.at, id)
+	i.ids = i.ids[:last]
+	i.vectors = i.vectors[:last*i.dim]
+	return true
+}
+
 // Has reports whether a record has a vector in the index.
 func (i *Index) Has(id record.ID) bool {
 	i.mu.RLock()
