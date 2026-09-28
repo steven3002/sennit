@@ -119,5 +119,17 @@ func (m *Manifest) Len() int {
 	return live
 }
 
+// Named reports how many records the catalog has ever named, counting the ones
+// it has since marked as no longer held.
+//
+// A removal is kept as an entry, so this only ever grows. That makes it the one
+// figure here that says whether this catalog has held a record at all, which
+// Len cannot once every record it held has been removed.
+func (m *Manifest) Named() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.entries)
+}
+
 // Close releases the underlying log.
 func (m *Manifest) Close() error { return m.log.Close() }

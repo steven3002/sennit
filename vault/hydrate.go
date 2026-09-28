@@ -300,3 +300,88 @@ func catalogEntry(frame seal.Frame, object sia.StoredObject, body []byte, cid se
 	entry.WrittenAt = memory.UpdatedAt
 	return entry, nil
 }
+
+// A Restoration is how much of what the network holds of this vault the device
+// has restored, as far as the device can tell without asking the network.
+//
+// Every count, listing and search reads what this device holds, so on a device
+// that has not restored the vault an empty answer says nothing about the vault.
+// What the device already keeps tells it which kind of device it is. The catalog
+// and the slab ledger are both written by every flush, by a recovery and at
+// every depth of a hydrate, so a device whose catalog has never named a record
+// and whose ledger names no slab has restored none. And a hydrate at
+// HydrateCatalog stops once the catalog is written, so a record the catalog
+// names and the device does not hold was located on the network and not
+// restored here.
+type Restoration struct {
+	// Untouched reports that nothing on this device shows a record restored
+	// from the network or written to it: its catalog has never named one, and
+	// its slab ledger names no slab. A vault just created on this device looks
+	// the same until its first flush, and nothing here tells the two apart, so
+	// what is said of an untouched device has to be true of both.
+	Untouched bool
+	// Memories counts the memories the catalog names that this device holds no
+	// ranking metadata for, and Chunks the transcript chunks it names that this
+	// device does not hold.
+	//
+	// A memory is judged by its metadata rather than its body, because reading
+	// one on demand keeps the body and nothing else, and it is the metadata that
+	// lists, counts and ranks it. A chunk has no metadata, and holding it is
+	// what its conversation is rebuilt from.
+	Memories, Chunks int
+}
+
+// Complete reports whether this device holds every record its catalog names.
+func (r Restoration) Complete() bool { return r.Memories == 0 && r.Chunks == 0 }
+
+// Restoration reports how much of what its catalog names this device has
+// restored. It reads the catalog as this process loaded it and the device's own
+// store, and nothing on the network.
+func (v *Vault) Restoration() (Restoration, error) {
+	if v.manifest.Named() == 0 {
+		// The ledger is asked as well because every process over this device
+		// shares it, where the catalog is read once, when a process opens the
+		// vault. A hydrate run by another process since then is invisible to
+		// this catalog and not to the ledger, and a device it restored to must
+		// not be told that it has restored nothing.
+		slabs, err := v.local.TrackedSlabs()
+		if err != nil {
+			return Restoration{}, err
+		}
+		return Restoration{Untouched: len(slabs) == 0}, nil
+	}
+	entries := v.manifest.Entries()
+	if len(entries) == 0 {
+		return Restoration{}, nil
+	}
+
+	described, err := v.local.RankingMetaIDs(record.KindMemory)
+	if err != nil {
+		return Restoration{}, err
+	}
+	held, err := v.local.BodyIDsOfKind(record.KindChunk)
+	if err != nil {
+		return Restoration{}, err
+	}
+	restored := make(map[record.ID]bool, len(described)+len(held))
+	for _, id := range described {
+		restored[id] = true
+	}
+	for _, id := range held {
+		restored[id] = true
+	}
+
+	var restoration Restoration
+	for _, entry := range entries {
+		if restored[entry.ID] {
+			continue
+		}
+		switch entry.Kind {
+		case record.KindMemory:
+			restoration.Memories++
+		case record.KindChunk:
+			restoration.Chunks++
+		}
+	}
+	return restoration, nil
+}

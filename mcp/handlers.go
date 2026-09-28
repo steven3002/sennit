@@ -223,7 +223,9 @@ func (s *Server) recall(ctx context.Context, _ *sdk.CallToolRequest, in RecallIn
 	if len(out.Results) == limit && len(result.Hits) == offset+limit {
 		out.NextCursor = encodeRankCursor(offset+limit, in.Query)
 	}
-	out.Hint = recallHint(in, out)
+	if out.Hint, err = s.recallHint(in, out); err != nil {
+		return nil, RecallOut{}, err
+	}
 
 	return &sdk.CallToolResult{Content: withLinks(renderRecall(in, out), out.Results)}, out, nil
 }
@@ -248,30 +250,57 @@ func candidatePool(want int) int {
 // of nothing with no explanation is one a model will paper over. Naming the
 // mechanism that shortened it is what lets the model correct itself rather than
 // guess.
-func recallHint(in RecallIn, out RecallOut) string {
+func (s *Server) recallHint(in RecallIn, out RecallOut) (string, error) {
 	switch {
 	case len(out.Results) > 0 && out.ScopeExcluded > 0:
 		return fmt.Sprintf("The scope %s removed %d candidate(s). Scope excludes; drop it to search "+
-			"every class of record.", strings.Join(in.Scope, " and "), out.ScopeExcluded)
+			"every class of record.", strings.Join(in.Scope, " and "), out.ScopeExcluded), nil
 	case len(out.Results) > 0:
-		return ""
+		return "", nil
 	case out.ScopeExcluded > 0:
 		return fmt.Sprintf("Nothing in scope %s matched, though %d candidate(s) outside it did. "+
 			"Scope excludes, drop it and search every class of record.",
-			strings.Join(in.Scope, " and "), out.ScopeExcluded)
+			strings.Join(in.Scope, " and "), out.ScopeExcluded), nil
 	case out.Searched == 0:
-		return "This vault holds nothing searchable yet. Use `remember` to store the first record."
+		return s.nothingSearchable()
 	case out.SupersededHidden > 0:
 		return fmt.Sprintf("Nothing current matched, though %d replaced version(s) did. "+
-			"Set includeSuperseded to see what this used to be.", out.SupersededHidden)
+			"Set includeSuperseded to see what this used to be.", out.SupersededHidden), nil
 	default:
 		// Not a suggestion to add tags: the filter cannot have emptied this,
 		// and telling a model otherwise would teach it the wrong lesson about a
 		// mechanism the whole ranking rests on.
 		return "The vault does not hold this. Your tags did not cause it, filters only ever prefer, " +
 			"and cannot remove a record. Try broader words, or `browse` to see what is stored. " +
-			"Telling the user it is not there is a better answer than the nearest record."
+			"Telling the user it is not there is a better answer than the nearest record.", nil
 	}
+}
+
+// nothingSearchable says why a recall had nothing on this device to search.
+//
+// That is an empty vault only on a device that has restored what the network
+// holds of it. A device that has not restored the vault holds nothing to search
+// whatever the vault holds, so it says so and names the depth of hydrate that
+// makes a record searchable, which is deeper than the default.
+func (s *Server) nothingSearchable() (string, error) {
+	restoration, err := s.vault.Restoration()
+	if err != nil {
+		return "", err
+	}
+	switch {
+	case restoration.Untouched:
+		return "Nothing on this device is searchable by meaning yet, and it has not restored any record " +
+			"of this vault from the network, so this does not show that the vault is empty. If this vault " +
+			"was just created here, there is nothing to restore; otherwise `sennit hydrate --depth index` " +
+			"restores its records from the network and makes them searchable. New ones are stored with " +
+			"`remember`.", nil
+	case !restoration.Complete():
+		return fmt.Sprintf("Nothing on this device is searchable by meaning yet, though it knows of %s "+
+			"on the network that it has not restored, and a search reads only what this device holds. "+
+			"`sennit hydrate --depth index` restores this vault's records from the network and makes "+
+			"them searchable.", unrestoredRecords(restoration)), nil
+	}
+	return "This vault holds nothing searchable yet. Use `remember` to store the first record.", nil
 }
 
 func (s *Server) hit(hit recall.Hit, full bool) HitOut {
@@ -575,9 +604,9 @@ func (s *Server) browseHint(in BrowseIn, filtered bool) (string, error) {
 		// record the vault does not already hold, so every chain of replacements
 		// ends in a record nothing has replaced, and that one is listed. With no
 		// filter and no cursor nothing else holds a record back, so an empty
-		// first page is an empty vault.
-		return "This vault holds nothing to list yet. Records arrive through `remember` and " +
-			"`save_session`.", nil
+		// first page is a device holding nothing, which is an empty vault only
+		// once the device has restored what the network holds of it.
+		return s.nothingListed()
 	}
 	// A page after a cursor lists only what comes after it, so an empty one says
 	// nothing about the records before it. What can lie past the cursor unlisted
@@ -601,6 +630,29 @@ func (s *Server) browseHint(in BrowseIn, filtered bool) (string, error) {
 	return "Nothing lies past this cursor, so the listing ends here. An empty page after a cursor " +
 		"says nothing about the records before it: call `browse` without a cursor to start again " +
 		"from the newest.", nil
+}
+
+// nothingListed says why an unfiltered first page listed nothing: this device
+// holds nothing, and whether that shows the vault holds nothing turns on what
+// this device has restored.
+func (s *Server) nothingListed() (string, error) {
+	restoration, err := s.vault.Restoration()
+	if err != nil {
+		return "", err
+	}
+	switch {
+	case restoration.Untouched:
+		return "This device holds nothing to list yet, and it has not restored any record of this vault " +
+			"from the network, so this does not show that the vault is empty. If this vault was just " +
+			"created here, there is nothing to restore; otherwise `sennit hydrate` restores its records " +
+			"from the network. New ones arrive through `remember` and `save_session`.", nil
+	case !restoration.Complete():
+		return fmt.Sprintf("This device holds nothing to list yet, though it knows of %s on the network "+
+			"that it has not restored, and a listing shows only what this device holds. `sennit hydrate` "+
+			"restores this vault's records from the network.", unrestoredRecords(restoration)), nil
+	}
+	return "This vault holds nothing to list yet. Records arrive through `remember` and " +
+		"`save_session`.", nil
 }
 
 // hasFilter reports whether a listing's query could have excluded a record.
@@ -958,3 +1010,20 @@ func snippet(text string) (string, bool) {
 }
 
 func isBoundary(b byte) bool { return b == ' ' || b == '\n' || b == '\t' }
+
+// unrestoredRecords names what this device knows of on the network and has not
+// restored, for an answer that has to say so.
+//
+// Memories are counted and conversations are not. A conversation is catalogued
+// as the chunks of its transcript, and which conversation a chunk belongs to is
+// written inside the chunk, which a device that has not restored it cannot read.
+func unrestoredRecords(restoration vault.Restoration) string {
+	memories := fmt.Sprintf("%d memory record(s)", restoration.Memories)
+	switch {
+	case restoration.Memories > 0 && restoration.Chunks > 0:
+		return memories + " and at least one stored conversation"
+	case restoration.Chunks > 0:
+		return "at least one stored conversation"
+	}
+	return memories
+}

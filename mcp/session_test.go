@@ -1534,14 +1534,14 @@ func TestBrowsePagesWithACursorThatIsNotAnOffset(t *testing.T) {
 	}
 }
 
-// An unfiltered browse of an empty vault says the vault is empty and how records
-// get into it, instead of blaming a filter nobody set.
+// An unfiltered browse of a device holding nothing says so and how records get
+// into it, instead of blaming a filter nobody set.
 //
 // The hint is what the model acts on. One that blames the filters sends it to
 // `recall` or to an apology about tags, when what the user needs to hear is that
-// nothing has been stored yet. A blank tag and a kinds list naming both classes
+// nothing is held here yet. A blank tag and a kinds list naming both classes
 // are in the request without excluding anything, so they get the same answer.
-func TestAnUnfilteredBrowseOfAnEmptyVaultSaysTheVaultIsEmpty(t *testing.T) {
+func TestAnUnfilteredBrowseOfAnEmptyDeviceSaysItHoldsNothing(t *testing.T) {
 	session, _ := serve(t)
 
 	for name, in := range map[string]mcp.BrowseIn{
@@ -1553,10 +1553,10 @@ func TestAnUnfilteredBrowseOfAnEmptyVaultSaysTheVaultIsEmpty(t *testing.T) {
 		var out mcp.BrowseOut
 		result := call(t, session, "browse", in, &out)
 		if len(out.Rows) != 0 {
-			t.Fatalf("%s: an empty vault listed %d row(s)", name, len(out.Rows))
+			t.Fatalf("%s: an empty device listed %d row(s)", name, len(out.Rows))
 		}
 		if !strings.Contains(out.Hint, "holds nothing to list yet") {
-			t.Errorf("%s: the hint does not say the vault is empty: %q", name, out.Hint)
+			t.Errorf("%s: the hint does not say this device holds nothing: %q", name, out.Hint)
 		}
 		if !strings.Contains(out.Hint, "`remember`") || !strings.Contains(out.Hint, "`save_session`") {
 			t.Errorf("%s: the hint does not say how records get in: %q", name, out.Hint)

@@ -309,6 +309,33 @@ func (s *Store) RankingMetaFor(id record.ID) (RankingMeta, error) {
 	return meta, rows.Err()
 }
 
+// RankingMetaIDs lists the records of one class that the device holds ranking
+// metadata for.
+//
+// It reads the ids and nothing else, for a caller that needs to know which
+// records are described here and not what describes them.
+func (s *Store) RankingMetaIDs(kind record.Kind) ([]record.ID, error) {
+	rows, err := s.db.Query(`SELECT record_id FROM record_meta WHERE kind = ?`, string(kind))
+	if err != nil {
+		return nil, fmt.Errorf("list %s metadata: %w", kind, err)
+	}
+	defer rows.Close()
+
+	var out []record.ID
+	for rows.Next() {
+		var idHex string
+		if err := rows.Scan(&idHex); err != nil {
+			return nil, fmt.Errorf("scan %s metadata: %w", kind, err)
+		}
+		id, err := record.ParseID(idHex)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
 // CountRecordMeta reports how many records the device holds ranking metadata
 // for, which is the denominator every tag frequency is judged against.
 func (s *Store) CountRecordMeta() (int, error) {

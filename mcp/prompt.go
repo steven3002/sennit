@@ -571,7 +571,7 @@ func (s *Server) mostRecent() (record.ID, string, error) {
 		return record.ID{}, "", err
 	}
 	if len(recent) == 0 {
-		return record.ID{}, "", errNoConversations
+		return record.ID{}, "", s.noConversations()
 	}
 	return recent[0].ID, "the most recent conversation", nil
 }
@@ -580,6 +580,32 @@ func (s *Server) mostRecent() (record.ID, string, error) {
 // resume, whether it was asked for the most recent conversation or for a list.
 var errNoConversations = errors.New("this vault holds no conversations yet. " +
 	"They are stored with `save_session`")
+
+// noConversations is what a resume says when this device holds no conversation
+// to offer, whether it was asked for the most recent one or for a list.
+//
+// That is errNoConversations only on a device that has restored what the network
+// holds of the vault. One that has not says so instead, and names the command
+// that restores it. Memories it has not restored go unmentioned, because they are
+// not what a resume is short of.
+func (s *Server) noConversations() error {
+	restoration, err := s.vault.Restoration()
+	if err != nil {
+		return err
+	}
+	switch {
+	case restoration.Untouched:
+		return errors.New("this device holds no conversations yet, and it has not restored any record " +
+			"of this vault from the network, so this does not show that the vault has none. If this vault " +
+			"was just created here, there is nothing to restore; otherwise `sennit hydrate` restores its " +
+			"records from the network, conversations included. New ones are stored with `save_session`")
+	case restoration.Chunks > 0:
+		return errors.New("this device holds no conversations yet, though it knows of at least one " +
+			"stored conversation on the network that it has not restored. `sennit hydrate` restores " +
+			"this vault's records from the network, conversations included")
+	}
+	return errNoConversations
+}
 
 // offerRecent answers a resume that names nothing with the recent
 // conversations, for the user to choose from.
@@ -638,7 +664,7 @@ func (s *Server) recentConversations() ([]local.SessionRow, error) {
 		return nil, err
 	}
 	if len(rows) == 0 {
-		return nil, errNoConversations
+		return nil, s.noConversations()
 	}
 	return rows, nil
 }

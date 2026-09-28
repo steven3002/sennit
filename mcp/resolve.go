@@ -133,6 +133,10 @@ type VaultDetail struct {
 	Tags []TagUse `json:"tags,omitempty" jsonschema:"the tags this vault already uses, most used first"`
 	// Ready is empty when the vault is usable and says what to do when it is not.
 	Ready string `json:"ready,omitempty" jsonschema:"what stands between this server and a usable vault"`
+	// Restore is set on a device that has restored no record of the vault from
+	// the network, or knows of records there that it has not restored, so that
+	// the counts above are not read as the vault's.
+	Restore string `json:"restore,omitempty" jsonschema:"what this device has not restored from the network, and the command that restores it"`
 }
 
 // A TagUse is one tag and how much of the vault carries it.
@@ -188,6 +192,12 @@ func (s *Server) fillVault(ctx context.Context, detail *VaultDetail) error {
 	detail.Memories = counts.ByKind[record.KindMemory]
 	detail.Sessions = counts.ByKind[record.KindSession]
 
+	restoration, err := s.vault.Restoration()
+	if err != nil {
+		return err
+	}
+	detail.Restore = restoreNote(restoration)
+
 	tags, err := s.vault.TagVocabulary(VocabularyLimit)
 	if err != nil {
 		return err
@@ -197,6 +207,23 @@ func (s *Server) fillVault(ctx context.Context, detail *VaultDetail) error {
 	}
 	_ = ctx
 	return nil
+}
+
+// restoreNote says what the counts leave out on a device that has not restored
+// the vault, and nothing on one that has. The counts are this device's own
+// records either way; what changes is whether they can stand for the vault's.
+func restoreNote(restoration vault.Restoration) string {
+	switch {
+	case restoration.Untouched:
+		return "This device has not restored any record of this vault from the network, so the counts " +
+			"above leave out any written on another device. If this vault was just created here, there " +
+			"is nothing to restore; otherwise `sennit hydrate` restores its records from the network."
+	case !restoration.Complete():
+		return fmt.Sprintf("The counts above leave out %s that this device knows of on the network and "+
+			"has not restored. `sennit hydrate` restores this vault's records from the network.",
+			unrestoredRecords(restoration))
+	}
+	return ""
 }
 
 // MemoryDetail is one memory as an address returns it.
