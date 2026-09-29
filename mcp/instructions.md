@@ -9,7 +9,9 @@ WHEN TO USE IT
 - Call `remember` when the user states something durable: a fact, a preference, a decision,
   or a correction of something previously believed. Not for passing conversational detail.
 - Call `save_session` when a conversation is worth continuing later, or when the user asks
-  you to save it. It is what makes a conversation resumable in a different agent.
+  you to save it. It is what makes a conversation resumable in a different agent. Give a
+  turn a `created` time only from your own record of when it was said, and leave it out
+  rather than invent one.
 
 THE TOOLS
 

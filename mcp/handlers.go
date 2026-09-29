@@ -134,7 +134,7 @@ type HitOut struct {
 	Snippet   string   `json:"snippet,omitempty" jsonschema:"the beginning of the record's content"`
 	Truncated bool     `json:"truncated,omitempty" jsonschema:"true when the snippet is shorter than the record"`
 	Tags      []string `json:"tags,omitempty" jsonschema:"the record's tags"`
-	Created   string   `json:"created" jsonschema:"when the vault learned this"`
+	Created   string   `json:"created,omitempty" jsonschema:"when the vault learned this. For a conversation this device rebuilt from the network, the time of the first dated turn it was rebuilt from instead, and absent when none of those turns is dated"`
 	// Score is the rank the record earned, Similarity how close it sits to the
 	// query in meaning, and Boost how far the filter moved it. All three are
 	// reported so a caller can see how much of a position was earned by meaning
@@ -322,7 +322,7 @@ func (s *Server) hit(hit recall.Hit, full bool) HitOut {
 		}
 	case hit.Session != nil:
 		out.Tags, out.Title = hit.Session.Tags, hit.Session.Title
-		out.Created = hit.Session.Created.String()
+		out.Created = knownTime(hit.Session.Created)
 		out.Snippet, out.Truncated = snippet(hit.Session.Summary)
 		if full {
 			out.Detail = sessionDetail(vault.LoadedSession{Session: hit.Session})
@@ -968,6 +968,18 @@ func optionalTime(value, field string) (*record.Time, error) {
 		return nil, fmt.Errorf("%s: %w", field, err)
 	}
 	return &parsed, nil
+}
+
+// knownTime is a time as an answer gives it, or nothing when it is not known.
+//
+// A conversation rebuilt from turns that record no time has no dates, and the
+// zero time would be given as 0001-01-01T00:00:00.000Z, which a model reads as
+// a real date. Left empty, the field's key is dropped instead.
+func knownTime(t record.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.String()
 }
 
 func memoryDetail(memory *record.Memory) MemoryDetail {

@@ -38,7 +38,7 @@ type hitOut struct {
 	Snippet    string   `json:"snippet,omitempty"`
 	Truncated  bool     `json:"truncated,omitempty"`
 	Tags       []string `json:"tags,omitempty"`
-	Created    string   `json:"created"`
+	Created    string   `json:"created,omitempty"`
 	Score      float32  `json:"score"`
 	Similarity float32  `json:"similarity"`
 	Boost      float32  `json:"boost,omitempty"`
@@ -75,8 +75,8 @@ type sessionDetail struct {
 	Agent       string   `json:"agent,omitempty"`
 	Models      []string `json:"models,omitempty"`
 	Project     string   `json:"project,omitempty"`
-	Created     string   `json:"created"`
-	Updated     string   `json:"updated"`
+	Created     string   `json:"created,omitempty"`
+	Updated     string   `json:"updated,omitempty"`
 	Messages    int      `json:"messages"`
 	Chunks      int      `json:"chunks"`
 	Bytes       int64    `json:"bytes"`
@@ -142,13 +142,13 @@ func jsonHit(h recall.Hit) hitOut {
 	case h.Session != nil:
 		session := h.Session
 		out.Tags, out.Title = session.Tags, session.Title
-		out.Created = session.Created.String()
+		out.Created = knownTime(session.Created)
 		out.Snippet, out.Truncated = snippet(session.Summary)
 		detail := sessionDetail{
 			URI: out.URI, ID: session.ID.String(), Title: session.Title, Summary: session.Summary,
 			Tags: session.Tags, Kind: string(session.Kind), Agent: session.Agent.Name,
 			Models: session.Models, Project: local.ProjectKey(session.Project),
-			Created: session.Created.String(), Updated: session.Updated.String(),
+			Created: knownTime(session.Created), Updated: knownTime(session.Updated),
 			Messages: session.Counts.Messages, Chunks: len(session.Chunks), Bytes: session.Counts.Bytes,
 			Version: session.Version, Transcript: out.URI + "/transcript",
 			HeadMessage: session.HeadMessage, Archived: session.Archived,
@@ -159,6 +159,16 @@ func jsonHit(h recall.Hit) hitOut {
 		out.Detail = detail
 	}
 	return out
+}
+
+// knownTime is a time as the answer gives it, or nothing when it is not known,
+// so the key is dropped. A conversation rebuilt from turns that record no time
+// has no dates, and the zero time would read as a real one.
+func knownTime(t record.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.String()
 }
 
 func firstLine(text string) string {

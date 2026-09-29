@@ -65,6 +65,9 @@ title, summary and tags are searchable, the transcript is never embedded, becaus
 mostly filler and tool noise, and the summary is what a search is actually looking for. Write the
 summary as though someone else will read it to decide whether to open the conversation.
 
+Give a turn a `created` time only from your own record of when it was said, and leave it out when
+you have none rather than invent one. A resume gives these times as when the conversation happened.
+
 Appending is cheap: pass the session's address and only the new turns. Nothing already stored is
 rewritten.
 

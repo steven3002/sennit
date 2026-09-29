@@ -1,7 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"reflect"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,6 +56,58 @@ func TestTheJSONAnswer(t *testing.T) {
 	}
 	if got, want := string(encoded)+"\n", fixture(t, "recall-json.txt"); got != want {
 		t.Errorf("json:\n got %q\nwant %q", got, want)
+	}
+}
+
+// A conversation's date that is not known is left out of --json rather than
+// given as the zero time, which reads as a real date. A device that rebuilt the
+// conversation from turns that record no time knows neither date, and once it
+// has written the record it knows only when it last did.
+func TestTheJSONAnswerLeavesOutAConversationsUnknownDates(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		updated record.Time
+		want    []string
+	}{
+		{"as it was rebuilt", record.Time{}, nil},
+		{"once this device has written it", at(t, "2026-09-16T21:50:03.114Z"), []string{"updated"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			hits := []recall.Hit{{
+				Found: recall.Found{Session: &record.Session{
+					ID: id(t, "4083dbdd9e9f0f816c797080eed61fba"), Kind: record.SessionMain,
+					Title: "How many tide stations report hourly?", Updated: tc.updated,
+				}},
+				Score: 0.0328, Similarity: 0.5642, Tier: recall.TierLocal,
+			}}
+			encoded, err := recallJSON(recall.Result{Hits: hits, Searched: 1}, hits)
+			if err != nil {
+				t.Fatalf("encode: %v", err)
+			}
+			var answer struct {
+				Results []map[string]any `json:"results"`
+			}
+			if err := json.Unmarshal(encoded, &answer); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			hit := answer.Results[0]
+			if created, dated := hit["created"]; dated {
+				t.Errorf("the result is dated %v, and no turn records when the conversation began", created)
+			}
+			detail, _ := hit["detail"].(map[string]any)
+			var dates []string
+			for _, key := range []string{"created", "updated"} {
+				if _, ok := detail[key]; ok {
+					dates = append(dates, key)
+				}
+			}
+			if !slices.Equal(dates, tc.want) {
+				t.Errorf("the conversation is shown with %v, want %v:\n%s", dates, tc.want, encoded)
+			}
+			if strings.Contains(string(encoded), "0001-01-01") {
+				t.Errorf("the answer puts the conversation in year one:\n%s", encoded)
+			}
+		})
 	}
 }
 

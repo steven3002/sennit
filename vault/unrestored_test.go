@@ -3,8 +3,10 @@ package vault_test
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/steven3002/sennit/mcp"
@@ -299,4 +301,133 @@ func TestADeviceThatRestoredTheVaultKeepsItsAnswers(t *testing.T) {
 			t.Errorf("the vault resource says what a restored device lacks: %v", restore)
 		}
 	})
+}
+
+// A date this device does not know for a conversation it rebuilt is left out of
+// every answer, rather than given as the zero time.
+//
+// A rebuilt head is dated only by its turns, so one whose turns record no time
+// has neither date, and the zero time is shown as 0001-01-01T00:00:00.000Z,
+// which a model reads as a real date. Each is left out independently of the
+// other: once this device writes the record it knows when it last did, and still
+// not when the record was first saved.
+func TestAConversationRebuiltWithoutTurnTimesIsShownOnlyWithTheDatesItHas(t *testing.T) {
+	ctx := context.Background()
+	writer := vault.OpenWithLedgerForTest(t, t.TempDir())
+	turns := conversation("undated")
+	for i := range turns {
+		turns[i].Created = record.Time{}
+	}
+	saved, err := writer.SaveSession(ctx, vault.SaveSessionRequest{
+		Title:    "Tidepool station survey",
+		Summary:  "Counted the stations reporting hourly.",
+		Messages: turns,
+	})
+	if err != nil {
+		t.Fatalf("save the conversation: %v", err)
+	}
+	device := vault.OpenWithLedgerForTest(t, t.TempDir())
+	vault.RestoreForTest(t, device, vault.FlushToNetworkForTest(t, writer), vault.HydrateIndex)
+	session := serveDevice(t, device)
+	uri := mcp.URI(record.KindSession, saved.ID)
+
+	// shown checks the dates the conversation's record is shown with, by `open`,
+	// by a recall asked for whole records and in a resume, and that nothing a
+	// client is handed about the conversation puts it in year one. It returns
+	// the record as `open` shows it.
+	shown := func(state string, want []string) map[string]any {
+		t.Helper()
+		heads := map[string]map[string]any{}
+		var texts []string
+
+		var opened map[string]any
+		texts = append(texts, callTool(t, session, "open", mcp.OpenIn{URI: uri}, &opened))
+		heads["open"], _ = opened["detail"].(map[string]any)
+
+		var found struct {
+			Results []map[string]any `json:"results"`
+		}
+		texts = append(texts, callTool(t, session, "recall", mcp.RecallIn{
+			Query: "how many tide stations report hourly", Scope: []string{"session"}, Detail: "full",
+		}, &found))
+		if len(found.Results) != 1 {
+			t.Fatalf("%s, recall found %d conversation(s), want the one this device rebuilt",
+				state, len(found.Results))
+		}
+		if created, dated := found.Results[0]["created"]; dated {
+			t.Errorf("%s, recall dates the conversation %v, and no turn records when it began", state, created)
+		}
+		heads["a recall of whole records"], _ = found.Results[0]["detail"].(map[string]any)
+
+		prompt, err := session.GetPrompt(ctx, &sdk.GetPromptParams{
+			Name: mcp.ResumePrompt, Arguments: map[string]string{"session": uri},
+		})
+		if err != nil {
+			t.Fatalf("%s, resume: %v", state, err)
+		}
+		for _, message := range prompt.Messages {
+			switch content := message.Content.(type) {
+			case *sdk.TextContent:
+				texts = append(texts, content.Text)
+			case *sdk.EmbeddedResource:
+				texts = append(texts, content.Resource.Text)
+				if content.Resource.URI == uri {
+					var head map[string]any
+					if err := json.Unmarshal([]byte(content.Resource.Text), &head); err != nil {
+						t.Fatalf("%s, the resume embeds a record that is not JSON: %v", state, err)
+					}
+					heads["a resume"] = head
+				}
+			}
+		}
+
+		var transcript, listed map[string]any
+		texts = append(texts,
+			callTool(t, session, "open", mcp.OpenIn{URI: mcp.TranscriptURI(saved.ID)}, &transcript),
+			callTool(t, session, "browse", mcp.BrowseIn{Kinds: []string{"session"}}, &listed))
+		for _, structured := range []any{opened, found, transcript, listed} {
+			encoded, err := json.Marshal(structured)
+			if err != nil {
+				t.Fatalf("%s, encode an answer: %v", state, err)
+			}
+			texts = append(texts, string(encoded))
+		}
+
+		for _, where := range []string{"open", "a recall of whole records", "a resume"} {
+			head := heads[where]
+			if head["uri"] != uri {
+				t.Fatalf("%s, %s did not return the conversation's record: %v", state, where, head)
+			}
+			var dates []string
+			for _, key := range []string{"created", "updated"} {
+				if _, ok := head[key]; ok {
+					dates = append(dates, key)
+				}
+			}
+			if !slices.Equal(dates, want) {
+				t.Errorf("%s, %s shows the record with %v, want %v: %v", state, where, dates, want, head)
+			}
+		}
+		for _, text := range texts {
+			if strings.Contains(text, "0001-01-01") {
+				t.Errorf("%s, an answer puts the conversation in year one:\n%s", state, text)
+			}
+		}
+		return heads["open"]
+	}
+
+	shown("as it was rebuilt", nil)
+
+	written := time.Now().UTC().Truncate(time.Millisecond)
+	var appended mcp.SaveSessionOut
+	callTool(t, session, "save_session", mcp.SaveSessionIn{Session: uri, Messages: []record.Message{{
+		ID: "undated-5", Role: record.RoleUser, Parent: "undated-4",
+		Parts: []record.Part{{Type: record.PartText, Text: "And how many report daily?"}},
+	}}}, &appended)
+	head := shown("once this device has written it", []string{"updated"})
+	updated, _ := head["updated"].(string)
+	if at, err := time.Parse(time.RFC3339, updated); err != nil || at.Before(written) {
+		t.Errorf("the record was last written at %q, want the append this device made at %s or after",
+			updated, written.Format(time.RFC3339Nano))
+	}
 }

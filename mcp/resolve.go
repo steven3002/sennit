@@ -325,8 +325,13 @@ type SessionDetail struct {
 	Agent   string   `json:"agent,omitempty" jsonschema:"the client that wrote it"`
 	Models  []string `json:"models,omitempty" jsonschema:"the models that spoke in it"`
 	Project string   `json:"project,omitempty" jsonschema:"the repository or directory it happened in"`
-	Created string   `json:"created" jsonschema:"when it started"`
-	Updated string   `json:"updated" jsonschema:"when it was last appended to"`
+	// Created and Updated date the record. Where the conversation was saved,
+	// that is not when it happened: one saved in a single call at its end has a
+	// record spanning milliseconds, however long it ran. Each is left out when
+	// it is not known rather than given as the zero time, which reads as a real
+	// date.
+	Created string `json:"created,omitempty" jsonschema:"when this record was first saved. On a device that rebuilt it from the network, the time of the first dated turn it was rebuilt from, and absent when none of those turns is dated"`
+	Updated string `json:"updated,omitempty" jsonschema:"when this record was last written on this device: by a save, by a memory recorded against it, or by a delegated run added or removed. On a device that rebuilt it from the network and has not written it since, when its last dated turn was said, and absent when no turn is dated"`
 	// Messages, Chunks and Bytes describe the transcript without reading it.
 	Messages int   `json:"messages" jsonschema:"how many turns the transcript holds"`
 	Chunks   int   `json:"chunks" jsonschema:"how many immutable pieces it is stored in"`
@@ -404,8 +409,8 @@ func sessionDetail(loaded vault.LoadedSession) SessionDetail {
 		Agent:       session.Agent.Name,
 		Models:      session.Models,
 		Project:     local.ProjectKey(session.Project),
-		Created:     session.Created.String(),
-		Updated:     session.Updated.String(),
+		Created:     knownTime(session.Created),
+		Updated:     knownTime(session.Updated),
 		Messages:    session.Counts.Messages,
 		Chunks:      len(session.Chunks),
 		Bytes:       session.Counts.Bytes,

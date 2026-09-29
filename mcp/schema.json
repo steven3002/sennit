@@ -82,7 +82,7 @@
           "items": {"$ref": "#/$defs/part"},
           "description": "The content, in order. Never a flat string: a string cannot hold a tool call, a thinking block or an image, so a conversation stored that way degrades into a chat log."
         },
-        "created": {"type": "string", "description": "When the turn happened, RFC 3339. For display; order comes from the sequence, never from the clock."},
+        "created": {"type": "string", "description": "When the turn happened, RFC 3339, taken from your own record of when it was said. Without one, leave it out rather than invent it: a resume gives these times as when the conversation happened. For display; order comes from the sequence, never from the clock."},
         "parent": {"type": "string", "description": "The id of the turn this one replies to, so a conversation that branched keeps its shape."},
         "meta": {
           "type": "object",
