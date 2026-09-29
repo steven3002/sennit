@@ -947,17 +947,14 @@ func TestRecentResumesTheNewestWithoutAsking(t *testing.T) {
 
 	// It is read before a topic can be, so a word after it, which a host that
 	// fills arguments in order puts in topic, does not turn it into a search
-	// for the conversation that word describes.
-	got, err := session.GetPrompt(ctx, &sdk.GetPromptParams{
+	// for the conversation that word describes. Nor is the word dropped: only a
+	// number of turns can follow it, so any other word is refused.
+	_, err := session.GetPrompt(ctx, &sdk.GetPromptParams{
 		Name:      mcp.ResumePrompt,
 		Arguments: map[string]string{"session": mcp.ResumeRecent, "topic": "harbour"},
 	})
-	if err != nil {
-		t.Fatalf("resume recent harbour: %v", err)
-	}
-	if !strings.Contains(got.Description, "Rollup schedule") ||
-		!strings.Contains(got.Description, "the most recent conversation") {
-		t.Errorf("resume recent harbour resumed %q, want the most recent conversation", got.Description)
+	if err == nil || !strings.Contains(err.Error(), `"harbour" is not one`) {
+		t.Errorf("resume recent harbour answered %v, want a refusal of harbour", err)
 	}
 
 	// An empty vault has nothing to list and nothing recent, and says so the
