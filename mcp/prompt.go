@@ -29,6 +29,22 @@ const ResumePrompt = "resume"
 // spend the context the resumed conversation is supposed to use.
 const ResumeTurns = 30
 
+// MaxResumeTurns is the most turns a resume replays. A count above it is refused
+// rather than cut down to it, for the reason readResume gives.
+//
+// It is set by what a replayed turn costs, measured rather than assumed over
+// thirteen real Claude Code conversations, the owner's own and not in this
+// repository. Rendered the way a resume renders them, with each API message a
+// turn, their turns average 1,816 bytes. Nine in ten runs of a hundred
+// consecutive turns replay in no more than about 250 KiB, which is about
+// 91,000 tokens at the 2.8 bytes a token measured on the replies in the same
+// conversations that hold only text. That is under half of a 200,000-token
+// context window, which many current models still have, so nine resumes in ten
+// at the ceiling leave the conversation they resume at least the other half.
+// Past 110 turns, fewer would. With each content block a turn instead, a turn
+// is smaller and the margin wider.
+const MaxResumeTurns = 100
+
 // ResumeRecent is the word that resumes the most recent conversation without
 // asking which.
 //
@@ -99,22 +115,24 @@ func (s *Server) registerPrompts() {
 		Arguments: []*sdk.PromptArgument{
 			{
 				Name: "session",
-				Description: "The conversation to resume: its address, as sennit://session/{id}, or " +
-					ResumeRecent + " for the most recent one. Anything else is the start of what the " +
-					"conversation was about, searched for together with the words in topic. Leave it " +
-					"and topic empty to choose from a list of recent conversations.",
+				Description: "The conversation to resume: its address, as sennit://session/{id}, that {id} " +
+					"alone, or " + ResumeRecent + " for the most recent one. Anything else is the start of " +
+					"what the conversation was about, searched for together with the words in topic. Leave " +
+					"it and topic empty to choose from a list of recent conversations.",
 			},
 			{
 				Name: "topic",
 				Description: "What the conversation was about, or more of it after the words in session. " +
-					"Searched against titles and summaries.",
+					"Searched against titles and summaries. After an address, an id or " + ResumeRecent +
+					" in session, only the number of turns to replay can go here, in place of turns.",
 			},
 			{
 				Name: "turns",
-				Description: "How many recent turns to replay. Default " + strconv.Itoa(ResumeTurns) + ". " +
-					"A positive whole number here is always the count. When session starts a topic, " +
-					"anything else here is searched for as one more word of it, so a number that belongs " +
-					"to the topic has to come earlier.",
+				Description: "How many recent turns to replay, a positive whole number up to " +
+					strconv.Itoa(MaxResumeTurns) + ". Default " + strconv.Itoa(ResumeTurns) + ". A whole " +
+					"number here is always the count, so one outside that range is refused. When session " +
+					"starts a topic, anything else here is searched for as one more word of it, so a " +
+					"number that belongs to the topic has to come earlier.",
 			},
 		},
 	}, s.resume)
@@ -408,10 +426,13 @@ func renderPart(text *strings.Builder, part record.Part) {
 }
 
 // A resumeRequest is what the words after the command ask for: a conversation,
-// named in one of three ways or in none, and how many of its turns to replay.
+// named in one of four ways or in none, and how many of its turns to replay.
 type resumeRequest struct {
-	// address is a conversation's address, as it arrived.
-	address string
+	// session is the conversation an address or an id named, and how says which
+	// of the two named it, for the framing to repeat. how is empty when neither
+	// did.
+	session record.ID
+	how     string
 	// recent asks for the conversation that changed last.
 	recent bool
 	// topic is the words to search titles and summaries for.
@@ -423,7 +444,7 @@ type resumeRequest struct {
 // namesNothing reports whether the words named no conversation at all, which is
 // when the user is given the recent ones to choose from.
 func (r resumeRequest) namesNothing() bool {
-	return r.address == "" && !r.recent && r.topic == ""
+	return r.how == "" && !r.recent && r.topic == ""
 }
 
 // readResume reads the words after the command for what they name.
@@ -438,68 +459,188 @@ func (r resumeRequest) namesNothing() bool {
 // survey arrives as session "harbour" and topic "survey", so a topic can only
 // start in the first argument.
 //
-// The first argument is resolved in a fixed order: an address, then the
-// reserved word, then a topic. A topic takes the words in all three arguments.
-// From a host that fills them one each that is at most three words, because a
-// fourth is lost before it arrives. The exception is a positive whole number in
-// turns, which is always the count of turns to replay, because the third word
-// is the only place such a host can put one. That settles the one ambiguity
-// left, a topic whose third word is a number, toward the count. A number meant
-// as part of the topic is searched for as one when it comes first or second,
-// and the framing quotes the words that were searched, so a number read as a
-// count shows there rather than going missing.
+// The first argument is resolved in a fixed order: an address, then an id on
+// its own, then the reserved word, then a topic. Each of the first three names
+// one conversation, so all that can follow one is how many of its turns to
+// replay, which a host that fills arguments in order puts in topic. A count is
+// read from there, or from turns, where a host that fills them by name puts
+// it. Any other word in topic is refused rather than dropped: nothing after such
+// a word is searched for, and a word dropped without telling the user leaves
+// them believing it was used.
+//
+// A topic takes the words in all three arguments. From a host that fills them
+// one each that is at most three words, because a fourth is lost before it
+// arrives. The exception is a whole number in turns, which is always the count
+// of turns to replay, because the third word is the only place such a host can
+// put one after a topic. That settles the one ambiguity left, a topic whose
+// third word is a number, toward the count. A number meant as part of the topic
+// is searched for as one when it comes first or second, and the framing quotes
+// the words that were searched, so a number read as a count shows there rather
+// than going missing.
+//
+// A count a resume does not replay, zero, a negative number or one above
+// MaxResumeTurns, is refused wherever it arrives, and the refusal says what to
+// type instead. It is not cut down to the ceiling: such a number may not be a
+// count at all, a year typed as the last word of a topic, say, and replaying the
+// ceiling would then spend the most context a resume can on a reading the user
+// never meant, with a note saying so reaching them only through the model,
+// which errNothingChosen explains is not to be relied on. Nor is it searched for
+// as a word of the topic, because a whole number in that place would then be a
+// count or a word depending on its value, and a count the user got wrong would
+// be searched for without a word to them.
 func readResume(args map[string]string) (resumeRequest, error) {
 	first := strings.TrimSpace(args["session"])
 	topic := strings.TrimSpace(args["topic"])
 	last := strings.TrimSpace(args["turns"])
 	want := resumeRequest{turns: ResumeTurns}
-	count, err := strconv.Atoi(last)
-	counted := err == nil && count > 0
-	if counted {
-		want.turns = count
-	}
 
+	// named is what a refusal calls a first word that names one conversation,
+	// and again is that word as the command takes it, for a refusal to say what
+	// to run instead.
+	var named, again string
 	switch {
 	case isAddress(first):
-		// A malformed address is refused when it is resolved. Searching for it
+		// A malformed address is refused here, before any word after it is read,
+		// because it is the mistake to put right first. Searching for it instead
+		// would resume whichever conversation lies nearest to a string the user
+		// meant as an address.
+		id, err := addressOf(first, FormSession)
+		if err != nil {
+			return resumeRequest{}, err
+		}
+		want.session, want.how = id, "by address"
+		named, again = "an address", first
+	case isID(first):
+		// `sennit recall --memory-text` shows each result's id alone, and an id
+		// names a conversation as exactly as its address does. Searching for it
 		// instead would resume whichever conversation lies nearest to a string
-		// the user meant as an address.
-		want.address = first
+		// the user meant as an id.
+		id, _ := record.ParseID(first)
+		want.session, want.how = id, "by id"
+		named, again = "an id", first
 	case strings.EqualFold(first, ResumeRecent):
 		// Matched regardless of case, because a person types it after a slash
 		// command and the host passes the word on exactly as it was typed.
 		want.recent = true
+		named, again = ResumeRecent, ResumeRecent
 
 	// A conversation's name is matched here, once a conversation can be given
-	// one: after the reserved word, so that no name can hide the newest
-	// conversation, and before a topic, so that a name resumes the one
-	// conversation it names rather than the nearest match for its words.
+	// one: after an id and the reserved word, so that no name can hide the
+	// conversation an id names or the newest one, and before a topic, so that a
+	// name resumes the one conversation it names rather than the nearest match
+	// for its words. A name spelled as an address, an id or the reserved word
+	// would never be reached here, which makes it one to refuse when the name is
+	// given. Like the words above, a name names one conversation, so what follows
+	// it is read by countAfter.
 
 	case first != "":
 		// Every word that arrived is part of the topic, the last one as well
-		// unless it is a count.
-		words := []string{first}
+		// unless it is written as a whole number, which is read as a count.
+		want.topic = first
 		if topic != "" {
-			words = append(words, topic)
+			want.topic += " " + topic
 		}
-		if last != "" && !counted {
-			words = append(words, last)
-		}
-		want.topic = strings.Join(words, " ")
-		return want, nil
 	default:
 		// Only a host that fills arguments by name can leave the first one
 		// empty and still send a topic.
 		want.topic = topic
 	}
-	// Only a topic that starts in the first argument makes a word in turns part
-	// of it. After an address, the reserved word or nothing at all, a word there
-	// that is not a count is a mistake the user is told about.
-	if last != "" && !counted {
-		return resumeRequest{}, fmt.Errorf("turns must be a positive whole number, not %q", last)
+
+	if named != "" && topic != "" {
+		return countAfter(want, named, again, topic, last)
+	}
+	if last == "" {
+		return want, nil
+	}
+	count, number := readCount(last)
+	switch {
+	case number && count == 0:
+		return resumeRequest{}, cannotReplay(last, want.topic != "")
+	case number:
+		want.turns = count
+	case named == "" && first != "":
+		// Only a topic that starts in the first argument makes a word in turns
+		// part of it.
+		want.topic += " " + last
+	default:
+		// After a conversation named exactly, or nothing at all, a word in turns
+		// that is not a count is a mistake the user is told about.
+		return resumeRequest{}, fmt.Errorf("nothing was resumed, because turns must be a positive "+
+			"whole number up to %d, not %q", MaxResumeTurns, last)
 	}
 	return want, nil
 }
+
+// countAfter reads what a host that fills arguments in order puts after a word
+// that names one conversation exactly, which can only be how many of its turns
+// to replay. named is what a refusal calls that word, and again is the word as
+// the command takes it.
+func countAfter(want resumeRequest, named, again, word, next string) (resumeRequest, error) {
+	resumes := "that conversation"
+	if named == ResumeRecent {
+		resumes = "the most recent conversation"
+	}
+	count, number := readCount(word)
+	switch {
+	case !number:
+		instead := fmt.Sprintf("Run %s %s to resume %s", resumeCommand, again, resumes)
+		if named == ResumeRecent {
+			// The word may have been meant to start a topic, which the reserved
+			// word ahead of it keeps from being searched for.
+			instead += ", or leave " + ResumeRecent + " out to search for one by what it was about"
+		}
+		return resumeRequest{}, fmt.Errorf("nothing was resumed, because only a number of turns can "+
+			"follow %s, and %q is not one. %s", named, word, instead)
+	case count == 0:
+		return resumeRequest{}, cannotReplay(word, false)
+	case next != "":
+		return resumeRequest{}, fmt.Errorf("nothing was resumed, because only a number of turns can "+
+			"follow %s, and %q came after %q. Run %s %s %d to resume %s",
+			named, next, word, resumeCommand, again, count, resumes)
+	}
+	want.turns = count
+	return want, nil
+}
+
+// readCount reads a word as how many turns to replay. number reports whether it
+// is written as a whole number, with or without a sign, and count is how many
+// turns it asks for, or zero when a resume does not replay that many.
+func readCount(word string) (count int, number bool) {
+	digits := word
+	if strings.HasPrefix(digits, "+") || strings.HasPrefix(digits, "-") {
+		digits = digits[1:]
+	}
+	if digits == "" || strings.Trim(digits, "0123456789") != "" {
+		return 0, false
+	}
+	// A number too large for an int is too large to replay, and Atoi reports
+	// it as an error rather than as a count.
+	count, err := strconv.Atoi(word)
+	if err != nil || count < 1 || count > MaxResumeTurns {
+		return 0, true
+	}
+	return count, true
+}
+
+// cannotReplay refuses a whole number that was read as how many turns to
+// replay and is not a number a resume replays. After a topic it also says how to
+// search for the number instead, because there such a number may be a word of
+// the topic, a year, say, typed last.
+func cannotReplay(word string, topic bool) error {
+	text := fmt.Sprintf("nothing was resumed, because %q was read as the number of turns to replay, "+
+		"which must be a positive whole number up to %d, or left out for the default of %d",
+		word, MaxResumeTurns, ResumeTurns)
+	if topic {
+		text += fmt.Sprintf(". To search for %q as part of the topic instead, put it among the "+
+			"topic's other words rather than after them", word)
+	}
+	return errors.New(text)
+}
+
+// resumeCommand is the command a refusal tells the user to run, in the one form
+// Claude Code 2.1.283 takes typed out in full, for the reason errNothingChosen
+// gives.
+const resumeCommand = "/mcp__sennit__resume"
 
 // isAddress reports whether a word is meant as an address, which is whether it
 // starts with the scheme. The scheme's case is not held against it here, so an
@@ -509,21 +650,25 @@ func isAddress(word string) bool {
 	return len(word) >= len(Scheme) && strings.EqualFold(word[:len(Scheme)], Scheme)
 }
 
+// isID reports whether a word is a record's id on its own: the 32 hex digits an
+// address ends in, in either case.
+func isID(word string) bool {
+	_, err := record.ParseID(word)
+	return err == nil
+}
+
 // findSession resolves the conversation a resume names.
 //
-// Three ways to name one: an address the caller already has, `recent` for the
-// conversation that changed last, and a search over titles and summaries, which
-// is the only one of the three that can come back with a near miss. Which of the
-// three a resume's words mean is settled by readResume. A resume that names
-// nothing is not guessed at. It never reaches here, because the user is given
-// the recent conversations to choose from instead.
+// Four ways to name one: an address the caller already has, the id an address
+// ends in, `recent` for the conversation that changed last, and a search over
+// titles and summaries, which is the only one of the four that can come back
+// with a near miss. Which of them a resume's words mean is settled by
+// readResume, which also reads an address or an id to the conversation it
+// names. A resume that names nothing is not guessed at. It never reaches here,
+// because the user is given the recent conversations to choose from instead.
 func (s *Server) findSession(ctx context.Context, want resumeRequest) (record.ID, string, error) {
-	if want.address != "" {
-		id, err := addressOf(want.address, FormSession)
-		if err != nil {
-			return record.ID{}, "", err
-		}
-		return id, "by address", nil
+	if want.how != "" {
+		return want.session, want.how, nil
 	}
 	if want.recent {
 		return s.mostRecent()
@@ -559,8 +704,8 @@ func (s *Server) findSession(ctx context.Context, want resumeRequest) (record.ID
 			fmt.Sprintf("the closest match for %q, at similarity %.3f", topic, found.Hits[0].Similarity),
 			nil
 	}
-	return record.ID{}, "", fmt.Errorf("name the conversation to resume by its address, by a "+
-		"topic, or with %s", ResumeRecent)
+	return record.ID{}, "", fmt.Errorf("name the conversation to resume by its address or its id, "+
+		"by a topic, or with %s", ResumeRecent)
 }
 
 // mostRecent is the conversation `recent` resumes: the one that changed last,
