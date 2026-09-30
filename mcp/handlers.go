@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -551,14 +552,15 @@ func (s *Server) browse(_ context.Context, _ *sdk.CallToolRequest, in BrowseIn) 
 		return nil, BrowseOut{}, err
 	}
 
-	page, err := s.vault.Browse(vault.BrowseRequest{
+	req := vault.BrowseRequest{
 		Kinds:             kinds,
 		Types:             types,
 		Tags:              in.Tags,
 		IncludeSuperseded: in.IncludeSuperseded,
 		Limit:             in.Limit,
 		Cursor:            local.Cursor(in.Cursor),
-	})
+	}
+	page, err := s.vault.Browse(req)
 	if err != nil {
 		return nil, BrowseOut{}, err
 	}
@@ -578,7 +580,7 @@ func (s *Server) browse(_ context.Context, _ *sdk.CallToolRequest, in BrowseIn) 
 		links = append(links, HitOut{URI: URI(row.Kind, row.ID), Kind: string(row.Kind), Title: row.Label})
 	}
 	if len(out.Rows) == 0 {
-		if out.Hint, err = s.browseHint(in, hasFilter(kinds, types, in.Tags)); err != nil {
+		if out.Hint, err = s.browseHint(req); err != nil {
 			return nil, BrowseOut{}, err
 		}
 	}
@@ -589,17 +591,20 @@ func (s *Server) browse(_ context.Context, _ *sdk.CallToolRequest, in BrowseIn) 
 //
 // It names what emptied this page and nothing else. A filter is the usual
 // cause, and the one the tool's description warns about, but it is a cause only
-// when one was set. A hint that blames a filter nobody set sends the model to
-// `recall` or to an apology about tags, when the cause is somewhere else: an
-// empty vault, a cursor at the end of the listing, or replaced records held
-// back past it.
-func (s *Server) browseHint(in BrowseIn, filtered bool) (string, error) {
+// when one was set, and only the filters that were set are named. A hint that
+// blames a filter nobody set sends the model to `recall` or to an apology about
+// tags, when the cause is somewhere else: an empty vault, a cursor at the end of
+// the listing, or replaced records held back past it.
+func (s *Server) browseHint(req vault.BrowseRequest) (string, error) {
+	filters := filtersOf(req)
 	switch {
-	case filtered:
-		return "Nothing matches. Every filter here EXCLUDES, so this is not evidence the vault " +
-			"holds nothing related, drop a tag, or use `recall` with the same words, where filters " +
-			"only prefer and cannot empty a result.", nil
-	case in.Cursor == "":
+	case req.Cursor == "" && filters.set():
+		// A record the filters select may have been replaced, but the record at
+		// the end of its chain of replacements is current and would be listed
+		// had the filters not excluded it, so on a first page they are the
+		// cause whatever else holds a record back.
+		return filters.excludedEverything(), nil
+	case req.Cursor == "":
 		// Supersession cannot empty a first page. Remember refuses to replace a
 		// record the vault does not already hold, so every chain of replacements
 		// ends in a record nothing has replaced, and that one is listed. With no
@@ -612,24 +617,26 @@ func (s *Server) browseHint(in BrowseIn, filtered bool) (string, error) {
 	// nothing about the records before it. What can lie past the cursor unlisted
 	// is replaced records, held back by default, and asking for the same page
 	// with history included tells a listing that has ended from a page of them.
-	if !in.IncludeSuperseded {
-		history, err := s.vault.Browse(vault.BrowseRequest{
-			IncludeSuperseded: true,
-			Limit:             1,
-			Cursor:            local.Cursor(in.Cursor),
-		})
+	//
+	// With filters set these are still the only two cases: nothing past the
+	// cursor matches them, so their listing has ended, or everything that does
+	// has been replaced. Neither is a reason to drop a filter, so the filters
+	// are not blamed here. If they exclude everything, the first page the hint
+	// sends the model back to says so. The probe keeps them, because without
+	// them it would count a record they exclude, current or replaced, and point
+	// at a page that would still list nothing.
+	if !req.IncludeSuperseded {
+		probe := req
+		probe.IncludeSuperseded, probe.Limit = true, 1
+		history, err := s.vault.Browse(probe)
 		if err != nil {
 			return "", err
 		}
 		if len(history.Rows) > 0 {
-			return "Every record past this cursor has been replaced by a newer one, and replaced " +
-				"records are held back by default. Pass the same cursor with includeSuperseded set " +
-				"to list them, or call `browse` without a cursor to start again from the newest.", nil
+			return filters.replacedPastCursor(), nil
 		}
 	}
-	return "Nothing lies past this cursor, so the listing ends here. An empty page after a cursor " +
-		"says nothing about the records before it: call `browse` without a cursor to start again " +
-		"from the newest.", nil
+	return filters.listingEnded(), nil
 }
 
 // nothingListed says why an unfiltered first page listed nothing: this device
@@ -655,18 +662,133 @@ func (s *Server) nothingListed() (string, error) {
 		"`save_session`.", nil
 }
 
-// hasFilter reports whether a listing's query could have excluded a record.
+// browseFilters are the parts of a listing's query that could have excluded a
+// record: kinds, types and tags. includeSuperseded only widens a listing, and a
+// limit or a cursor shapes a page without selecting what the listing holds.
 //
-// It reads the query that ran rather than the arguments as they were sent. A
-// blank tag is dropped before the query is built, and a kinds list naming both
-// classes excludes nothing because the vault holds no third class, so neither
-// is a filter an empty page can be blamed on.
-func hasFilter(kinds []record.Kind, types []record.Type, tags []string) bool {
-	if len(types) > 0 || len(local.NormalizeTags(tags)) > 0 {
-		return true
+// They are read from the query that ran rather than from the arguments as they
+// were sent. A blank tag is dropped before the query is built, and a kinds list
+// naming both classes excludes nothing because the vault holds no third class,
+// so neither is a filter an empty page can be blamed on, and a hint names
+// neither.
+type browseFilters struct {
+	kinds []record.Kind
+	types []record.Type
+	tags  []string
+}
+
+// filtersOf reads the filters from the query that ran.
+func filtersOf(req vault.BrowseRequest) browseFilters {
+	filters := browseFilters{types: req.Types, tags: local.NormalizeTags(req.Tags)}
+	if !(slices.Contains(req.Kinds, record.KindMemory) && slices.Contains(req.Kinds, record.KindSession)) {
+		filters.kinds = req.Kinds
 	}
-	return len(kinds) > 0 &&
-		!(slices.Contains(kinds, record.KindMemory) && slices.Contains(kinds, record.KindSession))
+	return filters
+}
+
+// set reports whether any filter ran.
+func (f browseFilters) set() bool {
+	return len(f.kinds) > 0 || len(f.types) > 0 || len(f.tags) > 0
+}
+
+// String names each filter that ran with its values, in the argument's own
+// name, as `kinds ["session"] and tags ["west", "gauge"]`. A tag is given as the
+// vault compared it, lowercased and trimmed, which is also how the vault's own
+// tag list gives it.
+func (f browseFilters) String() string {
+	var named []string
+	if len(f.kinds) > 0 {
+		named = append(named, "kinds "+quotedList(f.kinds))
+	}
+	if len(f.types) > 0 {
+		named = append(named, "types "+quotedList(f.types))
+	}
+	if len(f.tags) > 0 {
+		named = append(named, "tags "+quotedList(f.tags))
+	}
+	return joinList(named, "and")
+}
+
+// excludedEverything is the hint for a first page the filters emptied.
+//
+// It says to drop only what was set, and in the form that widens the listing.
+// Every tag is required, so dropping one widens it. Types are alternatives, so
+// dropping one of several would narrow it further, and the advice is to drop
+// the argument. The pointer to `recall` is given only for tags and types, the
+// filters recall treats as a preference. Its scope excludes a class as kinds
+// does, so a page emptied by kinds alone is not sent there.
+func (f browseFilters) excludedEverything() string {
+	var drop, soft []string
+	if len(f.kinds) > 0 {
+		drop = append(drop, "kinds")
+	}
+	switch {
+	case len(f.types) == 1:
+		drop, soft = append(drop, "the type"), append(soft, "types")
+	case len(f.types) > 1:
+		drop, soft = append(drop, "types"), append(soft, "types")
+	}
+	switch {
+	case len(f.tags) == 1:
+		drop, soft = append(drop, "the tag"), append(soft, "tags")
+	case len(f.tags) > 1:
+		drop, soft = append(drop, "a tag"), append(soft, "tags")
+	}
+	advice := "Drop kinds to list every class of record."
+	if len(soft) > 0 {
+		advice = fmt.Sprintf("Drop %s, or use `recall` with the same %s, which only prefer there and "+
+			"cannot empty a result.", joinList(drop, "or"), joinList(soft, "and"))
+	}
+	return fmt.Sprintf("Nothing is listed with %s set. Every filter here EXCLUDES, so this is not "+
+		"evidence the vault holds nothing related. %s", f, advice)
+}
+
+// replacedPastCursor is the hint for a page past a cursor where everything the
+// filters select has been replaced.
+func (f browseFilters) replacedPastCursor() string {
+	if !f.set() {
+		return "Every record past this cursor has been replaced by a newer one, and replaced " +
+			"records are held back by default. Pass the same cursor with includeSuperseded set " +
+			"to list them, or call `browse` without a cursor to start again from the newest."
+	}
+	// The filters go back with the cursor, because the replaced records are
+	// the ones they select and without them the page would list others.
+	return fmt.Sprintf("Every record past this cursor that matches %s has been replaced by a newer "+
+		"one, and replaced records are held back by default. Pass the same cursor and filters with "+
+		"includeSuperseded set to list them, or call `browse` without a cursor to start again from "+
+		"the newest.", f)
+}
+
+// listingEnded is the hint for a page past a cursor with nothing the filters
+// select beyond it.
+func (f browseFilters) listingEnded() string {
+	if !f.set() {
+		return "Nothing lies past this cursor, so the listing ends here. An empty page after a cursor " +
+			"says nothing about the records before it: call `browse` without a cursor to start again " +
+			"from the newest."
+	}
+	// Records the filters exclude may lie past the cursor, so it is the
+	// filtered listing that has ended and the sentence says which one.
+	return fmt.Sprintf("Nothing past this cursor matches %s, so the listing ends here. An empty page "+
+		"after a cursor says nothing about the records before it: call `browse` without a cursor to "+
+		"start again from the newest.", f)
+}
+
+// quotedList renders values as a list the model can read back as arguments.
+func quotedList[T ~string](values []T) string {
+	quoted := make([]string, len(values))
+	for i, value := range values {
+		quoted[i] = strconv.Quote(string(value))
+	}
+	return "[" + strings.Join(quoted, ", ") + "]"
+}
+
+// joinList joins items as a sentence does, "a, b and c".
+func joinList(items []string, conjunction string) string {
+	if len(items) < 2 {
+		return strings.Join(items, "")
+	}
+	return strings.Join(items[:len(items)-1], ", ") + " " + conjunction + " " + items[len(items)-1]
 }
 
 // ── open ────────────────────────────────────────────────────────────────────
