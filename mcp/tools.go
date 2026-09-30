@@ -226,9 +226,10 @@ answer rather than a slightly worse one. So here:
 - types: memory types. A record of another type will not be listed.
 - tags: every listed tag is required. A record carrying two of your three tags will NOT appear.
 
-Because these exclude, an empty result here means exactly what it says and is not evidence that the
-vault holds nothing related. If a browse comes back empty, try recall with the same words as a soft
-filter before telling the user there is nothing.
+Because these exclude, an empty result with a filter set means exactly what it says and is not
+evidence that the vault holds nothing related. If you set tags or types and nothing comes back, try
+recall with the same words as a soft filter before telling the user there is nothing. With no filter
+set, an empty page has another cause, and its hint names it.
 
 Returns a page and, when more remain, a cursor. Pass the cursor back verbatim for the next page; it
 is opaque and is not an offset, so a page boundary stays correct even while the vault is being

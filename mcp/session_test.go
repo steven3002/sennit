@@ -1577,7 +1577,9 @@ func TestAnUnfilteredBrowseOfAnEmptyDeviceSaysItHoldsNothing(t *testing.T) {
 
 // A browse with a filter set keeps the hint that every filter here excludes, on
 // an empty vault as on a full one. There the filter is a cause the model can act
-// on, by dropping it or by asking `recall`, where filters only prefer.
+// on, by dropping it or, for tags and types, by asking `recall`, where those
+// only prefer. Recall's scope excludes a class as kinds does, so a class alone
+// is not sent there.
 func TestAFilteredBrowseThatListsNothingStillSaysItsFiltersExclude(t *testing.T) {
 	session, _ := serve(t)
 	filters := map[string]mcp.BrowseIn{
@@ -1593,8 +1595,13 @@ func TestAFilteredBrowseThatListsNothingStillSaysItsFiltersExclude(t *testing.T)
 			if len(out.Rows) != 0 {
 				t.Fatalf("%s, %s: listed %d row(s), want none", holding, name, len(out.Rows))
 			}
-			if !strings.Contains(out.Hint, "EXCLUDES") || !strings.Contains(out.Hint, "`recall`") {
+			if !strings.Contains(out.Hint, "EXCLUDES") {
 				t.Errorf("%s, %s: the hint does not say the filters exclude: %q", holding, name, out.Hint)
+			}
+			soft := len(in.Tags) > 0 || len(in.Types) > 0
+			if soft != strings.Contains(out.Hint, "`recall`") {
+				t.Errorf("%s, %s: the hint points at `recall` %t, want %t: %q",
+					holding, name, !soft, soft, out.Hint)
 			}
 			if strings.Contains(out.Hint, "holds nothing to list") {
 				t.Errorf("%s, %s: a filtered browse called the vault empty: %q", holding, name, out.Hint)
