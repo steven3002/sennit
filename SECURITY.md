@@ -32,6 +32,7 @@ Stated plainly so reports can be triaged fairly:
 
 - **Access is key possession.** Anyone with the recovery phrase has full access. There is no server-side revocation, and no delegated or programmable sharing.
 - **Local plaintext.** The local working copy is readable on a trusted device, this is deliberate, as in local-first note tools. We considered encrypting it and decided against it: the process that searches your memory is the process that holds your key, and an MCP host starts that process unattended, so on a machine where an attacker can read the vault they can read the key beside it. Full-disk encryption is the control that works here. `SENNIT_HOME` can point inside an encrypted volume if you want a second one.
+- **Context an agent keeps.** Sennit's protection covers the vault: what is stored on the network, and the working copy on your device. A record an agent reads becomes part of that agent's context. Many agents keep their context, or a summary of it, in their own local data, such as a session log or a working folder. That data is managed by the agent, under its settings, and `forget` in Sennit does not reach it. For example, Claude Code keeps session logs under `~/.claude/projects/`, and Antigravity CLI keeps its working history under `~/.gemini/antigravity-cli/brain/`.
 - **Durability is Sia's.** Redundancy and repair are the network's guarantees, not ours.
 
 ## Supported versions
