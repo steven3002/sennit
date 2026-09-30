@@ -120,8 +120,9 @@ func rebuiltHeads(report vault.HydrateReport) (ui.Message, bool) {
 	}
 	return ui.Message{
 		Kind: ui.KindWarning,
-		Text: fmt.Sprintf("%s %s rebuilt from their transcripts",
-			plural(report.Sessions, "conversation"), verb(report.Sessions, "was", "were")),
+		Text: fmt.Sprintf("%s %s rebuilt from %s",
+			plural(report.Sessions, "conversation"), verb(report.Sessions, "was", "were"),
+			pick(report.Sessions, "its transcript", "their transcripts")),
 		Explanation: []string{explanation},
 	}, true
 }

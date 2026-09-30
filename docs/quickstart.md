@@ -286,8 +286,9 @@ The server exposes `remember`, `recall`, `browse`, `open`, `save_session` and `f
 
 ## Trying it without Sia
 
-Every command takes `-offline`, which uses the device's own copy and contacts no indexer. It needs
-no app key and no approval, so it is the fastest way to see recall working:
+`init`, `remember`, `recall` and `status` work with `--offline`, which uses the device's own copy and
+contacts no indexer. It needs no app key and no approval, so it is the fastest way to see recall
+working:
 
 ```sh
 sennit init --offline
@@ -295,6 +296,7 @@ sennit remember --offline --context "..." "..."
 sennit recall --offline "..."
 ```
 
-Records written offline stay on the device until a connected run flushes them.
+Records written offline stay on the device until a connected run flushes them. The commands that
+move data to or from Sia need the indexer.
 
 ---

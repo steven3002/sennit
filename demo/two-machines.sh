@@ -107,8 +107,9 @@ SENNIT_MCP_BIN="$bin/sennit-mcp" \
 total=$(( SECONDS - start ))
 bold "Done in ${total}s, write ${wrote}s · hydrate $(( hydrated - wrote ))s · read $(( total - hydrated ))s"
 cat <<'TEXT'
-  The memory and the transcript came back byte for byte from the network.
-  What did NOT come back is the conversation's own description, its summary,
+  Machine B rebuilt the vault from the network, and a different MCP client then
+  found the memory by meaning and loaded the conversation to resume it.
+  What did NOT come back is the conversation's own description. Its summary,
   tags, project and lineage live only on the device that wrote them, so machine
   B rebuilt the head from the transcript and its title is reconstructed rather
   than restored. The field-by-field breakdown is in demo/README.md.

@@ -10,9 +10,11 @@ export SENNIT_APP_KEY=...     # issued by `sennit connect`
 ./demo/two-machines.sh
 ```
 
-**Measured end to end: 56 s**, 22 s to write and put on Sia, 25 s to rebuild on a machine that has
-never held the vault, 9 s to read it back with a different client. Building the binaries and
-installing the second client's dependencies happen before the clock starts; both are one-time.
+**Measured end to end on 2026-09-25: 69 s**, 23 s to write and put on Sia, 37 s to rebuild in a
+directory that has never held the vault, 9 s to read it back with a different client. The rebuild
+lists every object on the account, so it takes longer on an account that holds more. Building the
+binaries and installing the second client's dependencies happen before the clock starts; both are
+one-time.
 
 ## What it shows
 

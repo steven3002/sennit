@@ -396,6 +396,8 @@ func TestWhatIsPrintedAgreesWithItsCount(t *testing.T) {
 			"The record stays queued on this device. It has not reached Sia yet."},
 		{"three records queued", strings.Join(queuedLeaves(3), " "),
 			"The 3 records stay queued on this device. They have not reached Sia yet."},
+		{"one conversation rebuilt", rebuiltText(1), "1 conversation was rebuilt from its transcript"},
+		{"four conversations rebuilt", rebuiltText(4), "4 conversations were rebuilt from their transcripts"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			if c.got != c.want {
@@ -403,6 +405,12 @@ func TestWhatIsPrintedAgreesWithItsCount(t *testing.T) {
 			}
 		})
 	}
+}
+
+// rebuiltText is the warning hydrate prints for n rebuilt conversations.
+func rebuiltText(n int) string {
+	msg, _ := rebuiltHeads(vault.HydrateReport{Sessions: n})
+	return msg.Text
 }
 
 func TestWhatRecoverSays(t *testing.T) {
