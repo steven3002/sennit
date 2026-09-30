@@ -22,6 +22,7 @@ Sennit takes the other path:
 - **You own it.** Keys are derived from your recovery phrase and never leave your device.
 - **Nobody on the network can read it.** Records are encrypted client-side before they touch the network; storage providers and the coordinating indexer see only ciphertext of your records.
 - **The copy on your own machine is readable.** Your device keeps a working copy in the clear, because the search, the ranking and the decryption all happen there. This is the same choice a local-first notes app makes: protect the device the way you protect those, and see [SECURITY.md](SECURITY.md).
+- **What an agent keeps is up to the agent.** Sennit gives a record to the agent that asks for it. Depending on how an agent works, or how you set yours up, it may keep what it read, or a summary of it, in its own working data, such as its session history or its memory folder. That data follows the agent's own settings, so how long it is kept, and clearing it, is handled in the agent. See [SECURITY.md](SECURITY.md).
 - **It's portable.** Memory follows you across agents, tools and machines, not locked to one vendor.
 - **It's searched by meaning.** Semantic recall over your own records, computed locally.
 
