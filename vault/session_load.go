@@ -2,9 +2,12 @@ package vault
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"time"
 
+	"github.com/steven3002/sennit/local"
 	"github.com/steven3002/sennit/record"
 )
 
@@ -249,16 +252,20 @@ func (v *Vault) ResolveSource(ctx context.Context, memory *record.Memory) (Sourc
 // its conversation through its own source; a conversation that had to search
 // every memory in the vault to find the ones it produced would make the
 // interesting direction the expensive one.
+//
+// The link is written through reviseEdges, so a link made while another writer
+// changes the conversation is made all the same, onto the head as that writer
+// left it.
 func (v *Vault) LinkMemory(sessionID, memoryID record.ID) error {
-	session, err := v.Session(sessionID)
-	if err != nil {
-		return err
-	}
-	for _, existing := range session.Links.Memories {
-		if existing == memoryID {
-			return nil
+	err := v.reviseEdges(sessionID, func(session *record.Session) bool {
+		if slices.Contains(session.Links.Memories, memoryID) {
+			return false
 		}
+		session.Links.Memories = append(session.Links.Memories, memoryID)
+		return true
+	})
+	if errors.Is(err, local.ErrNotFound) {
+		return fmt.Errorf("%w: %s", ErrNoSession, sessionID)
 	}
-	session.Links.Memories = append(session.Links.Memories, memoryID)
-	return v.reviseHead(session)
+	return err
 }

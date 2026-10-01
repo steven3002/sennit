@@ -138,6 +138,23 @@ func (p *Packer) Withdraw(id record.ID) (bool, error) {
 	return true, p.refresh()
 }
 
+// WithdrawAll takes several records back out of the queue together, or none of
+// them, and reports which of them were queued.
+//
+// It is Withdraw for a record written as several, such as a conversation's
+// transcript chunks, and the refusal is why it is not a loop over Withdraw. A
+// flush can claim some of the chunks and not others, and withdrawing them one
+// at a time until the first claim would take some out of the queue and leave
+// the rest to the flush. A claim on any of them refuses all of them, with an
+// error wrapping local.ErrClaimed, and none leaves the queue.
+func (p *Packer) WithdrawAll(ids []record.ID) ([]record.ID, error) {
+	withdrawn, err := p.queue.WithdrawQueuedAll(ids, p.policy.claimTimeout())
+	if err != nil || len(withdrawn) == 0 {
+		return withdrawn, err
+	}
+	return withdrawn, p.refresh()
+}
+
 // Due reports whether the queue has become flushable through the passage of
 // time alone.
 func (p *Packer) Due(now time.Time) (Reason, bool) {

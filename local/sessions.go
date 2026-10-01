@@ -72,42 +72,72 @@ var ErrStaleHead = errors.New("the session was changed by another writer")
 // already exist. The head is the one mutable record the vault holds, and it is
 // written whole on every append, affordable precisely because it is small: the
 // transcript it describes is somewhere else and stays there.
+//
+// Any other version replaces a head that is still at it, and never creates one.
+// A head that has gone since the writer read it was forgotten, and writing it
+// back would bring the conversation back, naming a transcript the forget took
+// and carrying whatever the writer was adding. That is refused with ErrNotFound,
+// as a head that has moved on is refused with ErrStaleHead.
 func (s *Store) PutSessionHead(session *record.Session, head []byte, expect int64) error {
 	var parent any
 	if session.Lineage.ParentSession != nil {
 		parent = session.Lineage.ParentSession.String()
 	}
-	// The WHERE on the update arm tests the row that is already there, so a
-	// creation whose id is taken and an append whose head has moved on both
-	// come back as nothing written rather than as an overwrite.
+	if expect == 0 {
+		// A creation whose id is taken comes back as nothing written rather
+		// than as an overwrite of somebody else's conversation.
+		result, err := s.db.Exec(
+			`INSERT INTO session_heads
+			   (session_id, version, title, summary, kind, project, agent, parent,
+			    created_at, updated_at, archived, messages, chunks, bytes, head)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			 ON CONFLICT(session_id) DO NOTHING`,
+			session.ID.String(), session.Version, session.Title, session.Summary,
+			string(session.Kind), ProjectKey(session.Project), session.Agent.Name, parent,
+			session.Created.String(), session.Updated.String(), session.Archived,
+			session.Counts.Messages, len(session.Chunks), session.Counts.Bytes, head)
+		if err != nil {
+			return fmt.Errorf("store session head %s: %w", session.ID, err)
+		}
+		return s.headWritten(session.ID, result, expect)
+	}
+
 	result, err := s.db.Exec(
-		`INSERT INTO session_heads
-		   (session_id, version, title, summary, kind, project, agent, parent,
-		    created_at, updated_at, archived, messages, chunks, bytes, head)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		 ON CONFLICT(session_id) DO UPDATE SET
-		   version = excluded.version, title = excluded.title, summary = excluded.summary,
-		   kind = excluded.kind, project = excluded.project, agent = excluded.agent,
-		   parent = excluded.parent, updated_at = excluded.updated_at,
-		   archived = excluded.archived, messages = excluded.messages,
-		   chunks = excluded.chunks, bytes = excluded.bytes, head = excluded.head
-		 WHERE session_heads.version = ?`,
-		session.ID.String(), session.Version, session.Title, session.Summary,
+		`UPDATE session_heads SET
+		   version = ?, title = ?, summary = ?, kind = ?, project = ?, agent = ?, parent = ?,
+		   updated_at = ?, archived = ?, messages = ?, chunks = ?, bytes = ?, head = ?
+		 WHERE session_id = ? AND version = ?`,
+		session.Version, session.Title, session.Summary,
 		string(session.Kind), ProjectKey(session.Project), session.Agent.Name, parent,
-		session.Created.String(), session.Updated.String(), session.Archived,
+		session.Updated.String(), session.Archived,
 		session.Counts.Messages, len(session.Chunks), session.Counts.Bytes, head,
-		expect)
+		session.ID.String(), expect)
 	if err != nil {
 		return fmt.Errorf("store session head %s: %w", session.ID, err)
 	}
+	return s.headWritten(session.ID, result, expect)
+}
+
+// headWritten reports why a head write against a version wrote nothing, if it
+// did not: the head has moved on, or it has gone.
+func (s *Store) headWritten(id record.ID, result sql.Result, expect int64) error {
 	written, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("store session head %s: %w", session.ID, err)
+		return fmt.Errorf("store session head %s: %w", id, err)
 	}
-	if written == 0 {
-		return fmt.Errorf("session %s: %w (expected version %d)", session.ID, ErrStaleHead, expect)
+	if written > 0 {
+		return nil
 	}
-	return nil
+	if expect > 0 {
+		var held int
+		if err := s.db.QueryRow(`SELECT COUNT(*) FROM session_heads WHERE session_id = ?`, id.String()).Scan(&held); err != nil {
+			return fmt.Errorf("store session head %s: %w", id, err)
+		}
+		if held == 0 {
+			return fmt.Errorf("session %s: %w", id, ErrNotFound)
+		}
+	}
+	return fmt.Errorf("session %s: %w (expected version %d)", id, ErrStaleHead, expect)
 }
 
 // GetSessionHead reads one session head.
@@ -143,6 +173,38 @@ func (s *Store) SessionTitle(id record.ID) (string, error) {
 func (s *Store) ForgetSessionHead(id record.ID) error {
 	if _, err := s.db.Exec(`DELETE FROM session_heads WHERE session_id = ?`, id.String()); err != nil {
 		return fmt.Errorf("forget session %s: %w", id, err)
+	}
+	return nil
+}
+
+// ForgetSessionHeadAt drops a session head, provided it is still at the version
+// the caller read.
+//
+// It is how forgetting a conversation ends. The forget read the head to learn
+// what to remove, and a writer that appended in the meantime left a head naming
+// turns the forget never saw; deleting that head would strand those turns,
+// queued for the network and named by nothing. So a head that has moved on is
+// left where it is, and ErrStaleHead says why. A head that is already gone is
+// not an error, since what the caller wanted is already true.
+func (s *Store) ForgetSessionHeadAt(id record.ID, version int64) error {
+	result, err := s.db.Exec(`DELETE FROM session_heads WHERE session_id = ? AND version = ?`,
+		id.String(), version)
+	if err != nil {
+		return fmt.Errorf("forget session %s: %w", id, err)
+	}
+	deleted, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("forget session %s: %w", id, err)
+	}
+	if deleted > 0 {
+		return nil
+	}
+	var held int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM session_heads WHERE session_id = ?`, id.String()).Scan(&held); err != nil {
+		return fmt.Errorf("forget session %s: %w", id, err)
+	}
+	if held > 0 {
+		return fmt.Errorf("session %s: %w (expected version %d)", id, ErrStaleHead, version)
 	}
 	return nil
 }

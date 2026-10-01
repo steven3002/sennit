@@ -54,18 +54,16 @@ func (v *Vault) removeVector(id record.ID) error {
 // compactVectorsIfDue folds the deltas into a new base once they have outgrown
 // it, at the ratio the catalog uses.
 //
-// The base is written from the in-memory index rather than by re-reading the
-// files, because the in-memory index is what hydration would have produced and
-// is already correct. Vectors removed since the last base are simply not in it.
+// The base is written from the files, which is what the next open would
+// hydrate, and not from the in-memory index, which leaves out any vector from
+// another model. Reading them and writing it is one call to the store, because
+// a vector added or removed by another call in between would otherwise be lost
+// with the delta. See index.Store.CompactIfDue.
 func (v *Vault) compactVectorsIfDue() error {
-	if !v.vectors.DueForCompaction() {
-		return nil
-	}
-	entries, err := v.vectors.Hydrate()
-	if err != nil {
+	if _, err := v.vectors.CompactIfDue(); err != nil {
 		return fmt.Errorf("compact index: %w", err)
 	}
-	return v.vectors.Compact(entries)
+	return nil
 }
 
 // VectorStats reports what the persisted index has cost on disk.
@@ -82,9 +80,5 @@ func (v *Vault) CompactIndex() error {
 	if v.vectors == nil {
 		return nil
 	}
-	entries, err := v.vectors.Hydrate()
-	if err != nil {
-		return err
-	}
-	return v.vectors.Compact(entries)
+	return v.vectors.Fold()
 }
