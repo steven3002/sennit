@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/steven3002/sennit/local"
@@ -102,6 +103,17 @@ func (v *Vault) SaveSession(ctx context.Context, req SaveSessionRequest) (SaveSe
 	if err := validateAppend(session, req.Messages); err != nil {
 		return SaveSessionResult{}, err
 	}
+	// A new run is refused before any of it is written when the conversation it
+	// names is not there to adopt it. Looked for only once the run was stored,
+	// a missing one refused a save that had already kept the whole run, so the
+	// caller was told it was not stored when it was, and a retry stored another.
+	if parent := session.Lineage.ParentSession; from == 0 && parent != nil {
+		if _, err := v.session(*parent); errors.Is(err, local.ErrNotFound) {
+			return SaveSessionResult{}, fmt.Errorf("%w: %s, named as the parent of a new run", ErrNoSession, *parent)
+		} else if err != nil {
+			return SaveSessionResult{}, err
+		}
+	}
 
 	groups, err := record.SplitMessages(req.Messages, record.ChunkTargetBytes)
 	if err != nil {
@@ -113,7 +125,7 @@ func (v *Vault) SaveSession(ctx context.Context, req SaveSessionRequest) (SaveSe
 	for _, messages := range groups {
 		written, err := v.writeChunk(ctx, session, messages)
 		if err != nil {
-			return SaveSessionResult{}, err
+			return SaveSessionResult{}, v.abandon(err, result.Chunks)
 		}
 		result.SealFor += written.sealFor
 		result.Chunks = append(result.Chunks, written.ref)
@@ -132,17 +144,23 @@ func (v *Vault) SaveSession(ctx context.Context, req SaveSessionRequest) (SaveSe
 
 	applyHeadUpdates(session, req)
 	if err := session.Validate(); err != nil {
-		return SaveSessionResult{}, err
+		return SaveSessionResult{}, v.abandon(err, result.Chunks)
 	}
 
 	start := time.Now()
 	vector, err := v.embedder.EmbedOne(ctx, session.IndexText())
 	if err != nil {
-		return SaveSessionResult{}, err
+		return SaveSessionResult{}, v.abandon(err, result.Chunks)
 	}
 	result.EmbedFor = time.Since(start)
 
-	if err := v.storeHead(session, vector, from); err != nil {
+	if err := v.putHead(session, from); err != nil {
+		return SaveSessionResult{}, v.abandon(err, result.Chunks)
+	}
+	// The head names the new chunks from here on, so nothing below takes them
+	// back. A failure leaves a conversation that is stored and not yet findable
+	// by its latest summary, which the next save of it puts right.
+	if err := v.indexHead(session, vector); err != nil {
 		return SaveSessionResult{}, err
 	}
 	if from == 0 && session.Lineage.ParentSession != nil {
@@ -164,6 +182,50 @@ func (v *Vault) SaveSession(ctx context.Context, req SaveSessionRequest) (SaveSe
 	}
 	result.OnNetwork = len(owed) == 0
 	return result, nil
+}
+
+// abandon takes back the chunks a save wrote before it stopped, and returns why
+// it stopped.
+//
+// A save seals and queues its chunks before it writes the head that names them,
+// because a head must never name a chunk that is not there. Until that head is
+// written the chunks are named by nothing, and each one still records the
+// conversation it belongs to. Left queued, the next flush writes them to the
+// network, and a device rebuilding the vault from there puts a conversation
+// back together around them: turns the caller was told were not stored, spliced
+// into a conversation that has moved on without them, or a conversation the
+// user has forgotten, brought back. So they leave the queue and the device, and
+// the catalog too when a flush the queue set off has already written one.
+//
+// A chunk a flush in progress has claimed cannot be taken back, since that
+// flush has its payload, and it is reported alongside the reason the save
+// stopped rather than passed over.
+func (v *Vault) abandon(cause error, chunks []record.ChunkRef) error {
+	var errs []error
+	for _, chunk := range chunks {
+		if err := v.discardChunk(chunk.ID); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) == 0 {
+		return cause
+	}
+	return errors.Join(append([]error{cause}, errs...)...)
+}
+
+// discardChunk takes one chunk no head names out of the queue, the catalog and
+// the device.
+func (v *Vault) discardChunk(id record.ID) error {
+	if _, err := v.packer.Withdraw(id); err != nil {
+		return fmt.Errorf("take back chunk %s: %w", id, err)
+	}
+	if err := v.manifest.Remove(id); err != nil && !errors.Is(err, manifest.ErrNotFound) {
+		return fmt.Errorf("take back chunk %s: %w", id, err)
+	}
+	if err := v.local.ForgetBody(id); err != nil {
+		return fmt.Errorf("take back chunk %s: %w", id, err)
+	}
+	return nil
 }
 
 // settle strikes off the chunks a flush reports having written.
@@ -365,6 +427,11 @@ func (v *Vault) writeChunk(ctx context.Context, session *record.Session, message
 		Blob: store.Blob{CID: cid.String(), Payload: framed},
 	})
 	if err != nil {
+		// Add queues before it runs the flush it can set off, so a failed flush
+		// leaves this chunk queued, and the save it belongs to is failing.
+		if discarded := v.discardChunk(id); discarded != nil {
+			return writtenChunk{}, errors.Join(err, discarded)
+		}
 		return writtenChunk{}, err
 	}
 
@@ -384,19 +451,32 @@ func (v *Vault) writeChunk(ctx context.Context, session *record.Session, message
 	}, nil
 }
 
-// storeHead writes a head and everything that has to agree with it.
+// putHead writes a head, conditioned on the version it was read at, zero for
+// one being created.
 //
-// The vector and the ranking metadata are what make a session findable at all,
-// and they are written here rather than beside the chunks because they describe
-// the head: the summary is what is embedded, and the transcript never is.
-func (v *Vault) storeHead(session *record.Session, vector []float32, from int64) error {
+// A head that has gone since it was read was forgotten in between, and writing
+// it back would bring the conversation back with it, naming a transcript the
+// forget took. That is refused as ErrNoSession, which is what the writer would
+// have been told had it read the head a moment later.
+func (v *Vault) putHead(session *record.Session, from int64) error {
 	head, err := record.MarshalSession(session)
 	if err != nil {
 		return err
 	}
-	if err := v.local.PutSessionHead(session, head, from); err != nil {
-		return err
+	err = v.local.PutSessionHead(session, head, from)
+	if errors.Is(err, local.ErrNotFound) {
+		return fmt.Errorf("%w: %s, forgotten since it was read", ErrNoSession, session.ID)
 	}
+	return err
+}
+
+// indexHead writes what makes a stored head findable: its vector and its
+// ranking metadata.
+//
+// They are written beside the head rather than beside the chunks because they
+// describe the head: the summary is what is embedded, and the transcript never
+// is.
+func (v *Vault) indexHead(session *record.Session, vector []float32) error {
 	if err := v.putVector(session.ID, vector); err != nil {
 		return err
 	}
@@ -411,20 +491,17 @@ func (v *Vault) storeHead(session *record.Session, vector []float32, from int64)
 // had to scan every session in the vault to find its children would make the
 // ordinary load the expensive one.
 func (v *Vault) adoptChild(parent, child record.ID) error {
-	session, err := v.session(parent)
+	err := v.reviseEdges(parent, func(session *record.Session) bool {
+		if slices.Contains(session.Lineage.Children, child) {
+			return false
+		}
+		session.Lineage.Children = append(session.Lineage.Children, child)
+		return true
+	})
 	if errors.Is(err, local.ErrNotFound) {
 		return fmt.Errorf("%w: %s, named as the parent of %s", ErrNoSession, parent, child)
 	}
-	if err != nil {
-		return err
-	}
-	for _, existing := range session.Lineage.Children {
-		if existing == child {
-			return nil
-		}
-	}
-	session.Lineage.Children = append(session.Lineage.Children, child)
-	return v.reviseHead(session)
+	return err
 }
 
 // disownChild removes a sub-agent from its parent.
@@ -433,38 +510,75 @@ func (v *Vault) adoptChild(parent, child record.ID) error {
 // a load that failed because of a reference to a session nobody holds would
 // make one deletion cost a second, larger record.
 func (v *Vault) disownChild(parent, child record.ID) error {
-	session, err := v.session(parent)
-	if errors.Is(err, local.ErrNotFound) {
+	err := v.reviseEdges(parent, func(session *record.Session) bool {
+		kept := make([]record.ID, 0, len(session.Lineage.Children))
+		for _, existing := range session.Lineage.Children {
+			if existing != child {
+				kept = append(kept, existing)
+			}
+		}
+		if len(kept) == len(session.Lineage.Children) {
+			return false
+		}
+		session.Lineage.Children = kept
+		return true
+	})
+	// A parent that is not there, or was forgotten after it was read, leaves
+	// nothing to take the child off.
+	if errors.Is(err, local.ErrNotFound) || errors.Is(err, ErrNoSession) {
 		return nil
 	}
-	if err != nil {
+	return err
+}
+
+// headRevisions is how many times an edge is written onto a head that other
+// writers keep moving on, before the writer is told.
+//
+// Each refusal means another write landed in between, and the head is read
+// afresh each time, so among writers that each change a head once, none is
+// refused more often than there are others. The calls an agent makes at once
+// against one conversation are a handful, well under this.
+const headRevisions = 16
+
+// reviseEdges changes the edges a session head holds and writes it back.
+//
+// An edge is one id added to a list on the head or taken off it: a memory drawn
+// from the conversation, or a run it delegated. Adding or removing one commutes
+// with whatever else another writer did to the head, so a head that moved on
+// since it was read is read again and the change made to it as it now is. An
+// append is refused in the same position instead, because the turns it writes
+// were chosen against the head it read, and an edge depends on nothing. Without
+// this, two memories recorded against one conversation at once, which an agent
+// saving what it learned does as a matter of course, refused one of the two
+// after it had been stored.
+//
+// change reports whether it changed the head, and a head that already says
+// what the change would make it say is not written again.
+func (v *Vault) reviseEdges(id record.ID, change func(*record.Session) bool) error {
+	for attempt := 1; ; attempt++ {
+		session, err := v.session(id)
+		if err != nil {
+			return err
+		}
+		if !change(session) {
+			return nil
+		}
+		err = v.reviseHead(session)
+		if errors.Is(err, local.ErrStaleHead) && attempt < headRevisions {
+			continue
+		}
 		return err
 	}
-	kept := make([]record.ID, 0, len(session.Lineage.Children))
-	for _, existing := range session.Lineage.Children {
-		if existing != child {
-			kept = append(kept, existing)
-		}
-	}
-	if len(kept) == len(session.Lineage.Children) {
-		return nil
-	}
-	session.Lineage.Children = kept
-	return v.reviseHead(session)
 }
 
 // reviseHead writes back a head that was read, changed and is being stored
-// again, conditioned on nothing else having changed it in between.
+// again, conditioned on nothing else having changed it in between, and on its
+// not having been forgotten.
 func (v *Vault) reviseHead(session *record.Session) error {
 	from := session.Version
 	session.Version++
 	session.Updated = record.Now()
-
-	head, err := record.MarshalSession(session)
-	if err != nil {
-		return err
-	}
-	return v.local.PutSessionHead(session, head, from)
+	return v.putHead(session, from)
 }
 
 func appendUnique(list []string, value string) []string {
@@ -565,16 +679,54 @@ func (v *Vault) chunk(ctx context.Context, id record.ID) (*record.Chunk, error) 
 // The chunks are tombstoned in the catalog rather than erased from storage: a
 // slab is shared and billed whole, so the bytes come back only when nothing
 // live is left in the slab and reclamation runs.
+//
+// The transcript leaves the upload queue before anything else is touched, all
+// of it or none of it. A chunk waiting for a flush holds its sealed payload in
+// the queue, so a conversation forgotten everywhere else would be written to
+// the network by the next flush, catalogued, and rebuilt from those chunks by
+// the next device to restore the vault. A chunk a flush in progress has already
+// claimed refuses the whole forget with nothing removed, as Forget does for a
+// memory: that flush has the payload and catalogues the chunk whatever happens
+// here, and withdrawing the others first would leave a conversation neither
+// forgotten nor whole. A chunk that never reached the network has no catalog
+// entry, and that is nothing to remove rather than a reason to stop.
+//
+// The vector leaves the searchable index as well as the disk. The index is
+// loaded once, when the vault opens, and a vector left in it goes on ranking a
+// conversation this process can no longer read, which fails the recall that
+// ranks it.
+//
+// The head goes last, because the head is what lists the chunks. A forget that
+// fails part way leaves it in place, every step before it can be repeated, and
+// forgetting the conversation again finishes the job. It is deleted only at the
+// version read here: a writer that appended in between left a head naming turns
+// this forget never saw, and deleting it would strand them in the queue, so the
+// forget stops instead and a second one takes them too.
+//
+// The runs a conversation delegated are conversations of their own and are not
+// forgotten with it. Each keeps naming the conversation it came from, and
+// nothing reads that edge in a way that needs the conversation to be there.
 func (v *Vault) ForgetSession(id record.ID) error {
 	session, err := v.Session(id)
 	if err != nil {
 		return err
 	}
-	for _, chunk := range session.Chunks {
-		if err := v.local.ForgetBody(chunk.ID); err != nil {
+	chunks := make([]record.ID, len(session.Chunks))
+	for i, chunk := range session.Chunks {
+		chunks[i] = chunk.ID
+	}
+	if _, err := v.packer.WithdrawAll(chunks); err != nil {
+		if errors.Is(err, local.ErrClaimed) {
+			return fmt.Errorf("forget %s: part of its transcript: %w, so nothing was removed: "+
+				"forget it again once that flush has finished", id, local.ErrClaimed)
+		}
+		return err
+	}
+	for _, chunk := range chunks {
+		if err := v.manifest.Remove(chunk); err != nil && !errors.Is(err, manifest.ErrNotFound) {
 			return err
 		}
-		if err := v.manifest.Remove(chunk.ID); err != nil && !errors.Is(err, manifest.ErrNotFound) {
+		if err := v.local.ForgetBody(chunk); err != nil {
 			return err
 		}
 	}
@@ -585,11 +737,18 @@ func (v *Vault) ForgetSession(id record.ID) error {
 			return err
 		}
 	}
+	if err := v.removeVector(id); err != nil {
+		return err
+	}
 	if err := v.local.ForgetRankingMeta(id); err != nil {
 		return err
 	}
-	if err := v.vectors.Remove(id); err != nil {
+	if err := v.local.ForgetSessionHeadAt(id, session.Version); err != nil {
+		if errors.Is(err, local.ErrStaleHead) {
+			return fmt.Errorf("forget %s: %w while it was being forgotten, and what that writer added "+
+				"is still stored: forget it again to remove the rest", id, local.ErrStaleHead)
+		}
 		return err
 	}
-	return v.local.ForgetSessionHead(id)
+	return nil
 }

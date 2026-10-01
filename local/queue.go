@@ -1,6 +1,7 @@
 package local
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -204,6 +205,72 @@ func (s *Store) WithdrawQueued(id record.ID, staleAfter time.Duration) (bool, er
 		return false, fmt.Errorf("withdraw queued record %s: %w", id, ErrClaimed)
 	}
 	return false, nil
+}
+
+// WithdrawQueuedAll takes several records back out of the queue together, or
+// none of them, and reports which of them were queued.
+//
+// It is WithdrawQueued for a record that is written as several, such as a
+// conversation's transcript chunks, which a flush can claim some of and not
+// others. Taking the free ones out and then meeting a claim on the next would
+// leave that one to the flush and the ones taken out never to reach the
+// network: the record neither withdrawn nor whole. So a claim on any of them
+// refuses all of them with ErrClaimed, and nothing leaves the queue. The claims
+// are read and the rows deleted in one write transaction, so no flush can claim
+// one in between, or land one part way through.
+//
+// A claim older than staleAfter holds nothing back, and a staleAfter of zero
+// treats every claim that way, as in WithdrawQueued. An id that is not queued
+// at all is passed over.
+func (s *Store) WithdrawQueuedAll(ids []record.ID, staleAfter time.Duration) ([]record.ID, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var withdrawn []record.ID
+	err := s.writing(func(ctx context.Context, conn *sql.Conn) error {
+		if staleAfter > 0 {
+			held, err := conn.PrepareContext(ctx,
+				`SELECT COUNT(*) FROM queue WHERE record_id = ? AND claimed_at IS NOT NULL AND claimed_at >= ?`)
+			if err != nil {
+				return err
+			}
+			defer held.Close()
+			liveSince := stamp(time.Now().Add(-staleAfter))
+			for _, id := range ids {
+				var claimed int
+				if err := held.QueryRowContext(ctx, id.String(), liveSince).Scan(&claimed); err != nil {
+					return fmt.Errorf("record %s: %w", id, err)
+				}
+				if claimed > 0 {
+					return fmt.Errorf("record %s: %w", id, ErrClaimed)
+				}
+			}
+		}
+
+		remove, err := conn.PrepareContext(ctx, `DELETE FROM queue WHERE record_id = ?`)
+		if err != nil {
+			return err
+		}
+		defer remove.Close()
+		for _, id := range ids {
+			result, err := remove.ExecContext(ctx, id.String())
+			if err != nil {
+				return fmt.Errorf("record %s: %w", id, err)
+			}
+			deleted, err := result.RowsAffected()
+			if err != nil {
+				return fmt.Errorf("record %s: %w", id, err)
+			}
+			if deleted > 0 {
+				withdrawn = append(withdrawn, id)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("withdraw %d queued record(s): %w", len(ids), err)
+	}
+	return withdrawn, nil
 }
 
 func (s *Store) eachQueued(ids []record.ID, stmt, verb string) error {
