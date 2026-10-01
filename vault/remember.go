@@ -2,6 +2,7 @@ package vault
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -125,6 +126,25 @@ func (v *Vault) Remember(ctx context.Context, req RememberRequest) (RememberResu
 			return RememberResult{}, fmt.Errorf("supersede %s: %w", memory.Supersedes, err)
 		}
 	}
+	// The conversation a memory names as its source has to be one this vault
+	// holds, and that is settled before any of the memory is written. Looked for
+	// only once the memory was stored, a missing one refused a write that had
+	// already happened: the caller was told the memory was not stored when it
+	// was, and a retry stored a second copy.
+	var source *record.ID
+	if memory.Source.SessionID != "" {
+		sessionID, err := record.ParseID(memory.Source.SessionID)
+		if err != nil {
+			return RememberResult{}, fmt.Errorf("memory source %q: %w", memory.Source.SessionID, err)
+		}
+		if _, err := v.session(sessionID); errors.Is(err, local.ErrNotFound) {
+			return RememberResult{}, fmt.Errorf("%w: %s, named as the conversation this memory came from, "+
+				"so nothing was stored", ErrNoSession, sessionID)
+		} else if err != nil {
+			return RememberResult{}, err
+		}
+		source = &sessionID
+	}
 
 	start := time.Now()
 	v.progress(Progress{Phase: PhaseEmbed})
@@ -181,15 +201,11 @@ func (v *Vault) Remember(ctx context.Context, req RememberRequest) (RememberResu
 	// the reverse edge has no other home: a session that had to scan every
 	// memory in the vault to find the ones it produced would make the
 	// interesting question the expensive one.
-	if memory.Source.SessionID != "" {
-		sessionID, err := record.ParseID(memory.Source.SessionID)
-		if err != nil {
-			return RememberResult{}, fmt.Errorf("memory %s source: %w", id, err)
-		}
-		if err := v.LinkMemory(sessionID, id); err != nil {
+	if source != nil {
+		if err := v.LinkMemory(*source, id); err != nil {
 			return RememberResult{}, err
 		}
-		result.LinkedSession = &sessionID
+		result.LinkedSession = source
 	}
 
 	start = time.Now()

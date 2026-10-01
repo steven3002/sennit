@@ -438,6 +438,14 @@ func (s *Server) remember(ctx context.Context, _ *sdk.CallToolRequest, in Rememb
 
 	stored, err := s.vault.Remember(ctx, req)
 	if err != nil {
+		if errors.Is(err, vault.ErrNoSession) {
+			// The only conversation a memory names is the one in session, so
+			// this is that address, and the answer says which it is and what to
+			// do about it rather than repeating a bare id.
+			return nil, RememberOut{}, fmt.Errorf("%w. %s is not a conversation in this vault: it was never "+
+				"saved here, or it has been forgotten. Pass the address of a conversation this vault holds, "+
+				"or leave session and span out", err, in.Session)
+		}
 		return nil, RememberOut{}, err
 	}
 
@@ -798,6 +806,15 @@ func (s *Server) saveSession(ctx context.Context, _ *sdk.CallToolRequest, in Sav
 				"conversation while you were writing. Open it again and re-send only the turns it "+
 				"does not already hold", err)
 		}
+		if !saved.ID.IsZero() {
+			// The conversation was stored, and what failed came after it: the
+			// write to the network that durable asked for. Given as the bare
+			// error, it reads as a save that did not happen, and an agent saves
+			// again, which for a new conversation stores a second one.
+			return nil, SaveSessionOut{}, fmt.Errorf("%w. The conversation is stored on this device at %s, "+
+				"and only the write to the network failed; it reaches the network with a later flush. "+
+				"Do not save it again: append any new turns to that address", err, URI(record.KindSession, saved.ID))
+		}
 		return nil, SaveSessionOut{}, err
 	}
 
@@ -863,7 +880,13 @@ func (s *Server) forget(_ context.Context, _ *sdk.CallToolRequest, in ForgetIn) 
 		out.Note = "The memory is gone from this vault. Storage comes back later, when nothing " +
 			"written alongside it is still needed, do not report freed space."
 	case FormSession, FormTranscript:
-		if err := s.vault.ForgetSession(address.ID); err != nil {
+		// The head is read before it goes, for the runs it delegated. See
+		// runsLeft.
+		head, err := s.vault.Session(address.ID)
+		if err == nil {
+			err = s.vault.ForgetSession(address.ID)
+		}
+		if err != nil {
 			if errors.Is(err, vault.ErrNoSession) {
 				// Forgetting what is already gone succeeds. A retry after a
 				// dropped response must not look like a failure.
@@ -873,12 +896,32 @@ func (s *Server) forget(_ context.Context, _ *sdk.CallToolRequest, in ForgetIn) 
 			return nil, ForgetOut{}, err
 		}
 		out.Note = "The conversation and its transcript are gone from this vault. Memories drawn " +
-			"from it are untouched and are still stored."
+			"from it are untouched and are still stored." + runsLeft(head.Lineage.Children)
 	default:
 		return nil, ForgetOut{}, fmt.Errorf("%s is part of this server, not a record; there is "+
 			"nothing there to forget", address.URI)
 	}
 	return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: out.Note}}}, out, nil
+}
+
+// runsLeft names the runs a forgotten conversation delegated, which are still
+// stored.
+//
+// Opening a conversation lists the runs it delegated as part of it, so an agent
+// told only that the conversation had gone would take them to have gone with
+// it. They have not: each is a conversation of its own, and forgetting one takes
+// its own address, which nothing else will give the agent once the conversation
+// that listed them is gone.
+func runsLeft(runs []record.ID) string {
+	if len(runs) == 0 {
+		return ""
+	}
+	addresses := make([]string, len(runs))
+	for i, run := range runs {
+		addresses[i] = URI(record.KindSession, run)
+	}
+	return fmt.Sprintf(" The %d run(s) it delegated are stored as conversations of their own and were "+
+		"not removed: %s.", len(runs), strings.Join(addresses, ", "))
 }
 
 // ── shared ──────────────────────────────────────────────────────────────────

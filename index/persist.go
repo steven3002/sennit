@@ -160,7 +160,10 @@ func (s *Store) Append(entries ...Entry) error {
 func (s *Store) Hydrate() ([]Entry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.hydrate()
+}
 
+func (s *Store) hydrate() ([]Entry, error) {
 	at := make(map[record.ID]int)
 	var out []Entry
 	replay := func(name string) error {
@@ -222,16 +225,57 @@ func (s *Store) dueForCompaction() bool {
 	return float64(s.deltaBytes) > CompactRatio*float64(s.baseBytes)
 }
 
+// CompactIfDue folds the deltas into a fresh base once they have outgrown it,
+// and reports whether it did.
+//
+// It reads the files and writes the new base under one hold of the store, which
+// is why it is one call rather than DueForCompaction, Hydrate and Compact in
+// turn. A vector appended or removed between a read and a later write lands in
+// the delta the new base was not built from, and emptying the delta then drops
+// it: the next process finds a record just stored missing from the index, and a
+// record just forgotten back in it.
+func (s *Store) CompactIfDue() (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.dueForCompaction() {
+		return false, nil
+	}
+	return true, s.fold()
+}
+
+// Fold folds the deltas into a fresh base whether or not they have outgrown it,
+// reading and writing under one hold of the store as CompactIfDue does.
+func (s *Store) Fold() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.fold()
+}
+
+func (s *Store) fold() error {
+	entries, err := s.hydrate()
+	if err != nil {
+		return err
+	}
+	return s.compact(entries)
+}
+
 // Compact folds the deltas into a fresh base holding one entry per record.
 //
 // The new base is written beside the old one and renamed into place before the
 // delta is emptied, so the only state a crash can leave behind is a delta
 // holding entries the base already has. Replaying those a second time lands on
 // the same value, which is why this order is safe and the reverse is not.
+//
+// The base is written from the entries given, and whatever reached the delta
+// after they were read is emptied out with it. A caller folding the store's own
+// files wants CompactIfDue or Fold, which read them under the same hold.
 func (s *Store) Compact(entries []Entry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.compact(entries)
+}
 
+func (s *Store) compact(entries []Entry) error {
 	pending, err := os.OpenFile(s.path(pendingFile), os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return fmt.Errorf("open index base: %w", err)
