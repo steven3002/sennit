@@ -131,5 +131,18 @@ func (m *Manifest) Named() int {
 	return len(m.entries)
 }
 
+// Dropped reports how many changes this catalog has found cut off at the end of
+// its log, and dropped, since it was opened.
+//
+// A process that stops part way through an append leaves whatever part of the
+// line reached the disk, and nothing can read it. Each such line was one
+// record's latest change, and it is the only thing lost with it: the catalog
+// holds what it held for that record before the change was made.
+func (m *Manifest) Dropped() int {
+	m.log.mu.Lock()
+	defer m.log.mu.Unlock()
+	return m.log.dropped
+}
+
 // Close releases the underlying log.
 func (m *Manifest) Close() error { return m.log.Close() }

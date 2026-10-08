@@ -85,6 +85,12 @@ func (f *vaultFlags) open(ctx context.Context, out *session, phases phaseNamer) 
 	if err != nil {
 		return nil, err
 	}
+	// A change a crash cut off was dropped as the catalog was read, and nothing
+	// later in the run would say so. It is what explains a record that seems to
+	// have lost its latest change, so it is printed now, whatever the command.
+	if dropped := v.DroppedCatalogChanges(); dropped > 0 {
+		out.warn(cutCatalog(dropped))
+	}
 	// A vault that wanted the network and did not get it still works, and the
 	// user has to be told which of the two happened. Reads are answered from
 	// this device; writes are queued and owed. It is printed the moment it

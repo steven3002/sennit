@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/steven3002/sennit/internal/filelock"
 	"github.com/steven3002/sennit/record"
 )
 
@@ -85,6 +86,14 @@ type Store struct {
 	baseBytes, deltaBytes int64
 	written               int64
 	compactions           int
+
+	// lock is held, across processes, around every write to the delta and the
+	// check that settles its end. A record another process is part way through
+	// appending looks exactly like one a crash cut off.
+	lock *filelock.Mutex
+	// tail is the size this store last left the delta at, or -1 before it has
+	// looked, so that only a delta another process has changed is read again.
+	tail int64
 }
 
 // OpenStore opens or creates the persisted index in dir.
@@ -92,18 +101,26 @@ func OpenStore(dir string, sealer Sealer) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("prepare index directory %s: %w", dir, err)
 	}
-	store := &Store{dir: dir, sealer: sealer}
+	store := &Store{dir: dir, sealer: sealer, tail: -1}
 
 	file, err := os.OpenFile(store.path(DeltaName), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open index delta in %s: %w", dir, err)
 	}
 	store.file = file
-
-	if store.baseBytes, err = sizeOf(store.path(BaseName)); err != nil {
+	if store.lock, err = filelock.Open(store.path(LockName)); err != nil {
+		file.Close()
 		return nil, err
 	}
-	if store.deltaBytes, err = sizeOf(store.path(DeltaName)); err != nil {
+
+	if store.baseBytes, err = sizeOf(store.path(BaseName)); err != nil {
+		store.Close()
+		return nil, err
+	}
+	// The delta is sized once a record a crash cut off its end has been taken
+	// off, so the next append starts a record of its own.
+	if store.deltaBytes, err = store.openTail(); err != nil {
+		store.Close()
 		return nil, err
 	}
 	return store, nil
@@ -111,14 +128,14 @@ func OpenStore(dir string, sealer Sealer) (*Store, error) {
 
 func (s *Store) path(name string) string { return filepath.Join(s.dir, name) }
 
-// Close releases the delta file.
+// Close releases the delta file and the lock file.
 func (s *Store) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.file == nil {
 		return nil
 	}
-	return s.file.Close()
+	return errors.Join(s.file.Close(), s.lock.Close())
 }
 
 // Append writes vectors to the delta and flushes them to disk.
@@ -126,13 +143,25 @@ func (s *Store) Close() error {
 // It syncs before returning. A vector that is only in the page cache when the
 // process dies costs whatever it takes to re-embed the record, which is the one
 // cost in this system that is measured in minutes rather than milliseconds.
-func (s *Store) Append(entries ...Entry) error {
+//
+// It holds the index's file lock while it writes, so that no other process can
+// take a record half written for one a crash cut off, and it starts where the
+// last whole record ends.
+func (s *Store) Append(entries ...Entry) (err error) {
 	if len(entries) == 0 {
 		return nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.lock.Lock(); err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, s.lock.Unlock()) }()
 
+	end, err := s.settle()
+	if err != nil {
+		return err
+	}
 	for _, entry := range entries {
 		line, err := encodeEntry(s.sealer, entry)
 		if err != nil {
@@ -140,8 +169,11 @@ func (s *Store) Append(entries ...Entry) error {
 		}
 		n, err := s.file.Write(line)
 		if err != nil {
-			return fmt.Errorf("append index delta: %w", err)
+			// Whatever part of the record reached the file comes back off.
+			return errors.Join(fmt.Errorf("append index delta: %w", err), s.cut(end))
 		}
+		end += int64(n)
+		s.tail = end
 		s.deltaBytes += int64(n)
 		s.written += int64(n)
 	}
@@ -307,8 +339,17 @@ func (s *Store) compact(entries []Entry) error {
 		return fmt.Errorf("install index base: %w", err)
 	}
 
+	// The delta is emptied under the file lock every process takes to append to
+	// it, so it is never emptied part way through another process's record.
+	if err := s.lock.Lock(); err != nil {
+		return err
+	}
 	if err := s.file.Truncate(0); err != nil {
-		return fmt.Errorf("empty index delta: %w", err)
+		return errors.Join(fmt.Errorf("empty index delta: %w", err), s.lock.Unlock())
+	}
+	s.tail = 0
+	if err := s.lock.Unlock(); err != nil {
+		return err
 	}
 	if _, err := s.file.Seek(0, io.SeekStart); err != nil {
 		return fmt.Errorf("rewind index delta: %w", err)

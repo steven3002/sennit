@@ -1,0 +1,9 @@
+ WARNING  the catalog's last change was cut off by a crash and
+          has been dropped
+  It was one record's latest change, so the catalog is back to
+  what it held for that record before. A record that was being
+  flushed is still queued, and a later flush writes it again.
+
+ HINT     if a forget, a hydrate or a recover was running at the
+          time, run it again
+✓ Checked this vault (0.4s)

@@ -1,6 +1,7 @@
 package manifest
 
 import (
+	"errors"
 	"fmt"
 	"os"
 )
@@ -91,9 +92,15 @@ func (m *Manifest) Compact() error {
 	return m.log.compact(entries)
 }
 
-func (l *Log) compact(entries []Entry) error {
+func (l *Log) compact(entries []Entry) (err error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	// The log is emptied under the file lock every process takes to append to
+	// it, so it is never emptied part way through another process's line.
+	if err := l.lock.Lock(); err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, l.lock.Unlock()) }()
 
 	pending, err := os.OpenFile(l.path(pendingFile), os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {

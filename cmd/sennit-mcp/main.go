@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"syscall"
@@ -74,7 +75,7 @@ func serve(ctx context.Context) (*mcp.Server, func()) {
 	opened.StartFlushing(ctx, func(err error) {
 		fmt.Fprintf(os.Stderr, "sennit-mcp: background flush: %v\n", err)
 	})
-	fmt.Fprintf(os.Stderr, "sennit-mcp: serving %s over stdio\n", describe(opened))
+	announce(os.Stderr, opened)
 	return mcp.New(opened), func() {
 		// The process is on its way out, so this changes no exit code. It is
 		// still the only notice that a vault did not shut down cleanly, which is
@@ -102,6 +103,30 @@ func open(ctx context.Context) (*vault.Vault, error) {
 	}
 	opts.AppKey = appKey
 	return vault.Open(ctx, opts)
+}
+
+// announce tells the host what is being served, after anything the vault found
+// as it opened that the person reading the host's log should know.
+//
+// A change to the catalog that a crash cut off was dropped as the catalog was
+// read, and this is the one place a person hears of it from a server. An agent
+// finds the same in sennit://vault.
+func announce(w io.Writer, v *vault.Vault) {
+	if dropped := v.DroppedCatalogChanges(); dropped > 0 {
+		fmt.Fprintf(w, "sennit-mcp: %s\n", droppedChanges(dropped))
+	}
+	fmt.Fprintf(w, "sennit-mcp: serving %s over stdio\n", describe(v))
+}
+
+// droppedChanges says what dropping changes the catalog found cut off undid,
+// and what has to be run again.
+func droppedChanges(n int) string {
+	if n == 1 {
+		return "the catalog's last change was cut off by a crash and has been dropped: it was one " +
+			"record's latest change, and a forget, hydrate or recover that was running then should be run again"
+	}
+	return fmt.Sprintf("%d changes to the catalog were cut off by crashes and have been dropped: each was "+
+		"one record's latest change, and a forget, hydrate or recover that was running then should be run again", n)
 }
 
 func describe(v *vault.Vault) string {

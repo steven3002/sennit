@@ -401,6 +401,25 @@ func (v *Vault) Online() bool { return v.client != nil }
 // be offline. Only an indexer that could not be reached sets it.
 func (v *Vault) OfflineBecause() error { return v.offlineBecause }
 
+// DroppedCatalogChanges reports how many changes to the catalog this process
+// found cut off part way through being written, by a crash or a killed process,
+// and dropped.
+//
+// Each was one record's latest change, and the catalog holds what it held for
+// that record before the change. Refusing to open over it would have cost the
+// whole vault for one change; the catalog's last line is the only place an
+// interrupted append can be, so it is the only line forgiven. It is reported
+// rather than passed over because what it undid can show: a record whose flush
+// was being catalogued is still queued and is written again by a later flush,
+// and one whose forget, hydrate or recover was being recorded has to have that
+// run again.
+func (v *Vault) DroppedCatalogChanges() int {
+	if v.manifest == nil {
+		return 0
+	}
+	return v.manifest.Dropped()
+}
+
 // Indexer reports which indexer the vault is connected to.
 func (v *Vault) Indexer() string {
 	if v.client == nil {

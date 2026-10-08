@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/steven3002/sennit/cmd/sennit/internal/ui"
 	"github.com/steven3002/sennit/keys"
@@ -154,6 +155,30 @@ func degraded(reason error, indexer string) ui.Message {
 			"written is queued until a run reaches the indexer."},
 		Hints: []string{"check that " + indexerName(reason, indexer) +
 			" is the right address and that this machine has a network"},
+	}
+}
+
+// cutCatalog is the warning a vault prints when it found the catalog's last
+// change cut off by a crash and dropped it: what that undid, what still comes
+// right on its own, and what has to be run again.
+//
+// The record cannot be named. The line that named it is the part nothing could
+// read, so the warning says what each kind of change leaves behind instead.
+func cutCatalog(changes int) ui.Message {
+	text := "the catalog's last change was cut off by a crash and has been dropped"
+	explanation := "It was one record's latest change, so the catalog is back to what it held for that " +
+		"record before."
+	if changes > 1 {
+		text = fmt.Sprintf("%d changes to the catalog were cut off by crashes and have been dropped", changes)
+		explanation = "Each was one record's latest change, so the catalog is back to what it held for " +
+			"that record before."
+	}
+	return ui.Message{
+		Kind: ui.KindWarning,
+		Text: text,
+		Explanation: []string{explanation + " A record that was being flushed is still queued, and a " +
+			"later flush writes it again."},
+		Hints: []string{"if a forget, a hydrate or a recover was running at the time, run it again"},
 	}
 }
 

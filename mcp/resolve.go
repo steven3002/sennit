@@ -137,6 +137,10 @@ type VaultDetail struct {
 	// the network, or knows of records there that it has not restored, so that
 	// the counts above are not read as the vault's.
 	Restore string `json:"restore,omitempty" jsonschema:"what this device has not restored from the network, and the command that restores it"`
+	// Catalog is set when this server found a change to the catalog cut off by
+	// a crash and dropped it, so that a record which has lost its latest change
+	// is not taken for a fault in whatever made that change.
+	Catalog string `json:"catalog,omitempty" jsonschema:"a change to the catalog that a crash cut off and this server dropped, and what that means"`
 }
 
 // A TagUse is one tag and how much of the vault carries it.
@@ -197,6 +201,7 @@ func (s *Server) fillVault(ctx context.Context, detail *VaultDetail) error {
 		return err
 	}
 	detail.Restore = restoreNote(restoration)
+	detail.Catalog = catalogNote(s.vault.DroppedCatalogChanges())
 
 	tags, err := s.vault.TagVocabulary(VocabularyLimit)
 	if err != nil {
@@ -224,6 +229,29 @@ func restoreNote(restoration vault.Restoration) string {
 			unrestoredRecords(restoration))
 	}
 	return ""
+}
+
+// catalogNote says what dropping a change the catalog found cut off means for
+// the records an agent may go on to read, and nothing when none was dropped.
+//
+// The record the change belonged to cannot be named, because the line that
+// named it is the part that could not be read, so the note says what each kind
+// of change leaves behind instead.
+func catalogNote(dropped int) string {
+	if dropped == 0 {
+		return ""
+	}
+	found := "the last change written to the vault's catalog cut off part way, by a crash or a stopped " +
+		"process, and dropped it. It was one record's latest change"
+	if dropped > 1 {
+		found = fmt.Sprintf("%d changes to the vault's catalog cut off part way, by crashes or stopped "+
+			"processes, and dropped them. Each was one record's latest change", dropped)
+	}
+	return "This server found " + found + ", so the catalog holds what it held for that record before. " +
+		"A record that was being flushed to the network then is still queued, and a later flush writes " +
+		"it again. A record being forgotten then may still be here: if the user asked for one to be " +
+		"forgotten just before, check, and forget it again. A `sennit hydrate` or `sennit recover` that " +
+		"was running should be run again."
 }
 
 // MemoryDetail is one memory as an address returns it.
