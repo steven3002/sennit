@@ -35,11 +35,18 @@ import (
 const ModelDirEnv = "SENNIT_MODELS"
 
 // ModelDir is where the real model is expected to be.
+//
+// Unless ModelDirEnv says otherwise that is under the home directory, asked of
+// the operating system and not read from HOME. An ordinary Windows session sets
+// no HOME, and a path built from an empty one is relative to whichever package
+// is being tested, where no model is, so every test that measures the model
+// would skip without saying why.
 func ModelDir() string {
 	if root := os.Getenv(ModelDirEnv); root != "" {
 		return root
 	}
-	return filepath.Join(os.Getenv("HOME"), ".cache", "sennit", "models")
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".cache", "sennit", "models")
 }
 
 // ModelPresent reports whether the real model is on this machine.

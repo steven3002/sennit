@@ -156,7 +156,11 @@ func (l *Log) Replay() (entries map[record.ID]Entry, order []record.ID, err erro
 		return nil, nil, err
 	}
 	defer func() { err = errors.Join(err, l.lock.Unlock()) }()
+	return l.replay()
+}
 
+// replay is Replay for a caller that already holds the log and the file lock.
+func (l *Log) replay() (entries map[record.ID]Entry, order []record.ID, err error) {
 	entries = make(map[record.ID]Entry)
 
 	snapshot, err := os.Open(l.path(SnapshotName))

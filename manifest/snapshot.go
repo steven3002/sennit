@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+
+	"github.com/steven3002/sennit/internal/rename"
 )
 
 // CompactRatio is how large the log may grow relative to the snapshot before
@@ -81,18 +83,17 @@ func (l *Log) dueForCompaction() bool {
 // Removal markers are carried into the snapshot rather than dropped. A snapshot
 // that forgot them would let a deleted record return the next time an older log
 // was replayed over it, which is the one thing a compaction must not do.
-func (m *Manifest) Compact() error {
-	m.mu.RLock()
-	entries := make([]Entry, 0, len(m.order))
-	for _, id := range m.order {
-		entries = append(entries, m.entries[id])
-	}
-	m.mu.RUnlock()
+//
+// The snapshot is written from what the files hold, read under the same hold of
+// the file lock that empties the log, and not from this process's copy of the
+// catalog. The copy was read when the catalog was opened, and every process
+// with the vault open appends to the one log: a snapshot written from the copy
+// leaves out what the others have appended since, and emptying the log then
+// drops it from the disk. Everything in the copy is in the files, because an
+// entry is appended to the log before it is added to the copy.
+func (m *Manifest) Compact() error { return m.log.compact() }
 
-	return m.log.compact(entries)
-}
-
-func (l *Log) compact(entries []Entry) (err error) {
+func (l *Log) compact() (err error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	// The log is emptied under the file lock every process takes to append to
@@ -101,6 +102,15 @@ func (l *Log) compact(entries []Entry) (err error) {
 		return err
 	}
 	defer func() { err = errors.Join(err, l.lock.Unlock()) }()
+
+	held, order, err := l.replay()
+	if err != nil {
+		return err
+	}
+	entries := make([]Entry, 0, len(order))
+	for _, id := range order {
+		entries = append(entries, held[id])
+	}
 
 	pending, err := os.OpenFile(l.path(pendingFile), os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
@@ -129,18 +139,18 @@ func (l *Log) compact(entries []Entry) (err error) {
 	if err := pending.Close(); err != nil {
 		return fmt.Errorf("close manifest snapshot: %w", err)
 	}
-	if err := os.Rename(l.path(pendingFile), l.path(SnapshotName)); err != nil {
+	if err := rename.Over(l.path(pendingFile), l.path(SnapshotName)); err != nil {
 		return fmt.Errorf("install manifest snapshot: %w", err)
 	}
 
-	if err := l.file.Truncate(0); err != nil {
+	// The log is emptied through cut, which truncates through a handle of its
+	// own and syncs the change. The handle appends go through cannot shorten
+	// the file on Windows.
+	if err := l.cut(0); err != nil {
 		return fmt.Errorf("empty manifest log: %w", err)
 	}
 	if _, err := l.file.Seek(0, 0); err != nil {
 		return fmt.Errorf("rewind manifest log: %w", err)
-	}
-	if err := l.file.Sync(); err != nil {
-		return fmt.Errorf("sync manifest log: %w", err)
 	}
 
 	l.snapshotBytes, l.logBytes = written, 0

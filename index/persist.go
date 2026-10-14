@@ -4,13 +4,13 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"os"
 	"path/filepath"
 	"sync"
 
 	"github.com/steven3002/sennit/internal/filelock"
+	"github.com/steven3002/sennit/internal/rename"
 	"github.com/steven3002/sennit/record"
 )
 
@@ -90,6 +90,12 @@ type Store struct {
 	// lock is held, across processes, around every write to the delta and the
 	// check that settles its end. A record another process is part way through
 	// appending looks exactly like one a crash cut off.
+	//
+	// It is also held around every read of the two files together, and around a
+	// whole compaction. A compaction replaces the base and empties the delta as
+	// one step, so a reader between the two would see a base without the delta
+	// that completes it, and a writer between the read and the emptying would
+	// have its record emptied out with the rest.
 	lock *filelock.Mutex
 	// tail is the size this store last left the delta at, or -1 before it has
 	// looked, so that only a delta another process has changed is read again.
@@ -189,9 +195,21 @@ func (s *Store) Append(entries ...Entry) (err error) {
 // entry that is in both the base and the delta lands on the same value either
 // way. That is also why compaction can install a new base before emptying the
 // delta rather than after.
-func (s *Store) Hydrate() ([]Entry, error) {
+//
+// It reads under the index's file lock, so that the base and the delta it
+// replays belong together. Another process compacting in between would have
+// installed a new base and emptied the delta, and a base read before that with
+// a delta read after it is missing everything the delta held. The lock also
+// keeps the read clear of the rename that installs a base: on Windows a file
+// that is open cannot be renamed over, and one that is being renamed over
+// cannot be opened.
+func (s *Store) Hydrate() (entries []Entry, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.lock.Lock(); err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, s.lock.Unlock()) }()
 	return s.hydrate()
 }
 
@@ -266,6 +284,10 @@ func (s *Store) dueForCompaction() bool {
 // the delta the new base was not built from, and emptying the delta then drops
 // it: the next process finds a record just stored missing from the index, and a
 // record just forgotten back in it.
+//
+// The hold is of the index's file lock as well as of this store, because the
+// other writer may be another process: a command run while an agent's server
+// has the same vault open.
 func (s *Store) CompactIfDue() (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -283,7 +305,12 @@ func (s *Store) Fold() error {
 	return s.fold()
 }
 
-func (s *Store) fold() error {
+func (s *Store) fold() (err error) {
+	if err := s.lock.Lock(); err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, s.lock.Unlock()) }()
+
 	entries, err := s.hydrate()
 	if err != nil {
 		return err
@@ -301,12 +328,22 @@ func (s *Store) fold() error {
 // The base is written from the entries given, and whatever reached the delta
 // after they were read is emptied out with it. A caller folding the store's own
 // files wants CompactIfDue or Fold, which read them under the same hold.
-func (s *Store) Compact(entries []Entry) error {
+func (s *Store) Compact(entries []Entry) (err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.lock.Lock(); err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, s.lock.Unlock()) }()
 	return s.compact(entries)
 }
 
+// compact writes the new base and empties the delta. The caller holds the
+// index's file lock, which every process takes to append to the delta, to read
+// the two files, and to compact them. So the delta is never emptied part way
+// through another process's record, two processes never write the one pending
+// file at once, and the base is never renamed over while another process has
+// it open to read.
 func (s *Store) compact(entries []Entry) error {
 	pending, err := os.OpenFile(s.path(pendingFile), os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
@@ -335,24 +372,14 @@ func (s *Store) compact(entries []Entry) error {
 	if err := pending.Close(); err != nil {
 		return fmt.Errorf("close index base: %w", err)
 	}
-	if err := os.Rename(s.path(pendingFile), s.path(BaseName)); err != nil {
+	if err := rename.Over(s.path(pendingFile), s.path(BaseName)); err != nil {
 		return fmt.Errorf("install index base: %w", err)
 	}
 
-	// The delta is emptied under the file lock every process takes to append to
-	// it, so it is never emptied part way through another process's record.
-	if err := s.lock.Lock(); err != nil {
-		return err
-	}
-	if err := s.file.Truncate(0); err != nil {
-		return errors.Join(fmt.Errorf("empty index delta: %w", err), s.lock.Unlock())
-	}
-	s.tail = 0
-	if err := s.lock.Unlock(); err != nil {
-		return err
-	}
-	if _, err := s.file.Seek(0, io.SeekStart); err != nil {
-		return fmt.Errorf("rewind index delta: %w", err)
+	// The delta is emptied through cut, which truncates through a handle of its
+	// own. The handle appends go through cannot shorten the file on Windows.
+	if err := s.cut(0); err != nil {
+		return fmt.Errorf("empty index delta: %w", err)
 	}
 	s.baseBytes = written
 	s.deltaBytes = 0

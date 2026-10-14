@@ -26,14 +26,9 @@ func TestTheAppKeyWrittenIsTheAppKeyReadBack(t *testing.T) {
 	if err := writeAppKey(path, key); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat: %v", err)
-	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
-		t.Errorf("the key file is mode %04o, want 0600: it is a secret", perm)
-	}
+	// What makes a file private is the platform's own: a mode where there are
+	// modes, and an access list on Windows.
+	onlyThisAccountMayOpen(t, path)
 
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -55,6 +50,26 @@ func TestTheAppKeyWrittenIsTheAppKeyReadBack(t *testing.T) {
 	}
 	if string(loaded) != string(key) {
 		t.Fatal("the key that loads is not the key that was written")
+	}
+}
+
+// A key can be written over a file that is already there, and that file may be
+// one every account on the machine can read: an earlier key saved by hand, or a
+// placeholder. It is private once the key is in it, and still carries the key.
+func TestAKeyWrittenOverAFileAnyoneCanReadLeavesItPrivate(t *testing.T) {
+	t.Parallel()
+
+	key := make(keys.AppKey, 64)
+	copy(key, []byte{0x5e, 0xcc, 0x12, 0x07})
+	path := filepath.Join(t.TempDir(), "sennit.key")
+	openToEveryone(t, path)
+
+	if err := writeAppKey(path, key); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	onlyThisAccountMayOpen(t, path)
+	if err := verifyAppKey(path, key); err != nil {
+		t.Fatalf("the file made private no longer reads back as the key: %v", err)
 	}
 }
 

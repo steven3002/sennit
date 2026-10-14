@@ -122,18 +122,24 @@ func connectRows(attempts int, approval, ready time.Duration, account sia.Accoun
 	}
 }
 
-// writeAppKey stores the credential at 0600 and refuses to widen an existing
-// file's permissions by writing through it.
+// writeAppKey stores the credential in a file that only the account running
+// this can read, and refuses to widen an existing file's permissions by writing
+// through it.
+//
+// The file is made private before the key goes into it. A file that was
+// already there keeps whatever access it had until then, and on Windows a new
+// one starts with the access its folder hands down, which outside the user's
+// own profile usually lets every account on the machine read it.
 func writeAppKey(path string, key keys.AppKey) error {
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return fmt.Errorf("write the app key: %w", err)
 	}
-	if _, err := fmt.Fprintln(file, hex.EncodeToString(key)); err != nil {
+	if err := keepPrivate(file); err != nil {
 		file.Close()
 		return fmt.Errorf("write the app key: %w", err)
 	}
-	if err := file.Chmod(0o600); err != nil {
+	if _, err := fmt.Fprintln(file, hex.EncodeToString(key)); err != nil {
 		file.Close()
 		return fmt.Errorf("write the app key: %w", err)
 	}

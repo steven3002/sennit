@@ -14,8 +14,8 @@ export PATH="/path/to/go/bin:$PATH"
 
 ## The build fails with "no space left on device"
 
-The Go build cache and the model download both land in temporary space, and a full `/tmp` fails in
-ways that read as compiler errors. Point them somewhere with room:
+The Go build cache lands in temporary space, and a full `/tmp` fails in ways that read as compiler
+errors. Point it somewhere with room:
 
 ```sh
 export TMPDIR="$HOME/.tmp" && mkdir -p "$TMPDIR"

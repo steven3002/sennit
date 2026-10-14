@@ -1,6 +1,8 @@
 package main
 
 import (
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -494,15 +496,29 @@ func TestWhatConnectSays(t *testing.T) {
 	s.assert(t, "connect", fixture(t, "connect.txt"))
 }
 
-// The vault path a reader recognises.
+// The vault path a reader recognises, which is also one they can use.
+//
+// Where a shell reads ~ as the home directory, a path under it is shown from
+// there. On Windows it is shown in full. Neither of its shells hands a program
+// the home directory for a ~ in an argument, so a path printed that way and
+// pasted back after --home names a folder called ~ in whatever directory the
+// command is run from.
 func TestTheVaultPathIsShownFromHome(t *testing.T) {
 	home := t.TempDir()
+	// The home directory is read from a different variable on Windows.
 	t.Setenv("HOME", home)
-	for _, c := range []struct{ path, want string }{
-		{home + "/.sennit", "~/.sennit"},
+	t.Setenv("USERPROFILE", home)
+	under, elsewhere := filepath.Join(home, ".sennit"), filepath.Join(t.TempDir(), "other")
+
+	cases := []struct{ path, want string }{
+		{under, "~" + string(filepath.Separator) + ".sennit"},
 		{home, "~"},
-		{"/var/tmp/other", "/var/tmp/other"},
-	} {
+		{elsewhere, elsewhere},
+	}
+	if runtime.GOOS == "windows" {
+		cases = []struct{ path, want string }{{under, under}, {home, home}, {elsewhere, elsewhere}}
+	}
+	for _, c := range cases {
 		if got := vaultPath(c.path); got != c.want {
 			t.Errorf("vaultPath(%q) = %q, want %q", c.path, got, c.want)
 		}
