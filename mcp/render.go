@@ -32,14 +32,29 @@ func withLinks(text string, hits []HitOut) []sdk.Content {
 		if hit.URI == "" {
 			continue
 		}
-		content = append(content, &sdk.ResourceLink{
-			URI:         hit.URI,
-			Name:        hit.Title,
-			Description: linkDescription(hit),
-			MIMEType:    mimeFor(hit.Kind),
-		})
+		content = append(content, resourceLink(hit.URI, hit.Title, linkDescription(hit), mimeFor(hit.Kind)))
 	}
 	return content
+}
+
+// resourceLink builds a link to one address. Every link this server returns is
+// built here, so that none goes out without a name.
+//
+// The specification makes a link's name required, and the SDK leaves an empty
+// name out of the JSON altogether. A strict host then rejects the whole result,
+// not just the link, so a call that did what it was asked reads as one that
+// failed, and an agent repeats a write that had already happened. Each caller
+// passes what the record is called, but a record can arrive with nothing to call
+// it: a memory listed from a row whose body this device does not hold has no
+// label. Such a link is named by its address. The address rather than the bare
+// id, because every link has one, it names exactly one record where an id alone
+// is ambiguous between classes, and it is the string the model hands back to
+// `open`.
+func resourceLink(uri, name, description, mimeType string) *sdk.ResourceLink {
+	if strings.TrimSpace(name) == "" {
+		name = uri
+	}
+	return &sdk.ResourceLink{URI: uri, Name: name, Description: description, MIMEType: mimeType}
 }
 
 // linkDescription carries the score on the link itself, so a host that renders

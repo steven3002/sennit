@@ -111,6 +111,19 @@ func TestTheJSONAnswerLeavesOutAConversationsUnknownDates(t *testing.T) {
 	}
 }
 
+// A memory whose statement opens on a line break is titled by its first line of
+// text, as the protocol's recall titles it, and not by the empty line before it.
+func TestTheJSONAnswerTitlesAStatementByItsFirstLineOfText(t *testing.T) {
+	out := jsonHit(recall.Hit{Found: recall.Found{Memory: &record.Memory{
+		ID: id(t, "4083dbdd9e9f0f816c797080eed61fba"), Kind: record.KindMemory, Type: record.TypeFact,
+		Statement: "\n\n  The rollup runs hourly at ten past.\nMeasured twice.",
+		Context:   "Settled while profiling the rollup.",
+	}}})
+	if out.Title != "The rollup runs hourly at ten past." {
+		t.Errorf("the memory is titled %q", out.Title)
+	}
+}
+
 // One contract, not two: the JSON a script reads here and the answer an agent
 // gets over the protocol have the same field names, types and options. They are
 // separate types because the command line does not link a protocol server into

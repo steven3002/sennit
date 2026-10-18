@@ -847,9 +847,7 @@ func (s *Server) open(ctx context.Context, _ *sdk.CallToolRequest, in OpenIn) (*
 	}
 	content := []sdk.Content{&sdk.TextContent{Text: resolved.Body}}
 	for _, link := range resolved.Links {
-		content = append(content, &sdk.ResourceLink{
-			URI: link.URI, Name: link.Name, Description: link.Description, MIMEType: link.MIMEType,
-		})
+		content = append(content, resourceLink(link.URI, link.Name, link.Description, link.MIMEType))
 	}
 	return &sdk.CallToolResult{Content: content}, out, nil
 }
@@ -951,8 +949,12 @@ func (s *Server) saveSession(ctx context.Context, _ *sdk.CallToolRequest, in Sav
 		Durability: sessionDurability(saved.OnNetwork),
 		Resume:     "The user can bring this conversation back in any agent with the /resume prompt.",
 	}
+	// The link is named by the title the vault stored rather than the one in
+	// the request. An append or an edit need not restate the title, and most do
+	// not, so the request's is usually empty, and a link named by it had no
+	// name at all.
 	return &sdk.CallToolResult{Content: withLinks(renderSaveSession(out), []HitOut{
-		{URI: out.URI, Kind: string(record.KindSession), Title: in.Title},
+		{URI: out.URI, Kind: string(record.KindSession), Title: saved.Title},
 	})}, out, nil
 }
 

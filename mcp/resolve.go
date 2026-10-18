@@ -551,9 +551,18 @@ func shortID(id record.ID) string {
 	return text
 }
 
+// firstLine is what a memory is called: the first line of its statement that
+// holds any text, trimmed.
+//
+// The first line with text rather than the first line, because a statement is
+// refused only when it is nothing but whitespace, so one that opens on a line
+// break is stored. Called by its literal first line it was called nothing: an
+// answer titled "", and a link with no name that a strict host rejects.
 func firstLine(text string) string {
-	if i := strings.IndexByte(text, '\n'); i >= 0 {
-		text = text[:i]
+	for line := range strings.SplitSeq(text, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			return line
+		}
 	}
-	return strings.TrimSpace(text)
+	return ""
 }

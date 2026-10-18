@@ -171,11 +171,17 @@ func knownTime(t record.Time) string {
 	return t.String()
 }
 
+// firstLine is what a memory is called: the first line of its statement that
+// holds any text, as the protocol's recall calls it. A statement that opens on
+// a line break is stored, and called by its literal first line it would be
+// called nothing.
 func firstLine(text string) string {
-	if i := strings.IndexByte(text, '\n'); i >= 0 {
-		text = text[:i]
+	for line := range strings.SplitSeq(text, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			return line
+		}
 	}
-	return strings.TrimSpace(text)
+	return ""
 }
 
 // snippet cuts on a rune boundary, and then on a word boundary if one is near,

@@ -68,6 +68,11 @@ type SaveSessionRequest struct {
 type SaveSessionResult struct {
 	ID      record.ID
 	Version int64
+	// Title is what the conversation is called once this call is stored: the
+	// title the request gave, or the one the head already held when an append
+	// or an edit did not restate it. A caller naming the conversation reads it
+	// here, because its own request carries no title in that ordinary case.
+	Title string
 	// Chunks are the chunks this call created. Earlier chunks are untouched.
 	Chunks []record.ChunkRef
 	// Messages and Bytes are what this call appended.
@@ -169,7 +174,7 @@ func (v *Vault) SaveSession(ctx context.Context, req SaveSessionRequest) (SaveSe
 		}
 	}
 
-	result.ID, result.Version = session.ID, session.Version
+	result.ID, result.Version, result.Title = session.ID, session.Version, session.Title
 	if req.Durable && len(owed) > 0 {
 		start = time.Now()
 		flushed, err := v.Flush(ctx)

@@ -853,3 +853,39 @@ func TestAppendingAMessageTwiceIsRefused(t *testing.T) {
 		t.Fatal("the same messages were appended to a session twice")
 	}
 }
+
+// A save reports the title the conversation has once it is stored, which on an
+// append or an edit that does not restate it is the title already held.
+func TestASaveReportsTheTitleItStored(t *testing.T) {
+	v := offlineVault(t)
+	ctx := context.Background()
+
+	saved, err := v.SaveSession(ctx, vault.SaveSessionRequest{
+		Title: "Rollup timing", Summary: "Where the hourly rollup spends its time.", Messages: conversation("t1"),
+	})
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if saved.Title != "Rollup timing" {
+		t.Fatalf("a new conversation reported the title %q", saved.Title)
+	}
+	for _, req := range []vault.SaveSessionRequest{
+		{ID: saved.ID, Messages: conversation("t2")},
+		{ID: saved.ID, Tags: []string{"rollup", "timing"}},
+	} {
+		again, err := v.SaveSession(ctx, req)
+		if err != nil {
+			t.Fatalf("save again: %v", err)
+		}
+		if again.Title != "Rollup timing" {
+			t.Errorf("a save that did not restate the title reported %q, want the one stored", again.Title)
+		}
+	}
+	renamed, err := v.SaveSession(ctx, vault.SaveSessionRequest{ID: saved.ID, Title: "Rollup timing, settled"})
+	if err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	if renamed.Title != "Rollup timing, settled" {
+		t.Errorf("a save that renamed the conversation reported %q", renamed.Title)
+	}
+}
