@@ -50,8 +50,14 @@ func runRecall(ctx context.Context, out *session, args []string) error {
 			return err
 		}
 	}
+	// What the search could reach is this device, so how much of the vault the
+	// device has restored decides what the answer can be said to show.
+	restoration, err := v.Restoration()
+	if err != nil {
+		return err
+	}
 
-	reportRecall(out, result, hits, *options.memoryText, *options.asJSON)
+	reportRecall(out, result, hits, restoration, *options.memoryText, *options.asJSON)
 	return nil
 }
 
@@ -107,7 +113,8 @@ func refetch(ctx context.Context, out *session, v *vault.Vault, hits []recall.Hi
 
 // reportRecall prints the answer: the table on a terminal, tab separated
 // through a pipe, and JSON when it was asked for.
-func reportRecall(out *session, result recall.Result, hits []recall.Hit, memoryText, asJSON bool) {
+func reportRecall(out *session, result recall.Result, hits []recall.Hit, restoration vault.Restoration,
+	memoryText, asJSON bool) {
 	memories, conversations := 0, 0
 	rows := make([]hit, 0, len(hits))
 	for _, h := range hits {
@@ -141,15 +148,59 @@ func reportRecall(out *session, result recall.Result, hits []recall.Hit, memoryT
 	// returns its least-bad guess when it holds nothing relevant is worse than
 	// one that says so, and a vault that holds nothing searchable is a
 	// different situation that looks identical from the outside.
-	if len(rows) == 0 && result.Searched == 0 {
-		out.note(ui.Message{Kind: ui.KindHint,
-			Text: "this vault holds nothing searchable yet; `sennit remember` stores the first record"})
+	if hint, ok := searchedHint(len(rows) == 0 && result.Searched == 0, restoration); ok {
+		out.note(hint)
 	}
 	if result.SupersededHidden > 0 {
 		out.note(ui.Message{Kind: ui.KindHint,
 			Text: fmt.Sprintf("%s held back; `--history` returns %s",
 				plural(result.SupersededHidden, "superseded version"), them(result.SupersededHidden))})
 	}
+}
+
+// searchedHint says what a search on this device could reach, from the check
+// the server makes for the same answer: how much of what its catalog names this
+// device has restored.
+//
+// With nothing to search, that check is what tells an empty vault from a
+// device holding nothing of it. One that never restored the vault holds
+// nothing whatever the vault holds, and one that knows of records it has not
+// restored holds part of it. The second says so with its results too, because
+// they come from the part it holds and look no different from a whole vault's.
+func searchedHint(nothingSearched bool, restoration vault.Restoration) (ui.Message, bool) {
+	hint := func(text string) (ui.Message, bool) { return ui.Message{Kind: ui.KindHint, Text: text}, true }
+	switch {
+	case nothingSearched && restoration.Untouched:
+		return hint("nothing on this device is searchable yet, and it has not restored any record of this " +
+			"vault from Sia, so this does not show the vault is empty; `sennit hydrate --depth index` " +
+			"restores its records unless it was just created here, and `sennit remember` stores new ones")
+	case nothingSearched && !restoration.Complete():
+		return hint(fmt.Sprintf("nothing on this device is searchable yet, though it knows of %s on Sia "+
+			"that it has not restored; `sennit hydrate --depth index` restores this vault's records and "+
+			"makes them searchable", unrestored(restoration)))
+	case nothingSearched:
+		return hint("this vault holds nothing searchable yet; `sennit remember` stores the first record")
+	case !restoration.Complete():
+		return hint(fmt.Sprintf("this device knows of %s on Sia that it has not restored, so the search "+
+			"could not reach them; `sennit hydrate --depth index` restores this vault's records and makes "+
+			"them searchable", unrestored(restoration)))
+	}
+	return ui.Message{}, false
+}
+
+// unrestored names what this device knows of on Sia and has not restored, as
+// the server's answers name it. Memories are counted and conversations are not:
+// a conversation is catalogued as the chunks of its transcript, and which one a
+// chunk belongs to is written inside the chunk, which this device has not read.
+func unrestored(restoration vault.Restoration) string {
+	memories := plural(restoration.Memories, "memory")
+	switch {
+	case restoration.Memories > 0 && restoration.Chunks > 0:
+		return memories + " and at least one conversation"
+	case restoration.Chunks > 0:
+		return "at least one conversation"
+	}
+	return memories
 }
 
 func them(n int) string {

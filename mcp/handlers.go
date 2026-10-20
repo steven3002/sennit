@@ -224,7 +224,7 @@ func (s *Server) recall(ctx context.Context, _ *sdk.CallToolRequest, in RecallIn
 	if len(out.Results) == limit && len(result.Hits) == offset+limit {
 		out.NextCursor = encodeRankCursor(offset+limit, in.Query)
 	}
-	if out.Hint, err = s.recallHint(in, out); err != nil {
+	if out.Hint, err = s.recallHint(in, out, offset, scope); err != nil {
 		return nil, RecallOut{}, err
 	}
 
@@ -251,30 +251,50 @@ func candidatePool(want int) int {
 // of nothing with no explanation is one a model will paper over. Naming the
 // mechanism that shortened it is what lets the model correct itself rather than
 // guess.
-func (s *Server) recallHint(in RecallIn, out RecallOut) (string, error) {
+//
+// This device is one such mechanism, and it can shorten an answer that has
+// results as well as one that has none. A search reads only what the device
+// holds, so on a device that has not restored every record its catalog names,
+// the hint also says what the search could not reach, whatever else it says.
+func (s *Server) recallHint(in RecallIn, out RecallOut, offset int, scope []record.Kind) (string, error) {
+	restoration, err := s.vault.Restoration()
+	if err != nil {
+		return "", err
+	}
+	var hint string
 	switch {
 	case len(out.Results) > 0 && out.ScopeExcluded > 0:
-		return fmt.Sprintf("The scope %s removed %d candidate(s). Scope excludes; drop it to search "+
-			"every class of record.", strings.Join(in.Scope, " and "), out.ScopeExcluded), nil
+		hint = fmt.Sprintf("The scope %s removed %d candidate(s). Scope excludes; drop it to search "+
+			"every class of record.", strings.Join(in.Scope, " and "), out.ScopeExcluded)
 	case len(out.Results) > 0:
-		return "", nil
+		// Results that nothing shortened need no hint of their own.
+	case offset > 0:
+		// This comes before the cases for what the ranking held back. Those
+		// count over the whole ranking, and the records it did not hold back
+		// came back on the pages before this one, so on this page they would
+		// say that nothing matched.
+		hint = "Nothing ranks past this cursor, so this ranking ends here. An empty page after a cursor " +
+			"says nothing about the records on the pages before it: call `recall` without a cursor to " +
+			"start again from the closest match."
 	case out.ScopeExcluded > 0:
-		return fmt.Sprintf("Nothing in scope %s matched, though %d candidate(s) outside it did. "+
+		hint = fmt.Sprintf("Nothing in scope %s matched, though %d candidate(s) outside it did. "+
 			"Scope excludes, drop it and search every class of record.",
-			strings.Join(in.Scope, " and "), out.ScopeExcluded), nil
+			strings.Join(in.Scope, " and "), out.ScopeExcluded)
 	case out.Searched == 0:
-		return s.nothingSearchable()
+		return nothingSearchable(restoration), nil
 	case out.SupersededHidden > 0:
-		return fmt.Sprintf("Nothing current matched, though %d replaced version(s) did. "+
-			"Set includeSuperseded to see what this used to be.", out.SupersededHidden), nil
+		hint = fmt.Sprintf("Nothing current matched, though %d replaced version(s) did. "+
+			"Set includeSuperseded to see what this used to be.", out.SupersededHidden)
 	default:
-		// Not a suggestion to add tags: the filter cannot have emptied this,
-		// and telling a model otherwise would teach it the wrong lesson about a
-		// mechanism the whole ranking rests on.
-		return "The vault does not hold this. Your tags did not cause it, filters only ever prefer, " +
-			"and cannot remove a record. Try broader words, or `browse` to see what is stored. " +
-			"Telling the user it is not there is a better answer than the nearest record.", nil
+		// A ranked search returns its closest candidates however far from the
+		// query they are, so a first page that held nothing back comes back
+		// empty only when nothing was left to rank by the time it was searched:
+		// no vector in the index, which a forget made while this call ran can
+		// bring about, and no record sharing a word with the query. That is
+		// nothing to search, and the answer says so in the same words.
+		return nothingSearchable(restoration), nil
 	}
+	return joinSentences(hint, unreachedNote(unreached(restoration, scope))), nil
 }
 
 // nothingSearchable says why a recall had nothing on this device to search.
@@ -283,25 +303,68 @@ func (s *Server) recallHint(in RecallIn, out RecallOut) (string, error) {
 // holds of it. A device that has not restored the vault holds nothing to search
 // whatever the vault holds, so it says so and names the depth of hydrate that
 // makes a record searchable, which is deeper than the default.
-func (s *Server) nothingSearchable() (string, error) {
-	restoration, err := s.vault.Restoration()
-	if err != nil {
-		return "", err
-	}
+func nothingSearchable(restoration vault.Restoration) string {
 	switch {
 	case restoration.Untouched:
 		return "Nothing on this device is searchable by meaning yet, and it has not restored any record " +
 			"of this vault from the network, so this does not show that the vault is empty. If this vault " +
 			"was just created here, there is nothing to restore; otherwise `sennit hydrate --depth index` " +
 			"restores its records from the network and makes them searchable. New ones are stored with " +
-			"`remember`.", nil
+			"`remember`."
 	case !restoration.Complete():
 		return fmt.Sprintf("Nothing on this device is searchable by meaning yet, though it knows of %s "+
 			"on the network that it has not restored, and a search reads only what this device holds. "+
 			"`sennit hydrate --depth index` restores this vault's records from the network and makes "+
-			"them searchable.", unrestoredRecords(restoration)), nil
+			"them searchable.", unrestoredRecords(restoration))
 	}
-	return "This vault holds nothing searchable yet. Use `remember` to store the first record.", nil
+	return "This vault holds nothing searchable yet. Use `remember` to store the first record."
+}
+
+// unreached is what a search on this device could not have found: the records
+// its catalog names that it has not restored, of the classes the scope lets
+// answer. A record the scope excludes would not have been returned had it been
+// restored, so it is not one the answer is missing.
+func unreached(restoration vault.Restoration, scope []record.Kind) vault.Restoration {
+	if len(scope) == 0 {
+		return restoration
+	}
+	var missing vault.Restoration
+	if slices.Contains(scope, record.KindMemory) {
+		missing.Memories = restoration.Memories
+	}
+	if slices.Contains(scope, record.KindSession) {
+		missing.Chunks = restoration.Chunks
+	}
+	return missing
+}
+
+// unreachedNote says what an answer leaves out because this device has not
+// restored it, and nothing when there is no such record.
+//
+// It goes with results as well as without them. A device that has restored
+// part of the vault answers from that part, and its answer looks the same as a
+// whole vault's would: the closest record it holds comes first, however much
+// closer one it has not restored would be. Only this note tells a model that
+// the answer is partial and what makes it whole.
+func unreachedNote(missing vault.Restoration) string {
+	if missing.Complete() {
+		return ""
+	}
+	return fmt.Sprintf("This device knows of %s on the network that it has not restored, and a search "+
+		"reads only what this device holds, so this answer leaves them out. `sennit hydrate --depth index` "+
+		"restores this vault's records from the network and makes them searchable.",
+		unrestoredRecords(missing))
+}
+
+// joinSentences joins the parts of a hint that are present, as one paragraph.
+func joinSentences(parts ...string) string {
+	var present []string
+	for _, part := range parts {
+		if part != "" {
+			present = append(present, part)
+		}
+	}
+	return strings.Join(present, " ")
 }
 
 func (s *Server) hit(hit recall.Hit, full bool) HitOut {

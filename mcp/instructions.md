@@ -5,7 +5,10 @@ WHEN TO USE IT
 
 - Call `recall` BEFORE answering anything that might depend on what the user has told you
   before, their preferences, decisions, people, projects, or anything you would otherwise be
-  guessing at. An empty result is a real answer and means the vault does not hold it.
+  guessing at. On a device that has restored the vault, an empty result is a real answer and
+  means the vault does not hold it. On one that has not restored all of it, the hint says what
+  is missing and names the `sennit hydrate` command that restores it: tell the user that, not
+  that the vault does not hold it.
 - Call `remember` when the user states something durable: a fact, a preference, a decision,
   or a correction of something previously believed. Not for passing conversational detail.
 - Call `save_session` when a conversation is worth continuing later, or when the user asks
