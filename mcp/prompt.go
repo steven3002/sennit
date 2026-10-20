@@ -689,8 +689,7 @@ func (s *Server) findSession(ctx context.Context, want resumeRequest) (record.ID
 			return record.ID{}, "", err
 		}
 		if len(found.Hits) == 0 {
-			return record.ID{}, "", fmt.Errorf("this vault holds no conversation to resume. " +
-				"Conversations are stored with `save_session`; `browse` lists what is there")
+			return record.ID{}, "", s.noConversationFound()
 		}
 		// The similarity is reported rather than tested against a threshold.
 		//
@@ -720,6 +719,37 @@ func (s *Server) mostRecent() (record.ID, string, error) {
 	}
 	return recent[0].ID, "the most recent conversation", nil
 }
+
+// noConversationFound is what a resume by topic says when its search found no
+// conversation.
+//
+// A topic is searched for only among the conversations this device holds, so
+// on a device that holds none there was nothing to find, which is the case a
+// resume that names nothing answers too. The topic gets that same answer, and
+// with it what this device has restored.
+func (s *Server) noConversationFound() error {
+	held, err := s.vault.ListSessions(local.SessionQuery{Limit: 1})
+	if err != nil {
+		return err
+	}
+	if len(held) == 0 {
+		return s.noConversations()
+	}
+	return errNoConversationFound
+}
+
+// errNoConversationFound is what a resume by topic says when this device holds
+// a conversation and the search for the topic found none.
+//
+// ⚠ It says the vault holds no conversation, which is not so: this device holds
+// one. Two things lead here. A search finds a conversation by meaning only
+// through its search vector, which a device restored short of index depth does
+// not hold, and by its words only when one of them is in the topic. And it
+// ranks a pool drawn from every class of record before the scope keeps the
+// conversations, so in a large vault the memories nearest the topic can fill
+// the pool and leave none.
+var errNoConversationFound = errors.New("this vault holds no conversation to resume. " +
+	"Conversations are stored with `save_session`; `browse` lists what is there")
 
 // errNoConversations is what a resume says when the vault holds nothing to
 // resume, whether it was asked for the most recent conversation or for a list.

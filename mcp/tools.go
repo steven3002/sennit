@@ -171,9 +171,12 @@ By default this returns the vault's CURRENT state: records that have been supers
 version are held back, and the response says how many. Ask for history explicitly when the user
 wants to know what something used to be, or how a decision changed.
 
-An empty result is a real answer. It means the vault does not hold this. Say so rather than
-presenting the closest record as if it were responsive, the user knows what they told you, and a
-confident wrong memory is worse than none.
+An empty result is a real answer. On a device that has restored the vault it means the vault does
+not hold this. Say so rather than presenting the closest record as if it were responsive, the user
+knows what they told you, and a confident wrong memory is worse than none. A search reads only what
+this device holds, so on one that has not restored all of the vault the hint says what is missing,
+with results or without: pass that on, and the "sennit hydrate" command it names, rather than
+saying the vault does not hold something.
 
 ONE SEARCH IS OFTEN NOT ENOUGH, AND YOU MAY RUN MORE. Use what a search returns to decide what to
 search for next, then search again. This matters most when the user asks for something in words
