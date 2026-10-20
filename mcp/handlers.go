@@ -543,7 +543,7 @@ type RowOut struct {
 	Type       string   `json:"type,omitempty" jsonschema:"the memory type, for memories"`
 	Label      string   `json:"label" jsonschema:"a memory's statement or a conversation's title; empty when this device no longer holds the body"`
 	Tags       []string `json:"tags,omitempty" jsonschema:"the record's tags"`
-	Created    string   `json:"created" jsonschema:"when the vault learned this"`
+	Created    string   `json:"created,omitempty" jsonschema:"when the vault learned this, which is what the listing is ordered by. For a conversation this device rebuilt from the network, the time of the first dated turn it was rebuilt from instead, and absent when none of those turns is dated; a record with no date is listed after every record that has one"`
 	Superseded bool     `json:"superseded,omitempty" jsonschema:"true when a later record replaced this one"`
 }
 
@@ -582,7 +582,7 @@ func (s *Server) browse(_ context.Context, _ *sdk.CallToolRequest, in BrowseIn) 
 			Type:       string(row.Type),
 			Label:      row.Label,
 			Tags:       row.Tags,
-			Created:    row.Created.String(),
+			Created:    knownTime(row.Created),
 			Superseded: row.Superseded,
 		})
 		links = append(links, HitOut{URI: URI(row.Kind, row.ID), Kind: string(row.Kind), Title: row.Label})
