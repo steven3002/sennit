@@ -29,6 +29,14 @@ type RankingMeta struct {
 	// reachable by meaning but not by its words, which is a degraded ranking and
 	// never a missing record.
 	Text string
+	// Created is when the record itself says it was made, and it is what a
+	// listing orders and dates the record by. It is taken from the record and
+	// not from this device's clock. A device that restored the vault writes each
+	// record's metadata when the restore reaches it, so its clock would date
+	// every record by the restore and list them in the order the restore came
+	// across them. The zero time is a record that carries no time, and a listing
+	// puts it after every record that does.
+	Created record.Time
 }
 
 // execer is the part of a transaction the metadata writers use, so the helpers
@@ -76,11 +84,16 @@ func (s *Store) PutRankingMeta(meta RankingMeta) error {
 	if kind == "" {
 		kind = record.KindMemory
 	}
+	// A row already here keeps the time it was first written with. Nothing on
+	// this device moves a record's time once it has one: a memory never changes,
+	// and a conversation's Created is set by its first save, or by the rebuild
+	// that first put it on this device. Writing the metadata again, as every
+	// save of a conversation does, has no time to correct.
 	if _, err := tx.Exec(
 		`INSERT INTO record_meta (record_id, kind, type, supersedes, created_at) VALUES (?, ?, ?, ?, ?)
 		 ON CONFLICT(record_id) DO UPDATE SET kind = excluded.kind, type = excluded.type,
 		   supersedes = excluded.supersedes`,
-		meta.ID.String(), string(kind), string(meta.Type), supersedes, record.Now().String()); err != nil {
+		meta.ID.String(), string(kind), string(meta.Type), supersedes, meta.Created.String()); err != nil {
 		return fmt.Errorf("record metadata %s: %w", meta.ID, err)
 	}
 	if _, err := tx.Exec(`DELETE FROM record_tags WHERE record_id = ?`, meta.ID.String()); err != nil {

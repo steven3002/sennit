@@ -29,7 +29,8 @@ type RecordQuery struct {
 	Cursor Cursor
 }
 
-// A RecordRow is one record as a listing sees it.
+// A RecordRow is one record as a listing sees it. Created is the time the
+// record carries, and the zero time when it carries none.
 type RecordRow struct {
 	ID      record.ID
 	Kind    record.Kind
@@ -87,6 +88,10 @@ func (c Cursor) decode() (string, string, error) {
 
 // ListRecords returns records newest first, with a cursor when more remain.
 //
+// Newest by the time each record carries. A record that carries none is listed
+// by the zero time, which puts it after every record that has one, and those
+// records are in id order, as every tie is.
+//
 // It reads the ranking metadata and not the bodies. A listing that opened every
 // record would cost the size of the vault to render a page of it, and the
 // metadata is already held apart precisely because ranking has to read it before
@@ -134,7 +139,9 @@ func (s *Store) ListRecords(query RecordQuery) ([]RecordRow, Cursor, error) {
 	}
 	if created != "" {
 		// Strictly after the row the cursor names, in the listing's own order,
-		// so a page boundary never repeats a row or skips one.
+		// so a page boundary never repeats a row or skips one. A row without a
+		// time is named by the zero time, written out as any time is, so a page
+		// that ends on one goes on after it and not from the top.
 		where = append(where, "(m.created_at < ? OR (m.created_at = ? AND m.record_id > ?))")
 		args = append(args, created, created, id)
 	}

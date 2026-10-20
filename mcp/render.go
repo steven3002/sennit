@@ -199,7 +199,10 @@ func renderBrowse(out BrowseOut) string {
 	}
 	fmt.Fprintf(&text, "%d record(s), newest first:\n\n", len(out.Rows))
 	for _, row := range out.Rows {
-		fmt.Fprintf(&text, "  %s  [%s", row.Created, row.Kind)
+		// A record with no known time says so in the column a time fills, at a
+		// time's width, so its line still starts a row rather than reading as
+		// one more line of the row above it.
+		fmt.Fprintf(&text, "  %-24s  [%s", orElse(row.Created, "date not known"), row.Kind)
 		if row.Type != "" {
 			fmt.Fprintf(&text, "/%s", row.Type)
 		}

@@ -75,7 +75,11 @@ func (v *Vault) CountRecords() (RecordCounts, error) {
 	return counts, nil
 }
 
-// Browse lists records newest first.
+// Browse lists records newest first, by the time each record carries and not by
+// when this device came to hold it, so a device that restored the vault does not
+// list it in the order the restore reached each record. A record that carries no
+// time, such as a conversation this device rebuilt from turns that record none,
+// has a zero Created and is listed after every record that has one.
 func (v *Vault) Browse(req BrowseRequest) (BrowseResult, error) {
 	rows, next, err := v.local.ListRecords(local.RecordQuery{
 		Kinds:             req.Kinds,

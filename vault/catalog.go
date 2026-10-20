@@ -28,6 +28,10 @@ func (v *Vault) Describe(ids []record.ID) (recall.Described, error) {
 }
 
 // rankingMeta is what a memory contributes to the ranking metadata tables.
+//
+// It is dated by the memory's own creation time, which its sealed body carries,
+// so a device that restored the memory dates it exactly as the device that
+// stored it does.
 func rankingMeta(memory *record.Memory) local.RankingMeta {
 	return local.RankingMeta{
 		ID:         memory.ID,
@@ -36,6 +40,7 @@ func rankingMeta(memory *record.Memory) local.RankingMeta {
 		Tags:       memory.Tags,
 		Supersedes: memory.Supersedes,
 		Text:       local.LexicalText(memory),
+		Created:    memory.CreatedAt,
 	}
 }
 
@@ -45,11 +50,17 @@ func rankingMeta(memory *record.Memory) local.RankingMeta {
 // A session carries no memory type: that vocabulary classifies propositions,
 // and a conversation is not a proposition. It ranks on its tags, its class and
 // the words of its summary, which is everything a session offers a search.
+//
+// It is dated by its head's Created: on the device that saved it, its first
+// save. A head this device rebuilt from the network is dated by the first of
+// its turns that records a time. When none does it carries no date, and it is
+// listed after every record that has one rather than by when the rebuild ran.
 func sessionRankingMeta(session *record.Session) local.RankingMeta {
 	return local.RankingMeta{
-		ID:   session.ID,
-		Kind: record.KindSession,
-		Tags: session.Tags,
-		Text: local.SessionLexicalText(session),
+		ID:      session.ID,
+		Kind:    record.KindSession,
+		Tags:    session.Tags,
+		Text:    local.SessionLexicalText(session),
+		Created: session.Created,
 	}
 }
