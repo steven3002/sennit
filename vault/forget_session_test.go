@@ -18,10 +18,6 @@ import (
 )
 
 // saveExchange stores one short conversation in a single save.
-//
-// A single save, because the index counts a conversation once for every save of
-// it, and a count asserted against one that was appended to would be measuring
-// that rather than the forget.
 func saveExchange(t *testing.T, v *Vault, title, prefix string) SaveSessionResult {
 	t.Helper()
 	saved, err := v.SaveSession(context.Background(), SaveSessionRequest{
