@@ -61,6 +61,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - **Progress events on the Go SDK surface**: an optional `OnProgress` on `vault.Options` reports
   the phase an operation is in and, for an upload, how many shards of how many are written. A nil
   callback is exactly the behaviour of a vault opened before it existed.
+- **`/resume` with nothing after it asks which conversation to resume, where it used to take the
+  newest.** A host that can show a dialog lists up to fifteen of the conversations that changed most
+  recently, each labelled with its title, the agent it happened in and the day it last changed, and
+  the answer is checked against what was offered. A host that cannot is given the same list as text,
+  and the agent is told to ask the user rather than pick one itself. Closing the dialog resumes
+  nothing, and the answer is an error that says how to resume the most recent conversation instead.
+  `recent` after the command now does that without asking, which is what a bare `/resume` did.
 
 ### Changed
 
@@ -91,6 +98,80 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   ends with "A slab pinned before the interrupt may stay billed; `sennit status` shows it." Before
   pinning starts the line is unchanged, since nothing has been pinned. `sennit status` already
   names such a slab, and `sennit reclaim --orphans` releases it once nothing is queued.
+- **The `recall` tool returns up to 100 results a page, and its description says when to search
+  again.** `limit` stopped at 50, and a larger value was cut to 50. It now stops at 100, the default
+  is still 5, and its description says to raise it when the user wants a thorough search and accepts
+  what that costs in context. The tool's description now tells an agent that one search is often not
+  enough: to search again when the results hold the user's own earlier requests rather than facts
+  about them, or when two results disagree, and to stop once it can answer.
+- **`remember` asks for the conversation a memory came from, and refuses a `span` without one.** The
+  tool's description and its `session` and `span` fields now say they are expected whenever the
+  memory came from a saved conversation, because the statement is the agent's rewrite of what was
+  said, and a rewrite can lose a detail, such as a date, that the conversation still holds. Both
+  stay optional in the schema. A `span` sent without a `session` used to be dropped without a word,
+  and is now refused with a message saying to pass the session too or leave the span out.
+- **`/resume` reads the words after it by what they hold, whichever argument a host puts them in.**
+  A host that fills a prompt's arguments in order put the first word of a topic into `session`,
+  where it was refused as an address, so a topic could not be searched for from such a host. Now an
+  address, or a conversation's id on its own, resumes that conversation, `recent` resumes the
+  newest, and any other words are searched for as one topic, whichever arguments they arrived in.
+  After `recent`, an address or an id, only a number of turns to replay can follow, and any other
+  word is refused with the command to run instead, where a word after an address used to be dropped.
+  The descriptions of the prompt and of its three arguments say what each one takes.
+- **A resume replays at most 100 turns.** How many to replay, given in `turns` or typed after
+  `recent`, an address or an id, must be a whole number from 1 to 100, and the default is still 30.
+  There was no ceiling before. A whole number in `turns`, which is where a host that fills arguments
+  in order puts the third word typed, is always read as the count, and one outside that range is
+  refused rather than cut down to 100, because it may not be a count at all: a year typed as the
+  third word of a topic, for example. The refusal says to put such a number among the topic's other
+  words instead.
+- **A resume ends by asking the agent for a short recap and a wait.** A host hands a prompt's result
+  to the model as soon as the user runs it, and the result told the model to continue from where the
+  conversation left off, so it went straight on with the open work before the user had said what
+  they wanted. The result now ends with one more message, after the turns, asking for one or two
+  sentences on what the conversation was about and where it stopped, and then no tool call, no save
+  and no open work until the user asks. It still gives the address to append new turns to.
+- **A conversation's `created` and `updated` are left out when they are not known.** When none of a
+  conversation's turns records a time, a device that rebuilt it with `sennit hydrate` cannot date
+  it, and `open` on its address, a read of `sennit://session/{id}`, `recall`'s results and their
+  full records, the record a `/resume` embeds and `sennit recall --json` now leave its dates out.
+  **For scripts:** `recall`'s output schema no longer lists `created` as required on a result, and
+  `sennit recall --json` can leave `created` out of a result and `created` and `updated` out of its
+  `detail`. A memory's `created` is unchanged. The two fields are now described as what they are,
+  when the record was first saved and when it was last written on this device, by a save, a memory
+  recorded against it or a delegated run added or removed, where they were described as when the
+  conversation started and when it was last appended to. `save_session`'s schema, `sennit://guide`
+  and the server's instructions now ask an agent to give a turn a `created` time only from its own
+  record of when it was said, and to leave it out rather than invent one.
+- **`sennit://vault` has two new optional fields, `restore` and `catalog`.** `restore` is set when
+  this device has restored nothing of the vault from the network, or knows of records there that it
+  has not restored, so that the counts beside it are not read as the vault's, and it names the
+  `sennit hydrate` that restores them. `catalog` is set when the server has dropped a change to the
+  catalog that a crash cut off, and says what that may have undone and what to run again. Both are
+  absent otherwise.
+- **Every resource link a tool returns now has a name.** The specification requires one and an empty
+  name is left out of the JSON, so a strict host rejected the whole result over one link. The usual
+  case was a `save_session` that did not restate the title, as an append or an edit usually does
+  not: it was reported as failed after the save had happened, and an agent saved again. A link is
+  now named by the record's title or statement, by the title the vault holds after such a save, and
+  by its address when this device has nothing else to call the record. A memory whose statement
+  opens on a line break is called by its first line of text, in `remember`, `recall` and `open` and
+  in the `title` that `sennit recall --json` gives it.
+- **The embedding model is fetched by Sennit itself, from one pinned revision.** Each of the six
+  files the model is made of comes from a fixed revision of its repository, arrives under a
+  temporary name, and is renamed into the model folder only once its size and SHA-256 match the
+  pinned ones, so an interrupted download leaves nothing that passes for the model, and the model
+  cannot change under a vault. The download needs no symbolic links and does not read `HOME`. A
+  folder that already holds the six files at their pinned sizes is used as it is, and one that holds
+  some of them is completed. Two processes that start together share one download, a failure names
+  the file and the cause, only a broken transfer is retried, and `HF_ENDPOINT` names a mirror, which
+  is held to the same hashes. This applies on every platform.
+- **The vault's directory holds two empty lock files, `manifest.lock` and `index.lock`.** Every
+  process with the vault open takes the matching one while it appends to the catalog or the search
+  index, reads it at open or compacts it, so that a line another process is still writing is never
+  taken for one a crash cut off, and the operating system lets go of it if the process dies. A
+  filesystem that cannot take the lock refuses to open the vault rather than running without it. A
+  server started from an earlier build takes no lock, so restart it after upgrading.
 
 ### Fixed
 
@@ -130,6 +211,105 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   nothing reported nothing recovered, on the headline as well as in the quota line. The figure now
   covers every stage that ran, and the repack and the sweep each name their own share so the two
   can be told apart. Nothing about what is released or retained changed.
+- **A resumed conversation is dated by its turns rather than by its saves.** The resume gave the
+  times its record was first and last saved as the span the conversation ran over, so one saved in a
+  single call at its end showed a span of milliseconds however long it ran. The span now comes from
+  the times its turns record, read from the whole transcript even when only the last turns are
+  replayed. When no turn records a time, the resume says that when the conversation took place is
+  not known, and gives only a time it was saved by, where this device has one. When only some turns
+  record one, it says what they show of when it began and ended.
+- **A conversation rebuilt from the network is no longer dated by the rebuild.** When none of a
+  conversation's turns records a time, `sennit hydrate` gave the record it rebuilt the moment of the
+  rebuild as both of its dates. A listing is newest first, so every such conversation came ahead of
+  all the dated ones however old it was, and `/resume` took it for the most recent. Both dates are
+  now unknown: `hydrate`'s warning lists them among the fields that are not recoverable rather than
+  among those reconstructed, the conversation is listed after every dated one until a change on this
+  device dates it, the `/resume` picker shows no day for it, and the answers that carry a
+  conversation's dates leave them out.
+- **An empty `browse` gives the reason that is true.** Every empty page blamed its filters and
+  suggested dropping a tag, even with no filter set. With no filter, an empty first page now says
+  the vault holds nothing to list yet and how records arrive. A page past a cursor says whether the
+  listing has ended there or everything past the cursor has been replaced, and how to list those.
+  With filters, the hint names each filter that ran, with its values, says which to drop to widen
+  the listing, and points to `recall` only for tags and types, the filters `recall` treats as a
+  preference. The tool's description gives that advice only for a browse that set tags or types, and
+  an empty page's text is now its hint alone, without a `Nothing matches.` line before it.
+- **A device that has not restored the vault no longer calls it empty.** A `recall` with nothing on
+  the device to search and a `/resume` asked for the most recent conversation read only what this
+  device holds, so on a device that had never restored the vault from the network, or had restored
+  only its catalog, they said the vault held nothing. They now say that this device holds nothing
+  and why that does not show the vault is empty, and name the `sennit hydrate` that restores it,
+  with `--depth index` where the answer is about search, and so do an unfiltered `browse` that lists
+  nothing and the `/resume` list. A vault just created on the device looks the same until its first
+  flush, so the answer says there is then nothing to restore. A device that has restored the vault
+  answers as before.
+- **`forget` works on a record that has not reached the network yet, and takes its vector out of the
+  search index the process is using.** Forgetting a memory still queued on this device failed with
+  `no manifest entry` and left the memory in place for a later flush to upload, and a conversation
+  forgotten before its first flush left its transcript queued, so the next flush uploaded and
+  catalogued it. Both now leave the upload queue first, a transcript all of it or none. If a flush
+  in progress has already claimed what is being forgotten, nothing is removed and the answer says to
+  forget it again once that flush has finished. A claim left by a flush that crashed holds until it
+  expires, ten minutes by default. A forget also took the record's vector off the disk but not out
+  of the search index the process had loaded, so a later `recall` in that process that ranked the
+  record failed outright, flushed or not. A change written to a conversation while it was being
+  forgotten, such as an append, brought it back, and a change now updates only a record that is
+  still there. The runs a conversation delegated are conversations of their own and are still not
+  forgotten with it, and the answer to `forget` now says so and gives their addresses.
+- **A memory or a delegated run naming a conversation the vault does not hold is refused before
+  anything is stored.** `remember` with such a `session`, and a run saved through the Go SDK with
+  such a parent, stored the whole record and then refused it, so the caller was told it was not
+  stored and a retry stored a second copy. Both are now checked first, and `remember`'s refusal
+  names the address and says it was never saved here or has been forgotten.
+- **A `save_session` refused part way takes back the turns it had queued.** A save queues its turns
+  before it validates the conversation, embeds it and writes its record, so a save refused at any of
+  those steps, for want of a title, because the embedder failed, or because another writer had moved
+  the conversation on, left its turns for the next flush to upload, though the caller had been told
+  nothing was saved. They are now taken back.
+- **Memories recorded against one conversation at the same time are all linked.** Each link read the
+  conversation's record, added the memory and wrote the record back against the version it had read,
+  so of two links landing together one was refused with `the session was changed by another writer`
+  after its memory had been stored. A link now reads the record again and makes its change to it as
+  it now is, and so does a delegated run added to its parent or taken off it.
+- **A durable `save_session` whose write to the network fails says the conversation is stored.**
+  With `durable` set, a save whose flush failed answered with the bare network error, though the
+  conversation was already stored on this device, so an agent saved it again as a second
+  conversation. The answer now says it is stored, gives its address, says a later flush takes it to
+  the network, and says to append to that address rather than save it again.
+- **A catalog whose last line a crash cut off no longer stops the vault from opening.** An append
+  interrupted by a crash leaves the catalog's log ending part way through a line, and any line that
+  could not be read stopped the load, so no command, `sennit recover` included, and no server could
+  open the vault. A last line missing only its newline did load, but the next append was written
+  onto it, and the vault then failed to open for good. A last line that cannot be read is now
+  dropped and the log cut back to the line before it, and every append first makes sure the log ends
+  where a line ends. A line that cannot be read anywhere else still stops the load, because that is
+  damage rather than a crash. Every command warns when it has dropped one, `sennit-mcp` says the
+  same on stderr, and `sennit://vault` carries it as `catalog`: the record whose change it was is
+  back to what the catalog held for it before, and a forget, `sennit hydrate` or `sennit recover`
+  running at the time should be run again. The search index's own log had the same flaw in another
+  form and lost every vector appended after a record a crash cut off, and such a record is now taken
+  off too. Opening a vault can make either repair, whatever the command.
+- **Compacting the search index or the catalog no longer loses a change made while it runs.** The
+  index read its files and wrote its new base under two separate holds of its lock, so a vector
+  added or removed in between was lost with the log it was folded from: a forgotten record came back
+  in the next process, or a new one could not be found by meaning. The catalog's snapshot was
+  written from the compacting process's own copy of the catalog, so entries another process had
+  appended since it opened the vault were dropped from the disk. Both now compact under one hold of
+  the lock every append takes.
+- **On Windows, the model is fetched without symbolic links, and a compacted file is emptied through
+  a handle of its own.** `sennit init` fetched no model there, because the download library builds
+  paths with forward slashes, needs the right to create symbolic links and finds its cache through
+  `HOME`, and the cause was hidden behind a count of retries. A vault set up by hand stopped taking
+  writes once its search index compacted, because the index and the catalog were emptied through the
+  handle they are appended through, which Windows does not let shorten a file. The model is now
+  fetched as described under Changed, and both files are emptied through a separate handle.
+  Replacing a file that another program has open for a moment, such as a virus scanner, is retried
+  there for up to two seconds. The app key file that `sennit connect --out` writes is now limited to
+  the account that wrote it, since the 0600 mode it asked for means nothing on Windows, and on every
+  platform the file is made private before the key goes into it rather than after. Checked by
+  running natively on Windows Server 2025: the test suite passed apart from one package that the
+  virus scanner kept from running, `sennit init` fetched the model with `HOME` unset, and memories
+  written one command at a time all succeeded, including after the index had compacted.
 
 ## [0.1.0-beta-mvp], 2026-09-04
 
