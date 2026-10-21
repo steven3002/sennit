@@ -13,6 +13,11 @@ import (
 // a crash between the two leaves a vector that is durable but not yet loaded,
 // which the next open fixes for free. The reverse order would leave a vault that
 // searches a record this process can find and no later process can.
+//
+// A record that already has a vector has it replaced, in both halves. Every save
+// of a conversation does that, and so does restoring a record this device
+// already holds, which is why nothing here counts what was added: the count of
+// searchable records is read from the index itself. See IndexHealth.
 func (v *Vault) putVector(id record.ID, vector []float32) error {
 	entry := index.Entry{
 		ID:     id,
@@ -23,10 +28,13 @@ func (v *Vault) putVector(id record.ID, vector []float32) error {
 	if err := v.vectors.Append(entry); err != nil {
 		return err
 	}
+	// What the disk now holds for the record is this model's vector, so one from
+	// another model that it replaces is no longer a vector the next open would
+	// leave out.
+	v.dropForeign(id)
 	if err := v.index.Add(id, entry.Model, vector); err != nil {
 		return err
 	}
-	v.health.Indexed++
 	return v.compactVectorsIfDue()
 }
 
@@ -45,10 +53,33 @@ func (v *Vault) removeVector(id record.ID) error {
 	if err := v.vectors.Remove(id); err != nil {
 		return err
 	}
-	if v.index.Remove(id) {
-		v.health.Indexed--
-	}
+	// The removal is the last word on the record's vector, whichever model made
+	// it, so the next open counts it neither as searchable nor as another
+	// model's.
+	v.dropForeign(id)
+	v.index.Remove(id)
 	return nil
+}
+
+// dropForeign takes a record off the count of stored vectors this index cannot
+// search, once what the disk holds for it is no longer such a vector.
+//
+// That count is made when the vault opens, from every vector on disk, and it is
+// what a reader is told is there and unsearchable. A record re-embedded with
+// this vault's model, or forgotten, stopped being one of them, and without this
+// the count went on saying it was until the next open counted again.
+func (v *Vault) dropForeign(id record.ID) {
+	v.healthMu.Lock()
+	defer v.healthMu.Unlock()
+	model, ok := v.foreign[id]
+	if !ok {
+		return
+	}
+	delete(v.foreign, id)
+	v.health.Foreign[model]--
+	if v.health.Foreign[model] <= 0 {
+		delete(v.health.Foreign, model)
+	}
 }
 
 // compactVectorsIfDue folds the deltas into a new base once they have outgrown

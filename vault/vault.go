@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -14,6 +16,7 @@ import (
 	"github.com/steven3002/sennit/local"
 	"github.com/steven3002/sennit/manifest"
 	"github.com/steven3002/sennit/recall"
+	"github.com/steven3002/sennit/record"
 	"github.com/steven3002/sennit/seal"
 	"github.com/steven3002/sennit/sia"
 	"github.com/steven3002/sennit/store"
@@ -39,7 +42,17 @@ type Vault struct {
 	packer    *packer.Packer
 	reclaimer *reclaim.Reclaimer
 	vectors   *index.Store
-	health    IndexHealth
+	// health is what the index was built from. Its Indexed is the count made
+	// at open and is not kept up to date here: IndexHealth reads it from the
+	// index.
+	health IndexHealth
+	// foreign names every stored vector the index left out, by the model that
+	// made it, so that re-embedding or forgetting its record takes it off the
+	// count in health. healthMu guards the two together: a save, a forget and a
+	// read of the vault's health can run at once, because the protocol server
+	// answers tool calls concurrently.
+	foreign  map[record.ID]string
+	healthMu sync.Mutex
 	// ownsEmbedder records whether this vault loaded the model itself, which is
 	// what decides whether closing the vault may close it.
 	ownsEmbedder bool
@@ -203,6 +216,14 @@ func (v *Vault) openIndex(ctx context.Context) error {
 		}
 	}
 	v.health = health
+	// What the index did not take is what it cannot search. Each is named, so
+	// that a later save or forget of its record can take it off the count.
+	v.foreign = make(map[record.ID]string, health.Stale())
+	for _, vector := range stored {
+		if !v.index.Has(vector.ID) {
+			v.foreign[vector.ID] = vector.Model
+		}
+	}
 	return nil
 }
 
@@ -292,7 +313,22 @@ func (h IndexHealth) Stale() int {
 
 // IndexHealth reports what the search index was built from, including any
 // vectors it had to leave out.
-func (v *Vault) IndexHealth() IndexHealth { return v.health }
+//
+// Indexed is how many vectors the index holds, read from it rather than counted
+// beside it. A save of a conversation replaces its vector under the same id, and
+// so does restoring a record that already has one, so a count kept beside the
+// index went up with every save while the index did not grow, and only the next
+// open counted again.
+func (v *Vault) IndexHealth() IndexHealth {
+	v.healthMu.Lock()
+	defer v.healthMu.Unlock()
+	health := v.health
+	health.Foreign = maps.Clone(v.health.Foreign)
+	if v.index != nil {
+		health.Indexed = v.index.Len()
+	}
+	return health
+}
 
 func (v *Vault) connect(ctx context.Context) error {
 	v.progress(Progress{Phase: PhaseConnect})

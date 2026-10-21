@@ -424,16 +424,17 @@ func TestWhatRecoverSays(t *testing.T) {
 }
 
 func TestWhatHydrateSays(t *testing.T) {
+	// What a rebuild of four conversations returns, one of them with turns that
+	// record no time.
+	rebuilt := rebuiltFromTranscripts(t, false,
+		transcript{opening: "Why does every flush bill a whole slab?", dated: true},
+		transcript{opening: "How long may a record wait in the queue?", dated: true},
+		transcript{opening: "Which of the Tidepool gauges report hourly?"},
+		transcript{opening: "Can a repack run while the server is up?", dated: true},
+	)
 	report := vault.HydrateReport{
-		Records: 1008, Objects: 14, Bytes: 2013265, Bodies: 1008, Sessions: 4, Slabs: 14,
-		Rebuild: vault.RebuildReport{Origins: map[string]vault.FieldOrigin{}},
-	}
-	for _, field := range []string{"version", "kind", "title", "created", "updated"} {
-		report.Rebuild.Origins[field] = vault.OriginSynthesised
-	}
-	for _, field := range []string{"summary", "tags", "project", "archived", "agent", "agentRef", "models",
-		"counts.tokens", "counts.durationMs", "lineage", "preservedTail"} {
-		report.Rebuild.Origins[field] = vault.OriginLost
+		Records: 1008, Objects: 14, Bytes: 2013265, Bodies: 1008, Sessions: rebuilt.Stored, Slabs: 14,
+		Rebuild: rebuilt,
 	}
 
 	s := ended(t, 80, 25100*time.Millisecond)
@@ -444,6 +445,9 @@ func TestWhatHydrateSays(t *testing.T) {
 		t.Fatal("four rebuilt conversations were reported as nothing to say")
 	}
 	s.out.note(note)
+	for _, note := range lostBySome(report) {
+		s.out.note(note)
+	}
 	hint, _ := deeperHint(vault.HydrateMetadata)
 	s.out.note(hint)
 	s.assert(t, "hydrate", fixture(t, "hydrate-metadata.txt"))

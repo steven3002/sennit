@@ -242,10 +242,24 @@ func (v *Vault) DropUnreadable(ctx context.Context) ([]sia.ObjectRef, error) {
 // been written, it has no catalog entry either, and that is nothing to remove
 // rather than a reason to stop.
 //
-// An id with neither a queue row nor a catalog entry is still refused. The rows
-// removed below are shared with other kinds of record, so a session's id passed
-// here would cost that session its vector and its ranking rows and leave the
-// conversation half forgotten.
+// The catalog entry goes before the device's copy. A read that does not find a
+// record on the device looks it up in the catalog and, online, fetches it from
+// the network and keeps it here, so an entry left naming a record whose body
+// had already gone would let the next read bring a half forgotten record back.
+// Gone first, it leaves nothing that can.
+//
+// That order is why a missing catalog entry does not always mean there is
+// nothing to forget. A forget that stopped part way, on a disk error once the
+// entry had gone, left the rest of the record behind, and forgetting it again
+// finishes the job: the entry may be missing so long as this device still holds
+// the memory's body or its ranking rows. One of the two is there for as long as
+// anything of the record is: of the body, the vector and the ranking rows, the
+// body goes first and the ranking rows go last.
+//
+// An id with none of that, and neither a queue row nor a catalog entry, is still
+// refused. The rows removed below are shared with other kinds of record, so a
+// session's id passed here would cost that session its vector and its ranking
+// rows and leave the conversation half forgotten.
 //
 // A record a flush is already writing is refused with nothing removed, because
 // that write has the payload and catalogues the record whatever happens here.
@@ -259,8 +273,20 @@ func (v *Vault) Forget(id record.ID) error {
 	if err != nil {
 		return err
 	}
-	if err := v.manifest.Remove(id); err != nil && !(withdrawn && errors.Is(err, manifest.ErrNotFound)) {
+	switch err := v.manifest.Remove(id); {
+	case err == nil:
+	case !errors.Is(err, manifest.ErrNotFound):
 		return err
+	case withdrawn:
+		// Still queued, so not catalogued yet.
+	default:
+		held, heldErr := v.holdsMemory(id)
+		if heldErr != nil {
+			return heldErr
+		}
+		if !held {
+			return err
+		}
 	}
 	if err := v.local.ForgetBody(id); err != nil {
 		return err
@@ -269,6 +295,30 @@ func (v *Vault) Forget(id record.ID) error {
 		return err
 	}
 	return v.local.ForgetRankingMeta(id)
+}
+
+// holdsMemory reports whether this device still keeps a memory's body or its
+// ranking rows under id.
+//
+// It reads the kind each of them is stored with, so a conversation's id, whose
+// ranking rows say session, and a transcript chunk's, whose body says chunk, are
+// not taken for a memory.
+func (v *Vault) holdsMemory(id record.ID) (bool, error) {
+	kind, _, err := v.local.GetRecord(id)
+	if err == nil {
+		return kind == record.KindMemory, nil
+	}
+	if !errors.Is(err, local.ErrNotFound) {
+		return false, err
+	}
+	meta, err := v.local.RankingMetaFor(id)
+	if errors.Is(err, local.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return meta.Kind == record.KindMemory, nil
 }
 
 // Entries lists the catalog, so a caller can see what the vault believes it

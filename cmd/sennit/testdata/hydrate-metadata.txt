@@ -10,9 +10,14 @@ Slabs tracked          14
  WARNING  4 conversations were rebuilt from their transcripts
   The messages are exact. A conversation's own description is
   not on Sia, so these were reconstructed here: version, title,
-  created, updated, kind. These are not recoverable: summary,
-  tags, project, archived, agent, agentRef, models,
-  counts.tokens, counts.durationMs, lineage, preservedTail.
+  kind. These are not recoverable: summary, tags, project,
+  archived, agent, agentRef, models, counts.tokens,
+  counts.durationMs, lineage, preservedTail, links.memories,
+  embedding.
+
+ WARNING  created and updated are not recoverable for 1 of the 4
+          conversations
+          Which of the Tidepool gauges report hourly?
 
  HINT   everything is here except the search vectors; run again
         with `--depth index` to search by meaning
