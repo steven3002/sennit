@@ -22,6 +22,10 @@ var ErrInvalid = errors.New("invalid record")
 
 // Validate reports whether a memory is well formed enough to store. It is
 // called before embedding, so nothing malformed reaches the index or the wire.
+//
+// It is a check on what is about to be written, and nothing that reads a stored
+// record calls it. A record already stored is immutable, so refusing to read one
+// would lose it rather than correct it.
 func (m *Memory) Validate() error {
 	switch {
 	case m.ID.IsZero():
@@ -30,6 +34,12 @@ func (m *Memory) Validate() error {
 		return fmt.Errorf("%w: kind is %q, want %q", ErrInvalid, m.Kind, KindMemory)
 	case m.SchemaVersion <= 0:
 		return fmt.Errorf("%w: missing schemaVersion", ErrInvalid)
+	case m.CreatedAt.IsZero():
+		// When the vault learned a statement is what dates it wherever it is
+		// shown. The time is sealed into the body, which never changes once it
+		// is written, so a write that left it out would store a memory that
+		// stays undated.
+		return fmt.Errorf("%w: missing createdAt", ErrInvalid)
 	case !m.Type.Valid():
 		return fmt.Errorf("%w: type %q is not one of %s", ErrInvalid, m.Type, strings.Join(TypeNames(), ", "))
 	}

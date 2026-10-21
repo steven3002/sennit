@@ -78,6 +78,15 @@ var ErrStaleHead = errors.New("the session was changed by another writer")
 // back would bring the conversation back, naming a transcript the forget took
 // and carrying whatever the writer was adding. That is refused with ErrNotFound,
 // as a head that has moved on is refused with ErrStaleHead.
+//
+// A replacement writes every listing column from the head it stores, created_at
+// among them. The columns are a copy of the head, kept so that a listing reads
+// them and nothing else, and a copy that kept an older head's creation time
+// would list the conversation with a time its own head no longer gives. Every
+// save and every edge written onto a head carries the time over from the head
+// it read, so for them the value written is the one already there. A writer that
+// replaces the head with a different one, as a rebuild asked to overwrite does,
+// is the only one that changes it.
 func (s *Store) PutSessionHead(session *record.Session, head []byte, expect int64) error {
 	var parent any
 	if session.Lineage.ParentSession != nil {
@@ -105,11 +114,11 @@ func (s *Store) PutSessionHead(session *record.Session, head []byte, expect int6
 	result, err := s.db.Exec(
 		`UPDATE session_heads SET
 		   version = ?, title = ?, summary = ?, kind = ?, project = ?, agent = ?, parent = ?,
-		   updated_at = ?, archived = ?, messages = ?, chunks = ?, bytes = ?, head = ?
+		   created_at = ?, updated_at = ?, archived = ?, messages = ?, chunks = ?, bytes = ?, head = ?
 		 WHERE session_id = ? AND version = ?`,
 		session.Version, session.Title, session.Summary,
 		string(session.Kind), ProjectKey(session.Project), session.Agent.Name, parent,
-		session.Updated.String(), session.Archived,
+		session.Created.String(), session.Updated.String(), session.Archived,
 		session.Counts.Messages, len(session.Chunks), session.Counts.Bytes, head,
 		session.ID.String(), expect)
 	if err != nil {
