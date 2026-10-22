@@ -182,6 +182,17 @@ func cutCatalog(changes int) ui.Message {
 	}
 }
 
+// undatedListing is the warning a vault prints when it could not date its
+// listing by the records it lists as it opened. It is one line: nothing was
+// lost and nothing is asked of the reader, because the listing stays as it was
+// and the next open tries again.
+func undatedListing(reason error) ui.Message {
+	return ui.Message{
+		Kind: ui.KindWarning,
+		Text: "the listing could not be dated by its records, and is tried again at the next open: " + reason.Error(),
+	}
+}
+
 // indexerName is the address the failure names, which is the one that was
 // actually tried, and the configured one when the failure does not say.
 func indexerName(reason error, configured string) string {
