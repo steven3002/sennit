@@ -27,6 +27,10 @@ type RecoveryReport struct {
 	// Unreadable counts objects the indexer returned that could not be opened
 	// at all.
 	Unreadable int
+	// Forgotten counts records the indexer still held that this device has
+	// forgotten. They are left out, so a recovery on the device that forgot a
+	// record does not bring it back.
+	Forgotten int
 	// Embedded is how many records were given a fresh vector.
 	Embedded int
 
@@ -59,19 +63,24 @@ func (v *Vault) Recover(ctx context.Context, req RecoveryRequest) (RecoveryRepor
 	if v.client == nil {
 		return RecoveryReport{}, errOffline
 	}
+	return v.recoverOver(ctx, req, v.client.WalkObjectsStats, v.client.ReadObject)
+}
+
+// recoverOver is Recover over the network's walk and read.
+func (v *Vault) recoverOver(ctx context.Context, req RecoveryRequest, walk walkObjects, read readObject) (RecoveryReport, error) {
 	start := time.Now()
 	var report RecoveryReport
 
 	// The walk reads the whole change feed before it calls back for the first
 	// object, so listing and recovering are two waits rather than one.
 	v.progress(Progress{Phase: PhaseList})
-	stats, err := v.client.WalkObjectsStats(ctx, func(object sia.StoredObject) error {
+	stats, err := walk(ctx, func(object sia.StoredObject) error {
 		report.Objects++
 		if report.Objects == 1 {
 			v.progress(Progress{Phase: PhaseRestore, Unit: UnitRecords})
 		}
 
-		payload, err := v.client.ReadObject(object)
+		payload, err := read(object)
 		if err != nil {
 			return fmt.Errorf("read object %s: %w", object.Ref, err)
 		}
@@ -86,6 +95,8 @@ func (v *Vault) Recover(ctx context.Context, req RecoveryRequest) (RecoveryRepor
 			switch {
 			case errors.Is(err, seal.ErrCorrupt):
 				report.Foreign++
+			case errors.Is(err, errForgotten):
+				report.Forgotten++
 			case err != nil:
 				return err
 			default:
@@ -110,6 +121,10 @@ func (v *Vault) Recover(ctx context.Context, req RecoveryRequest) (RecoveryRepor
 }
 
 // recoverFrame restores one framed record, reporting whether it was embedded.
+//
+// A record this device has forgotten is left out, with errForgotten, for the
+// reason hydrateFrame gives: its copy on the network outlives the forget until
+// this device deletes it, and recovering it would undo the forget.
 func (v *Vault) recoverFrame(ctx context.Context, frame seal.Frame, object sia.StoredObject, req RecoveryRequest) (bool, error) {
 	body, err := v.sealer.Open(frame.Sealed)
 	if err != nil {
@@ -117,6 +132,9 @@ func (v *Vault) recoverFrame(ctx context.Context, frame seal.Frame, object sia.S
 		// something else. The account is addressed by the app key and the
 		// records by the phrase, and the two are not the same secret.
 		return false, err
+	}
+	if _, forgotten := v.manifest.Removed(frame.ID); forgotten {
+		return false, errForgotten
 	}
 	if frame.Kind == record.KindChunk {
 		return false, v.recoverChunk(frame, object, body)

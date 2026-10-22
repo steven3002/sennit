@@ -44,6 +44,8 @@ type Packer struct {
 	state  local.QueueState
 
 	onFlush func(Result) error
+	// onTick is work the background deadlines do on every tick. See OnTick.
+	onTick func(context.Context) error
 
 	stop chan struct{}
 	done chan struct{}

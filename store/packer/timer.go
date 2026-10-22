@@ -52,13 +52,39 @@ func (p *Packer) run(ctx context.Context, stop <-chan struct{}, done chan<- stru
 		case <-ctx.Done():
 			return
 		case now := <-ticker.C:
-			reason, due := p.Due(now)
-			if !due {
-				continue
+			if reason, due := p.Due(now); due {
+				if _, err := p.flush(ctx, reason); err != nil && onError != nil {
+					onError(err)
+				}
 			}
-			if _, err := p.flush(ctx, reason); err != nil && onError != nil {
+			if err := p.tick(ctx); err != nil && onError != nil {
 				onError(err)
 			}
 		}
 	}
+}
+
+// OnTick registers work for the background deadlines to do on every tick,
+// whether or not a flush is due.
+//
+// A queued record is not all that a vault owes the network. The copy of a
+// record forgotten on this device is owed as well, and a vault that is open but
+// quiet has nothing queued to make a flush due, so without this it would owe
+// that copy until something else happened to write. The work gets the
+// background's context, its error goes to the same onError a failed flush does,
+// and the next tick runs it again.
+func (p *Packer) OnTick(fn func(context.Context) error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.onTick = fn
+}
+
+func (p *Packer) tick(ctx context.Context) error {
+	p.mu.Lock()
+	work := p.onTick
+	p.mu.Unlock()
+	if work == nil {
+		return nil
+	}
+	return work(ctx)
 }

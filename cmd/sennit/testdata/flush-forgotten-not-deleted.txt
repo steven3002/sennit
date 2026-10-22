@@ -1,0 +1,7 @@
+✓ Flushed 3 records to Sia (24.6s)
+
+ ERROR  2 forgotten records could not be deleted from Sia
+  delete the copies of 2 forgotten record(s) from the network:
+  the indexer did not answer.
+  They stay there until a later flush deletes them, and until
+  then a restore on another device can still bring them back.

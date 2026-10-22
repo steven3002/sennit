@@ -5,10 +5,12 @@ USAGE
 
 FLAGS
   --repack            Rewrite every live record into as few slabs as it fits in
-                      before releasing the rest
+                      before releasing the rest; a record whose copy on Sia has
+                      been deleted stays where it is
   --orphans           Also release slabs the account is billed for that hold
                       nothing, including any stranded by an installation that
-                      is gone
+                      is gone; a slab a record on this device still names is
+                      kept
   --unreadable        Also delete objects the indexer holds but cannot open
   --take-ownership    Release storage this device hydrated rather than pinned;
                       only when the installation that wrote it is gone for

@@ -29,5 +29,10 @@ type Entry struct {
 	// survives a replay of the lines before it. The marker is kept rather than
 	// dropped at compaction, since a snapshot that forgot it would let the
 	// record come back the next time an older log was replayed over it.
+	//
+	// A removal keeps the record's ObjectRef and SlabID for as long as its
+	// object may still be on the network, because a restore on any device that
+	// finds the object puts the record back. Once this device has deleted the
+	// object, the entry is appended again without either. See ObjectDeleted.
 	Deleted bool `json:"deleted,omitempty"`
 }

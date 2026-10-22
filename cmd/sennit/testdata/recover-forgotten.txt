@@ -1,0 +1,4 @@
+✓ Recovered 1,006 records from 14 objects (56.5s)
+
+Left out  2 records this device has forgotten
+Skipped   12 frames this phrase does not open

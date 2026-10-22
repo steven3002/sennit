@@ -5,7 +5,7 @@ Start with the [Quickstart](quickstart.md). The project overview is in the [READ
 | Page | What it covers |
 |---|---|
 | [Quickstart](quickstart.md) | Install, recovery phrase, approval, first memory, recall, connecting an MCP client |
-| [Storage](storage.md) | Why "saved" is not "on Sia", flushing, quota, and reclaiming storage |
+| [Storage](storage.md) | Why "saved" is not "on Sia", flushing, forgetting, quota, and reclaiming storage |
 | [Cost](cost.md) | What storage costs, the arithmetic and its sources |
 | [Status](status.md) | What is built, what is measured against live Sia, and what is not proven |
 | [What's changing](whats-changing.md) | Planned changes that will replace parts of the quickstart |

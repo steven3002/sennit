@@ -304,7 +304,7 @@ func TestRepackRefusesAnotherDevicesSlabs(t *testing.T) {
 	// A nil client again: reaching the network at all would mean the check runs
 	// too late to prevent the write.
 	_, err = reclaim.New(nil, store).Repack(context.Background(), nil,
-		[]reclaim.Held{{ID: heldID, SlabID: "theirs"}}, func([]reclaim.Moved) error { return nil })
+		[]reclaim.Held{{ID: heldID, SlabID: "theirs"}}, nil, func([]reclaim.Moved) error { return nil })
 	if !errors.Is(err, reclaim.ErrNotOursToRelease) {
 		t.Fatalf("repack over a hydrated slab returned %v, want a refusal before any write", err)
 	}

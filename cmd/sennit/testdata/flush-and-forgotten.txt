@@ -1,0 +1,1 @@
+✓ Flushed 3 records to Sia and deleted 1 forgotten record from it (23.1s)

@@ -1001,8 +1001,12 @@ func (s *Server) forget(_ context.Context, _ *sdk.CallToolRequest, in ForgetIn) 
 		if err := s.vault.Forget(address.ID); err != nil {
 			return nil, ForgetOut{}, err
 		}
-		out.Note = "The memory is gone from this vault. Storage comes back later, when nothing " +
-			"written alongside it is still needed, do not report freed space."
+		removal := s.vault.Removal(address.ID)
+		out.Note = "The memory is gone from this vault." + onSia(removal, s.vault.Online(), memoryOnSia)
+		if removal != (vault.Removal{}) {
+			out.Note += " Storage comes back later, when nothing written alongside it is still needed, " +
+				"do not report freed space."
+		}
 	case FormSession, FormTranscript:
 		// The head is read before it goes, for the runs it delegated. See
 		// runsLeft.
@@ -1019,13 +1023,63 @@ func (s *Server) forget(_ context.Context, _ *sdk.CallToolRequest, in ForgetIn) 
 			}
 			return nil, ForgetOut{}, err
 		}
-		out.Note = "The conversation and its transcript are gone from this vault. Memories drawn " +
-			"from it are untouched and are still stored." + runsLeft(head.Lineage.Children)
+		// What reached Sia of a conversation is its transcript: the head is never
+		// written there.
+		chunks := make([]record.ID, len(head.Chunks))
+		for i, chunk := range head.Chunks {
+			chunks[i] = chunk.ID
+		}
+		out.Note = "The conversation and its transcript are gone from this vault." +
+			onSia(s.vault.Removal(chunks...), s.vault.Online(), transcriptOnSia) +
+			" Memories drawn from it are untouched and are still stored." + runsLeft(head.Lineage.Children)
 	default:
 		return nil, ForgetOut{}, fmt.Errorf("%s is part of this server, not a record; there is "+
 			"nothing there to forget", address.URI)
 	}
 	return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: out.Note}}}, out, nil
+}
+
+// onSiaWords are the words a forget's note uses for what a record left on Sia.
+type onSiaWords struct {
+	// copy is what is on Sia, as the subject of a sentence.
+	copy string
+	// restore is what a restore on another device does with it.
+	restore string
+	// held is what another device may already hold.
+	held string
+}
+
+var (
+	memoryOnSia     = onSiaWords{copy: "Its copy on Sia", restore: "restore it", held: "the memory"}
+	transcriptOnSia = onSiaWords{copy: "Its transcript on Sia", restore: "rebuild the conversation from it",
+		held: "the conversation"}
+)
+
+// onSia says how far a forget has reached beyond this device: whether what the
+// record left on Sia is gone yet, and what another device can still restore.
+//
+// Forgetting takes a record off this device at once, and its copy on Sia goes
+// only when a flush that reaches Sia deletes it. Until then a restore on another
+// device brings the record back there, and the answer says so rather than leave
+// it for that restore to find. A device that already holds the record keeps it
+// either way, because a forget is not shared between devices.
+func onSia(removal vault.Removal, online bool, words onSiaWords) string {
+	keeps := " Another device that already holds " + words.held +
+		" keeps it: forgetting does not reach other devices."
+	restorable := " Until then a `sennit hydrate` or `sennit recover` on another device can still " +
+		words.restore + ", so do not tell the user it is gone from Sia yet."
+	switch {
+	case removal.OnNetwork > 0 && online:
+		return " " + words.copy + " is not deleted yet: this server deletes it with its background flush, " +
+			"and `sennit flush` deletes it at once." + restorable + keeps
+	case removal.OnNetwork > 0:
+		return " " + words.copy + " is not deleted yet, because this server has no connection to Sia: " +
+			"`sennit flush` deletes it from a run that has one, and so does the background flush of a " +
+			"server that can reach Sia." + restorable + keeps
+	case removal.Deleted > 0:
+		return " " + words.copy + " is deleted as well." + keeps
+	}
+	return " It had not reached Sia, so no other device can restore it."
 }
 
 // runsLeft names the runs a forgotten conversation delegated, which are still

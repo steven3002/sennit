@@ -22,14 +22,35 @@ var ErrNotOursToRelease = errors.New("this device did not pin that storage")
 // partially-filled slab can never be extended, so every flush strands one.
 // Without this list that quota is unrecoverable and invisible at the same time.
 type Reclaimer struct {
-	client   *sia.Client
+	client *sia.Client
+	// net is the client too, as what a repack asks of the indexer. See network.
+	net      network
 	store    *local.Store
 	observer func(Event)
 }
 
+// A network is what a repack asks of the indexer, and what releasing a slab
+// does.
+//
+// It is an interface with one production implementation, *sia.Client, for the
+// reason the store's boundary is one. A repack reads, writes, deletes and
+// releases in one run, and what it does when a record's object has gone can be
+// checked against a real indexer only by spending a slab on every run. Behind
+// this interface the same run costs nothing.
+type network interface {
+	Account(ctx context.Context) (sia.Account, error)
+	Download(ctx context.Context, ref sia.ObjectRef) ([]byte, error)
+	DeleteObjects(ctx context.Context, refs []sia.ObjectRef) error
+	UnpinSlab(ctx context.Context, id sia.SlabID) error
+}
+
 // New builds a reclaimer over the device's slab ledger.
 func New(client *sia.Client, store *local.Store) *Reclaimer {
-	return &Reclaimer{client: client, store: store}
+	r := &Reclaimer{client: client, store: store}
+	if client != nil {
+		r.net = client
+	}
+	return r
 }
 
 // A Stage names a step of reclaiming storage. Each of them is minutes of
@@ -284,6 +305,10 @@ type Sweep struct {
 	// than passed over: to a user they are quota that did not come back, and
 	// the reason is not otherwise visible from here.
 	SlabsHeld int
+	// SlabsKept is how many slabs that hold nothing a release of orphans left
+	// alone, because this vault's catalog still names them for a record it
+	// holds. See orphansOf.
+	SlabsKept int
 	// Before and After are the account's quota either side of the sweep, which
 	// is the only figure that says whether anything was actually returned.
 	Before, After sia.Account
@@ -374,6 +399,46 @@ type Orphan struct {
 	// Tracked reports whether this device's ledger knew about it. A slab that
 	// was not tracked was stranded by an installation that is gone.
 	Tracked bool
+	// Named reports that this vault's catalog names the slab for a record it
+	// still holds. Such a slab is kept rather than released. See orphansOf.
+	Named bool
+}
+
+// orphansOf decides which of the slabs the account is billed for are orphans:
+// those no object sits on. known holds the slabs this device's ledger lists,
+// and named the slabs its catalog names for records it still holds.
+//
+// A named slab holds nothing anyone can read, and is kept all the same. It is
+// what a repack leaves under a record whose copy another device deleted, and
+// the ledger is what lets every later repack read from it: a released slab
+// leaves the ledger, and a slab the catalog names that the ledger does not
+// list makes every later repack refuse.
+func orphansOf(pinned []sia.SlabID, occupied, known, named map[sia.SlabID]struct{}) []Orphan {
+	var out []Orphan
+	for _, id := range pinned {
+		if _, holds := occupied[id]; holds {
+			continue
+		}
+		_, isKnown := known[id]
+		_, isNamed := named[id]
+		out = append(out, Orphan{ID: id, Tracked: isKnown, Named: isNamed})
+	}
+	return out
+}
+
+// releasing decides what a release of orphans does with each of them: it
+// unpins every one but those this vault's catalog names for a record it still
+// holds, and keeps and counts those. ReleaseOrphans unpins exactly what this
+// returns.
+func releasing(orphans []Orphan) (release []sia.SlabID, kept int) {
+	for _, orphan := range orphans {
+		if orphan.Named {
+			kept++
+			continue
+		}
+		release = append(release, orphan.ID)
+	}
+	return release, kept
 }
 
 // checkOccupancy applies I12 to the orphan scan.
@@ -401,7 +466,10 @@ func checkOccupancy(pinned, occupied int, releaseAll bool) error {
 // pinned it is gone, reinstalled, replaced, or simply run from a different
 // directory, nothing local remembers it exists. Asking the indexer what it is
 // charging for is the only way to find that storage.
-func (r *Reclaimer) Orphans(ctx context.Context, releaseAll bool) ([]Orphan, error) {
+//
+// named holds the slabs this vault's catalog names for records it still holds.
+// An orphan among them is reported as Named, and ReleaseOrphans keeps it.
+func (r *Reclaimer) Orphans(ctx context.Context, releaseAll bool, named map[sia.SlabID]struct{}) ([]Orphan, error) {
 	r.report(Event{Stage: StageOrphans})
 	pinned, err := r.client.PinnedSlabs(ctx)
 	if err != nil {
@@ -428,16 +496,7 @@ func (r *Reclaimer) Orphans(ctx context.Context, releaseAll bool) ([]Orphan, err
 	for _, slab := range tracked {
 		known[slab.ID] = struct{}{}
 	}
-
-	var out []Orphan
-	for _, id := range pinned {
-		if _, holds := occupied[id]; holds {
-			continue
-		}
-		_, isKnown := known[id]
-		out = append(out, Orphan{ID: id, Tracked: isKnown})
-	}
-	return out, nil
+	return orphansOf(pinned, occupied, known, named), nil
 }
 
 // An Unledgered slab is one the account is billed for that this device's
@@ -498,7 +557,10 @@ func (r *Reclaimer) Unledgered(ctx context.Context) ([]Unledgered, error) {
 // Nothing readable is lost by construction: a slab with no object over it has
 // no way to be read even in principle, since the indexer's object map is the
 // only thing that turns a slab into retrievable bytes.
-func (r *Reclaimer) ReleaseOrphans(ctx context.Context, releaseAll bool) (Sweep, error) {
+//
+// A slab in named, which this vault's catalog names for a record it still
+// holds, is kept and counted in SlabsKept. See releasing.
+func (r *Reclaimer) ReleaseOrphans(ctx context.Context, releaseAll bool, named map[sia.SlabID]struct{}) (Sweep, error) {
 	start := time.Now()
 	var report Sweep
 
@@ -506,12 +568,14 @@ func (r *Reclaimer) ReleaseOrphans(ctx context.Context, releaseAll bool) (Sweep,
 	if report.Before, err = r.client.Account(ctx); err != nil {
 		return report, err
 	}
-	orphans, err := r.Orphans(ctx, releaseAll)
+	orphans, err := r.Orphans(ctx, releaseAll, named)
 	if err != nil {
 		return report, err
 	}
-	for _, orphan := range orphans {
-		if err := r.Unpin(ctx, orphan.ID); err != nil {
+	release, kept := releasing(orphans)
+	report.SlabsKept = kept
+	for _, id := range release {
+		if err := r.Unpin(ctx, id); err != nil {
 			return report, err
 		}
 		report.SlabsReleased++
@@ -551,7 +615,7 @@ func (r *Reclaimer) DropUnreadable(ctx context.Context) ([]sia.ObjectRef, error)
 // operation needs spare headroom to run and an account that has run out of room
 // can no longer afford the very thing that would give it room back.
 func (r *Reclaimer) Unpin(ctx context.Context, slabID sia.SlabID) error {
-	if err := r.client.UnpinSlab(ctx, slabID); err != nil {
+	if err := r.net.UnpinSlab(ctx, slabID); err != nil {
 		return err
 	}
 	if err := r.store.ForgetSlab(string(slabID)); err != nil {
