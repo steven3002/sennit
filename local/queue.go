@@ -151,6 +151,17 @@ func (s *Store) ReleaseQueued(ids []record.ID) error {
 	return s.eachQueued(ids, `UPDATE queue SET claimed_at = NULL, claimed_by = NULL WHERE record_id = ?`, "release")
 }
 
+// Queued reports whether a record is waiting in this device's queue, claimed by
+// a flush or not. A queued record was written here and has not yet reached the
+// network.
+func (s *Store) Queued(id record.ID) (bool, error) {
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM queue WHERE record_id = ?`, id.String()).Scan(&n); err != nil {
+		return false, fmt.Errorf("look for %s in the queue: %w", id, err)
+	}
+	return n > 0, nil
+}
+
 // DropQueued removes records from the queue once they are on the network and
 // catalogued.
 //

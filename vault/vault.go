@@ -52,6 +52,10 @@ type Vault struct {
 	// reported rather than swallowed: silently working from the device is right
 	// for a read and wrong to leave unsaid before a write.
 	offlineBecause error
+	// listingNotDated records why this open could not date the listing by the
+	// records it lists. The vault opens without it, and the next open tries
+	// again.
+	listingNotDated error
 }
 
 // sessionCounters are read counts a session claim is asserted against.
@@ -156,6 +160,10 @@ func (v *Vault) openLocal(hierarchy keys.Hierarchy) error {
 		return err
 	}
 	v.manifest = catalog
+	// Once the catalog is loaded, because it is what tells a transcript this
+	// device adopted from one it wrote, and after the phrase check, so a wrong
+	// phrase is refused before the listing is touched.
+	v.dateListingByRecords()
 	return nil
 }
 
