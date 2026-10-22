@@ -93,6 +93,12 @@ func (v *Vault) live(releaseAll bool) (reclaim.Live, error) {
 // Repack rewrites every live record into as few slabs as they fit in and
 // releases the ones they came from.
 //
+// Two kinds of slab are kept. One holds a record whose copy on the network
+// another device deleted when it forgot the record: the record is left where it
+// is, and the slab with it. The other still holds the copy of a record this
+// device forgot, whose deletion is owed: the sweep that follows deletes the
+// copy and then releases the slab. See reclaim.Reclaimer.Repack.
+//
 // It runs when it is asked to and never on its own. The operation holds the old
 // slabs and the new ones at the same time, and what it does under concurrent
 // writes, what it leaves behind if it is interrupted, and what an account does
@@ -122,7 +128,7 @@ func (v *Vault) Repack(ctx context.Context) (reclaim.Repack, error) {
 		})
 	}
 
-	return v.reclaimer.Repack(ctx, v.store, held, v.relocate)
+	return v.reclaimer.Repack(ctx, v.store, held, v.slabsOwedADeletion(), v.relocate)
 }
 
 // relocate points the catalog at where repack put each record.
@@ -202,7 +208,7 @@ func (v *Vault) Orphans(ctx context.Context, opts ReclaimOptions) ([]reclaim.Orp
 	if v.client == nil {
 		return nil, errOffline
 	}
-	return v.reclaimer.Orphans(ctx, opts.ReleaseAll)
+	return v.reclaimer.Orphans(ctx, opts.ReleaseAll, v.slabsNamed())
 }
 
 // ReleaseOrphans returns the quota held by slabs that hold nothing.
@@ -212,11 +218,14 @@ func (v *Vault) Orphans(ctx context.Context, opts ReclaimOptions) ([]reclaim.Orp
 // account is being charged for and nothing can read, including storage stranded
 // by an installation that no longer exists. The device's ledger cannot see
 // that, so the indexer is asked instead.
+//
+// A slab that holds nothing and that this vault's catalog names for a record it
+// still holds is kept, and counted in the result's SlabsKept.
 func (v *Vault) ReleaseOrphans(ctx context.Context, opts ReclaimOptions) (reclaim.Sweep, error) {
 	if v.client == nil {
 		return reclaim.Sweep{}, errOffline
 	}
-	return v.reclaimer.ReleaseOrphans(ctx, opts.ReleaseAll)
+	return v.reclaimer.ReleaseOrphans(ctx, opts.ReleaseAll, v.slabsNamed())
 }
 
 // DropUnreadable deletes objects the indexer holds but will not open.

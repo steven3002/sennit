@@ -2,6 +2,7 @@ package reclaim
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -37,9 +38,13 @@ type Moved struct {
 // A Repack reports what one repack moved and freed.
 type Repack struct {
 	Records []Moved
+	// Gone lists the records repack left where they were, because the indexer
+	// no longer holds their object. Each stays catalogued as it was, on the slab
+	// it was on, and that slab is not released. See Repack.
+	Gone []Held
 	// SlabsBefore and SlabsAfter are how many slabs held these records either
-	// side of the operation. Collapsing many partly-filled slabs into a full
-	// one is the entire point.
+	// side of the operation, counting the slabs kept for the records in Gone.
+	// Collapsing many partly-filled slabs into a full one is the entire point.
 	SlabsBefore, SlabsAfter int
 	// Peak is the largest number of slabs alive at once during the operation.
 	// It is one more than the account started with, which is why an account
@@ -77,7 +82,28 @@ func (r Repack) Freed() uint64 {
 // The caller applies the returned moves to its catalog. Nothing is released
 // until that has happened, because between the write and the catalog update the
 // records exist in two places and only one of them is findable.
-func (r *Reclaimer) Repack(ctx context.Context, writer *store.Store, held []Held, apply func([]Moved) error) (Repack, error) {
+//
+// A record whose object the indexer no longer holds is left where it is and
+// listed in Gone. That is what a forget on another device leaves on this one,
+// when this device wrote the record: the forget deleted the object, and forgets
+// are not shared, so this device's catalog still names it. Writing it again
+// would undo the forget on the network, and dropping it from the catalog would
+// forget it here unasked. So it is not written, applied or retired, and the
+// slab it sits on is not released. Unpin takes a slab out of the ledger, and a
+// slab the catalog names and the ledger does not is one every later repack
+// refuses to read from.
+//
+// Only an answer that the object is not there counts, as sia.ErrObjectGone.
+// Every other failure to read stops the repack with nothing written, as it
+// always did: a record left behind for a fault the next run would not meet is
+// a record whose slab is held for nothing.
+//
+// owed names the slabs that still hold the copy of a record this vault forgot,
+// whose deletion is owed. Those are kept too. A slab released with an object
+// still on it leaves that object unreadable, and out of the sweep's reach,
+// since the slab has left the ledger. Kept, the slab is released by the sweep
+// that follows, after it has deleted the copy.
+func (r *Reclaimer) Repack(ctx context.Context, writer batchWriter, held []Held, owed []sia.SlabID, apply func([]Moved) error) (Repack, error) {
 	start := time.Now()
 	report := Repack{}
 	if len(held) == 0 {
@@ -102,21 +128,44 @@ func (r *Reclaimer) Repack(ctx context.Context, writer *store.Store, held []Held
 	}
 
 	var err error
-	if report.Before, err = r.client.Account(ctx); err != nil {
+	if report.Before, err = r.net.Account(ctx); err != nil {
 		return report, err
 	}
 
 	read := time.Now()
 	r.report(Event{Stage: StageRepackRead, Total: int64(len(held))})
-	blobs := make([]store.Blob, len(held))
-	for i, item := range held {
-		payload, err := r.client.Download(ctx, item.Ref)
+	moving := make([]Held, 0, len(held))
+	blobs := make([]store.Blob, 0, len(held))
+	for _, item := range held {
+		payload, err := r.net.Download(ctx, item.Ref)
+		if errors.Is(err, sia.ErrObjectGone) {
+			report.Gone = append(report.Gone, item)
+			continue
+		}
 		if err != nil {
 			return report, fmt.Errorf("read %s for repack: %w", item.ID, err)
 		}
-		blobs[i] = store.Blob{CID: item.CID, Payload: payload}
+		moving = append(moving, item)
+		blobs = append(blobs, store.Blob{CID: item.CID, Payload: payload})
 	}
 	report.ReadFor = time.Since(read)
+
+	// Every slab a record left behind sits on stays, whatever else moves off it.
+	kept := make(map[sia.SlabID]struct{}, len(report.Gone))
+	for _, item := range report.Gone {
+		if item.SlabID != "" {
+			kept[item.SlabID] = struct{}{}
+		}
+	}
+	if len(moving) == 0 {
+		// No record's object was there to read, so nothing is written or
+		// released, and the account is as it was.
+		report.SlabsAfter = len(kept)
+		report.Peak = report.SlabsBefore
+		report.After = report.Before
+		report.Elapsed = time.Since(start)
+		return report, nil
+	}
 
 	// The write records its new slabs in this ledger itself, before it pins
 	// them, so they are this device's to release from the moment they can be
@@ -129,21 +178,28 @@ func (r *Reclaimer) Repack(ctx context.Context, writer *store.Store, held []Held
 		return report, fmt.Errorf("write %d record(s) for repack: %w", len(blobs), err)
 	}
 	report.WriteFor = time.Since(write)
-	report.SlabsAfter = len(flushed.Slabs)
+	after := make(map[sia.SlabID]struct{}, len(flushed.Slabs)+len(kept))
+	for _, slabID := range flushed.Slabs {
+		after[slabID] = struct{}{}
+	}
+	for slabID := range kept {
+		after[slabID] = struct{}{}
+	}
+	report.SlabsAfter = len(after)
 	// Both sets of slabs are pinned at this moment. It is the peak the account
 	// has to be able to afford, and the reason the trigger is a watermark
 	// rather than a limit.
-	report.Peak = report.SlabsBefore + report.SlabsAfter
+	report.Peak = report.SlabsBefore + len(flushed.Slabs)
 
-	if len(flushed.Written) != len(held) {
-		return report, fmt.Errorf("repack wrote %d objects for %d records", len(flushed.Written), len(held))
+	if len(flushed.Written) != len(moving) {
+		return report, fmt.Errorf("repack wrote %d objects for %d records", len(flushed.Written), len(moving))
 	}
-	report.Records = make([]Moved, len(held))
+	report.Records = make([]Moved, len(moving))
 	for i, written := range flushed.Written {
 		report.Records[i] = Moved{
-			ID:     held[i].ID,
+			ID:     moving[i].ID,
 			CID:    written.CID,
-			From:   held[i].Ref,
+			From:   moving[i].Ref,
 			To:     written.ObjectRef,
 			SlabID: written.SlabID,
 			Bytes:  written.Bytes,
@@ -155,21 +211,31 @@ func (r *Reclaimer) Repack(ctx context.Context, writer *store.Store, held []Held
 
 	retire := time.Now()
 	r.report(Event{Stage: StageRepackRetire})
-	stale := make([]sia.ObjectRef, len(held))
-	for i, item := range held {
+	stale := make([]sia.ObjectRef, len(moving))
+	for i, item := range moving {
 		stale[i] = item.Ref
 	}
-	if err := r.client.DeleteObjects(ctx, stale); err != nil {
+	if err := r.net.DeleteObjects(ctx, stale); err != nil {
 		return report, fmt.Errorf("retire %d old object(s): %w", len(stale), err)
 	}
 	written := make(map[sia.SlabID]struct{}, len(flushed.Slabs))
 	for _, slabID := range flushed.Slabs {
 		written[slabID] = struct{}{}
 	}
+	owing := make(map[sia.SlabID]struct{}, len(owed))
+	for _, slabID := range owed {
+		owing[slabID] = struct{}{}
+	}
 	for slabID := range from {
 		// A record can land back in a slab it was already in when nothing else
 		// moved; releasing that one would throw away the work.
 		if _, reused := written[slabID]; reused {
+			continue
+		}
+		if _, still := kept[slabID]; still {
+			continue
+		}
+		if _, copyOn := owing[slabID]; copyOn {
 			continue
 		}
 		if err := r.Unpin(ctx, slabID); err != nil {
@@ -178,11 +244,18 @@ func (r *Reclaimer) Repack(ctx context.Context, writer *store.Store, held []Held
 	}
 	report.RetireFor = time.Since(retire)
 
-	if report.After, err = r.client.Account(ctx); err != nil {
+	if report.After, err = r.net.Account(ctx); err != nil {
 		return report, err
 	}
 	report.Elapsed = time.Since(start)
 	return report, nil
+}
+
+// A batchWriter writes a batch of blobs and makes them retrievable, recording
+// the slabs it pins in this device's ledger before it pins them. *store.Store
+// is the one a repack is given.
+type batchWriter interface {
+	PutBatch(ctx context.Context, blobs []store.Blob) (store.Flush, error)
 }
 
 // ownsAll reports whether every slab named was pinned by this installation.

@@ -81,3 +81,8 @@ restated one, or contradicted one.
 It also does not claim more than is true. A record is durable on the user's device before a write
 returns and reaches the network shortly afterwards; the response says which has happened. Never tell
 the user something is stored on the network before the response says it is.
+
+A forget has the same gap the other way round: the record leaves the user's device at once, and its
+copy on the network goes with a later flush. The response to `forget` says which has happened. Until
+the copy is gone, a restore on another device can still bring the record back, so never tell the
+user it is gone from the network before the response says it is.

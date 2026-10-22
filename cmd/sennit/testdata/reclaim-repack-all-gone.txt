@@ -1,0 +1,11 @@
+✓ Nothing to release (21.4s)
+
+Repack  nothing moved
+Swept   0 objects, deleted 0, released 0 slabs
+Quota   80.00 MiB used before, 80.00 MiB after, freed 0 B
+
+ WARNING  3 records were left where they are, because their
+          copies on Sia have been deleted
+  A device that forgets a record deletes its copy, and forgets
+  are not shared between devices. Each stays on this device, and
+  keeps its storage, until it is forgotten here too.

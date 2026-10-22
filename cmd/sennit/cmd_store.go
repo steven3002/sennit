@@ -11,15 +11,19 @@ import (
 	"github.com/steven3002/sennit/cmd/sennit/internal/ui"
 	"github.com/steven3002/sennit/cmd/sennit/internal/width"
 	"github.com/steven3002/sennit/sia"
+	"github.com/steven3002/sennit/store"
 	"github.com/steven3002/sennit/store/reclaim"
 	"github.com/steven3002/sennit/vault"
 )
 
-// runFlush writes whatever is queued to Sia.
+// runFlush writes whatever is queued to Sia, and deletes from Sia the copies of
+// records forgotten on this device.
 //
 // A record is durable on this device the moment it is remembered and on the
 // network only after a flush. The standing cadence closes that gap on its own;
-// this is for closing it now.
+// this is for closing it now. A forgotten record is the same gap the other way
+// round: it leaves this device at once, and its copy stays on Sia, where a
+// restore on another device finds it, until a flush deletes it.
 func runFlush(ctx context.Context, out *session, args []string) error {
 	cmd := newInvocation("flush").withVault().withVerbose()
 	if err := cmd.parse(out, args); err != nil {
@@ -32,26 +36,45 @@ func runFlush(ctx context.Context, out *session, args []string) error {
 	}
 	defer closing(out, v)
 
-	pending := v.Pending()
-	if pending == 0 {
+	pending, forgotten := v.Pending(), v.ForgottenOnNetwork()
+	if pending == 0 && forgotten == 0 {
 		out.done(ui.MarkSuccess, "Nothing queued: everything on this device is on Sia")
 		return nil
 	}
 	if !v.Online() {
-		return needsIndexer("flush", v, queuedStay(pending))
+		return needsIndexer("flush", v, owedStays(pending, forgotten))
 	}
-	out.watch(flushPhases(out, pending))
-	out.leaves(queuedLeaves(pending)...)
 
-	flushed, err := v.Flush(ctx)
-	if err != nil {
-		return err
+	var flushed *store.Flush
+	if pending > 0 {
+		out.watch(flushPhases(out, pending))
+		out.leaves(queuedLeaves(pending)...)
+		if flushed, err = v.Flush(ctx); err != nil {
+			return err
+		}
 	}
+	var deleted int
+	if forgotten > 0 {
+		out.phase("Deleting forgotten records from Sia")
+		out.leaves(forgottenLeaves(flushed)...)
+		if deleted, err = v.DeleteForgotten(ctx); err != nil {
+			if ctx.Err() != nil {
+				return err
+			}
+			// What did reach Sia is said before what did not. A reader shown
+			// only the failure would write the records again, or take every
+			// forgotten record's copy to be still there.
+			if flushed != nil || deleted > 0 {
+				out.done(flushOutcome(pending, flushed, deleted))
+			}
+			return forgottenStay(forgotten-deleted, err)
+		}
+	}
+
+	out.done(flushOutcome(pending, flushed, deleted))
 	if flushed == nil {
-		out.done(ui.MarkWarning, "The flush wrote nothing")
 		return nil
 	}
-	out.done(ui.MarkSuccess, "Flushed "+plural(len(flushed.Written), "record")+" to Sia")
 	detail := []string{
 		fmt.Sprintf("  wrote     %s in %d object(s) over %d slab(s)",
 			humanBytes(uint64(flushed.Bytes())), len(flushed.Written), len(flushed.Slabs)),
@@ -350,6 +373,7 @@ func runReclaim(ctx context.Context, out *session, args []string) error {
 	opts := vault.ReclaimOptions{ReleaseAll: *releaseAll, TakeOwnership: *takeOwnership}
 	var rows [][2]string
 	var detail []string
+	var notes []ui.Message
 	if *takeOwnership {
 		taken, err := v.TakeOwnership()
 		if err != nil {
@@ -363,6 +387,9 @@ func runReclaim(ctx context.Context, out *session, args []string) error {
 			return err
 		}
 		rows = append(rows, repackRow(packed))
+		if note, ok := goneNote(packed); ok {
+			notes = append(notes, note)
+		}
 		if len(packed.Records) > 0 {
 			detail = append(detail,
 				fmt.Sprintf("repack    %d record(s), %d slab(s) into %d, peak %d, in %s",
@@ -383,7 +410,6 @@ func runReclaim(ctx context.Context, out *session, args []string) error {
 		rows = append(rows, heldRow(sweep.SlabsHeld))
 	}
 
-	var notes []ui.Message
 	if sweep.Unreadable > 0 && !*unreadable {
 		notes = append(notes, ui.Message{Kind: ui.KindHint, Text: fmt.Sprintf(
 			"%s cannot be opened; `--unreadable` removes %s",
@@ -422,6 +448,9 @@ func runReclaim(ctx context.Context, out *session, args []string) error {
 			return err
 		}
 		rows = append(rows, orphansRow(len(found), stranded, released.SlabsReleased))
+		if released.SlabsKept > 0 {
+			rows = append(rows, keptRow(released.SlabsKept))
+		}
 		detail = append(detail, fmt.Sprintf("          released %d slab(s) in %s", released.SlabsReleased, took(released.Elapsed)))
 		orphaned = &released
 	}
@@ -478,8 +507,9 @@ func (w *quotaWindow) add(before, after sia.Account, freed uint64) {
 // It is a function of the stage reports rather than a few lines inside
 // runReclaim because the order is the whole content of the answer, and nothing
 // about that order is observable from a report only a live indexer can produce.
-// A repack with nothing to move never read the account and so contributes
-// neither a reading nor a release; orphans is nil unless the run asked for it.
+// A repack that moved nothing, because there was nothing to move or because
+// every record's copy was gone, released nothing and contributes neither a
+// reading nor a release; orphans is nil unless the run asked for it.
 func reclaimQuota(packed reclaim.Repack, sweep reclaim.Sweep, orphans *reclaim.Sweep) quotaWindow {
 	var window quotaWindow
 	if len(packed.Records) > 0 {
@@ -501,7 +531,10 @@ func ownedRow(slabs int) [2]string {
 }
 
 func repackRow(packed reclaim.Repack) [2]string {
-	if len(packed.Records) == 0 {
+	switch {
+	case len(packed.Records) == 0 && len(packed.Gone) > 0:
+		return [2]string{"Repack", "nothing moved"}
+	case len(packed.Records) == 0:
 		return [2]string{"Repack", "nothing to move"}
 	}
 	return [2]string{"Repack", fmt.Sprintf("%s, %s into %d, peak %d, freed %s",
@@ -604,8 +637,8 @@ func runRecover(ctx context.Context, out *session, args []string) error {
 	}
 	out.done(ui.MarkSuccess, fmt.Sprintf("Recovered %s from %s",
 		plural(report.Recovered, "record"), plural(report.Objects, "object")))
-	if report.Foreign > 0 {
-		out.report([][2]string{{"Skipped", plural(report.Foreign, "frame") + " this phrase does not open"}})
+	if rows := recoverRows(report); len(rows) > 0 {
+		out.report(rows)
 	}
 	if report.Damaged > 0 || report.Unreadable > 0 {
 		out.note(ui.Message{Kind: ui.KindWarning, Text: fmt.Sprintf(
@@ -619,9 +652,11 @@ func runRecover(ctx context.Context, out *session, args []string) error {
 // the plain command deliberately leaves alone.
 func reclaimFlags(cmd *invocation) (repack, orphans, unreadable, takeOwnership, releaseAll *bool) {
 	return cmd.set.Bool("repack", false,
-			"rewrite every live record into as few slabs as it fits in before releasing the rest"),
+			"rewrite every live record into as few slabs as it fits in before releasing the rest; "+
+				"a record whose copy on Sia has been deleted stays where it is"),
 		cmd.set.Bool("orphans", false,
-			"also release slabs the account is billed for that hold nothing, including any stranded by an installation that is gone"),
+			"also release slabs the account is billed for that hold nothing, including any stranded by an installation that is gone; "+
+				"a slab a record on this device still names is kept"),
 		cmd.set.Bool("unreadable", false,
 			"also delete objects the indexer holds but cannot open"),
 		cmd.set.Bool("take-ownership", false,

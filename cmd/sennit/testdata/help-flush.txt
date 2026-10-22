@@ -1,4 +1,4 @@
-Upload queued records to Sia now.
+Upload queued records to Sia now, and delete forgotten records from it.
 
 USAGE
   sennit flush [flags]

@@ -1,0 +1,6 @@
+✓ Released 40.00 MiB (24.3s)
+
+Swept    6 objects, deleted 0, released 0 slabs
+Orphans  2 slabs hold nothing, 1 not in this device's ledger; released 1
+Kept     1 slab that holds nothing, because a record on this device still names it
+Quota    160.00 MiB used before, 120.00 MiB after, freed 40.00 MiB
