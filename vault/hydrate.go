@@ -77,6 +77,10 @@ type HydrateReport struct {
 	// that stopped parsing part way, and Unreadable those that would not open at
 	// all.
 	Foreign, Damaged, Unreadable int
+	// Forgotten counts records the network still held that this device has
+	// forgotten. They are left out, so a hydrate on the device that forgot a
+	// record does not bring it back.
+	Forgotten int
 
 	// WalkFor is the network stage, RebuildFor the session reconstruction and
 	// EmbedFor the index. They are reported apart because they are the three
@@ -116,6 +120,22 @@ func (v *Vault) Hydrate(ctx context.Context, req HydrateRequest) (HydrateReport,
 	if v.client == nil {
 		return HydrateReport{}, errOffline
 	}
+	return v.hydrateOver(ctx, req, v.client.WalkObjectsStats, v.client.ReadObject)
+}
+
+// The two calls a restore makes to the network: the walk that lists the
+// account's objects, and the read that fetches one of them.
+//
+// A restore is given them rather than taking them from the client, so that the
+// whole of it can run over objects held anywhere. The package's tests hold them
+// in memory, the way they stand in for the network in a flush.
+type (
+	walkObjects func(context.Context, func(sia.StoredObject) error) (sia.WalkStats, error)
+	readObject  func(sia.StoredObject) ([]byte, error)
+)
+
+// hydrateOver is Hydrate over the network's walk and read.
+func (v *Vault) hydrateOver(ctx context.Context, req HydrateRequest, walk walkObjects, read readObject) (HydrateReport, error) {
 	if req.Depth == "" {
 		req.Depth = HydrateMetadata
 	}
@@ -130,13 +150,13 @@ func (v *Vault) Hydrate(ctx context.Context, req HydrateRequest) (HydrateReport,
 
 	walkStart := time.Now()
 	v.progress(Progress{Phase: PhaseList})
-	stats, err := v.client.WalkObjectsStats(ctx, func(object sia.StoredObject) error {
+	stats, err := walk(ctx, func(object sia.StoredObject) error {
 		report.Objects++
 		if report.Objects == 1 {
 			v.progress(Progress{Phase: PhaseRestore, Unit: UnitRecords})
 		}
 
-		payload, err := v.client.ReadObject(object)
+		payload, err := read(object)
 		if err != nil {
 			return fmt.Errorf("read object %s: %w", object.Ref, err)
 		}
@@ -152,6 +172,8 @@ func (v *Vault) Hydrate(ctx context.Context, req HydrateRequest) (HydrateReport,
 			switch err := v.hydrateFrame(ctx, frame, object, req, &report); {
 			case errors.Is(err, seal.ErrCorrupt):
 				report.Foreign++
+			case errors.Is(err, errForgotten):
+				report.Forgotten++
 			case err != nil:
 				return err
 			default:
@@ -194,6 +216,12 @@ func (v *Vault) Hydrate(ctx context.Context, req HydrateRequest) (HydrateReport,
 }
 
 // hydrateFrame restores one framed record to the requested depth.
+//
+// A record this device has forgotten is left out, with errForgotten. Its copy
+// stays on the network until this device deletes it, and cataloguing it again
+// would append an entry over the removal: the record would be back, recalled,
+// listed and opened, and the removal that tells a later flush to delete that
+// copy would be gone with it. The slab it sits in is not taken on for it either.
 func (v *Vault) hydrateFrame(ctx context.Context, frame seal.Frame, object sia.StoredObject, req HydrateRequest, report *HydrateReport) error {
 	// The body is decrypted at every depth, including the shallowest. It is
 	// microseconds, and it is the only thing that distinguishes this vault's
@@ -203,6 +231,9 @@ func (v *Vault) hydrateFrame(ctx context.Context, frame seal.Frame, object sia.S
 	body, err := v.sealer.Open(frame.Sealed)
 	if err != nil {
 		return err
+	}
+	if _, forgotten := v.manifest.Removed(frame.ID); forgotten {
+		return errForgotten
 	}
 	cid, err := v.sealer.CID(body)
 	if err != nil {

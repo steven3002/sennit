@@ -35,6 +35,23 @@ each one. **Run `sennit flush` when you want the gap closed**, and `sennit statu
 waiting. An MCP host is a long-running process rather than a command, so it also flushes on the
 deadlines above without being asked.
 
+## Forgetting a record
+
+Forgetting has the same gap the other way round. `forget` takes a record off this device at once,
+and its copy on Sia stays there until a flush deletes it: `sennit flush`, even with nothing
+queued, or the background flush of a running `sennit-mcp`. The answer to `forget` says whether the
+copy is gone yet.
+
+Until it is, `sennit hydrate` or `sennit recover` on another device can still find the record and
+restore it there. On the device that forgot it, neither brings it back. A device that already
+holds the record keeps it, because a forget is not shared between devices.
+
+Deleting the copy does not return its storage: a slab is billed whole, and only `sennit reclaim`
+releases one. On a device that restored the vault from another, the copy is deleted even though
+the other device wrote it. None of that device's storage is released, and it keeps its own copy of
+the record. There, `sennit reclaim` keeps the record and its storage until it is forgotten there
+too: `--repack` leaves the record where it is, and `--orphans` keeps the slab under it.
+
 ## Storage, quota and reclaiming
 
 Sia bills a **slab** whole, 40 MiB, whether it holds one record or a thousand, and a partly filled

@@ -1,0 +1,11 @@
+✓ Released 80.00 MiB (35.7s)
+
+Repack  59 records, 4 slabs into 2, peak 5, freed 80.00 MiB
+Swept   59 objects, deleted 0, released 0 slabs, freed 0 B
+Quota   200.00 MiB used before, 120.00 MiB after, freed 80.00 MiB
+
+ WARNING  1 record was left where it is, because its copy on Sia
+          has been deleted
+  A device that forgets a record deletes its copy, and forgets
+  are not shared between devices. It stays on this device, and
+  keeps its storage, until it is forgotten here too.

@@ -1,0 +1,9 @@
+✓ Hydrated 1,006 records to depth metadata (25.1s)
+
+Indexer                https://sia.storage
+Records                1,006 from 14 objects, 1.92 MiB of ciphertext
+Held on this device    1,006
+Conversations rebuilt  0
+Searchable by meaning  0
+Slabs tracked          14
+Left out               2 records this device has forgotten

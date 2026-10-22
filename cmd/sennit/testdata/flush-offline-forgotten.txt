@@ -1,0 +1,6 @@
+ ERROR  flush needs the indexer, and this run is offline
+  The 37 records stay queued on this device. The 2 forgotten
+  records stay on Sia, where a restore on another device can
+  still bring them back.
+
+ HINT   run it without `--offline`

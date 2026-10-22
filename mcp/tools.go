@@ -334,6 +334,11 @@ that cannot be undone from inside the vault.
 Forgetting a conversation removes its transcript too. Forgetting a memory drawn from a conversation
 leaves the conversation alone.
 
+The record leaves this device at once. Its copy on Sia is deleted afterwards, by this server's
+background flush or by ` + "`sennit flush`" + `, and the response says whether that has happened yet: until
+it has, a restore on another device can still bring the record back. A device that already holds
+the record keeps it, because forgetting does not reach other devices.
+
 This does not immediately return storage. Records share storage with everything written alongside
 them, so space comes back later, when nothing in a batch is still needed. Do not report freed space.
 `),

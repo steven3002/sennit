@@ -84,6 +84,9 @@ func hydrateRows(report vault.HydrateReport, indexer string) [][2]string {
 		{"Searchable by meaning", ui.Commas(report.Embedded)},
 		{"Slabs tracked", ui.Commas(report.Slabs)},
 	}
+	if report.Forgotten > 0 {
+		rows = append(rows, forgottenRow(report.Forgotten))
+	}
 	if report.Foreign > 0 {
 		rows = append(rows, [2]string{"Skipped", plural(report.Foreign, "frame") + " this phrase does not open"})
 	}

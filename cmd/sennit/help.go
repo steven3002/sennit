@@ -209,7 +209,7 @@ var commandHelps = map[string]commandHelp{
 		footer: "Flags go before the query.",
 	},
 	"flush": {
-		summary: "Upload queued records to Sia now.",
+		summary: "Upload queued records to Sia now, and delete forgotten records from it.",
 		usage:   []string{"sennit flush [flags]"},
 		vault:   true, verbose: true,
 		examples: []string{"sennit flush"},

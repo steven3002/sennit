@@ -341,13 +341,16 @@ func (v *Vault) openPacker() error {
 }
 
 // StartFlushing runs the flush deadlines in the background until the vault is
-// closed.
+// closed, and on the same ticks deletes the copies of records forgotten here.
 //
 // It is opt-in because a short-lived command has nothing to gain from a timer:
 // it flushes explicitly, or leaves the queue for the next run. A long-running
-// host is the case the deadlines were written for.
+// host is the case the deadlines were written for, and it is where records are
+// forgotten: a host that forgot one and then wrote nothing would otherwise owe
+// the network its deletion until something else made a flush due.
 func (v *Vault) StartFlushing(ctx context.Context, onError func(error)) {
 	if v.packer != nil {
+		v.packer.OnTick(v.deleteForgottenInBackground)
 		v.packer.Start(ctx, onError)
 	}
 }
