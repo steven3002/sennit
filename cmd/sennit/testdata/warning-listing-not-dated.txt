@@ -1,0 +1,4 @@
+ WARNING  the listing could not be dated by its records, and is
+          tried again at the next open: store meta
+          "listingDatedByRecords": database or disk is full (13)
+✓ Checked this vault (0.4s)

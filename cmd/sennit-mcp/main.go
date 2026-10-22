@@ -110,10 +110,16 @@ func open(ctx context.Context) (*vault.Vault, error) {
 //
 // A change to the catalog that a crash cut off was dropped as the catalog was
 // read, and this is the one place a person hears of it from a server. An agent
-// finds the same in sennit://vault.
+// finds the same in sennit://vault. A listing the vault could not date by its
+// records as it opened is said here too: it stays as it was, and the next open
+// tries again.
 func announce(w io.Writer, v *vault.Vault) {
 	if dropped := v.DroppedCatalogChanges(); dropped > 0 {
 		fmt.Fprintf(w, "sennit-mcp: %s\n", droppedChanges(dropped))
+	}
+	if reason := v.ListingNotDatedBecause(); reason != nil {
+		fmt.Fprintf(w, "sennit-mcp: the listing could not be dated by its records, "+
+			"and is tried again at the next open: %v\n", reason)
 	}
 	fmt.Fprintf(w, "sennit-mcp: serving %s over stdio\n", describe(v))
 }

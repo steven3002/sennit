@@ -91,6 +91,13 @@ func (f *vaultFlags) open(ctx context.Context, out *session, phases phaseNamer) 
 	if dropped := v.DroppedCatalogChanges(); dropped > 0 {
 		out.warn(cutCatalog(dropped))
 	}
+	// A listing the vault could not date by its records as it opened stays as
+	// it was until an open manages it, and every open tries. Nothing later in
+	// the run says so, and it is what explains a listing still dated by a
+	// restore, so it is printed now, whatever the command.
+	if reason := v.ListingNotDatedBecause(); reason != nil {
+		out.warn(undatedListing(reason))
+	}
 	// A vault that wanted the network and did not get it still works, and the
 	// user has to be told which of the two happened. Reads are answered from
 	// this device; writes are queued and owed. It is printed the moment it
