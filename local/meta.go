@@ -17,6 +17,15 @@ func (s *Store) PutMeta(key, value string) error {
 	return nil
 }
 
+// DeleteMeta removes a vault-level setting. Removing one that is not there is
+// not an error, since what the caller wanted is already true.
+func (s *Store) DeleteMeta(key string) error {
+	if _, err := s.db.Exec(`DELETE FROM meta WHERE key = ?`, key); err != nil {
+		return fmt.Errorf("remove meta %q: %w", key, err)
+	}
+	return nil
+}
+
 // GetMeta reads a vault-level setting.
 func (s *Store) GetMeta(key string) (string, error) {
 	var value string

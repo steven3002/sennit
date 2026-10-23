@@ -72,7 +72,7 @@ func (f *vaultFlags) open(ctx context.Context, out *session, phases phaseNamer) 
 		Phrase:     phrase,
 		Indexer:    f.indexer,
 		Offline:    f.offline,
-		OnProgress: out.watch(phases),
+		OnProgress: out.watch(out.rebuilding(phases)),
 	}
 	if !f.offline {
 		appKey, err := keys.AppKeyFromEnv()
@@ -84,6 +84,12 @@ func (f *vaultFlags) open(ctx context.Context, out *session, phases phaseNamer) 
 	v, err := vault.Open(ctx, opts)
 	if err != nil {
 		return nil, err
+	}
+	// A search index found damaged was rebuilt as the vault opened, and nothing
+	// later in the run would say so. Damage in it is never passed over in
+	// silence, so it is printed now, whatever the command.
+	if repair := v.IndexRepair(); repair.Ran {
+		out.warn(rebuiltIndex(repair))
 	}
 	// A change a crash cut off was dropped as the catalog was read, and nothing
 	// later in the run would say so. It is what explains a record that seems to

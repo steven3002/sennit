@@ -68,3 +68,19 @@ skipped it, wait a minute and retry. The first write of any process waits for re
 
 The hosted indexer sits behind a CDN that occasionally returns a gateway error. These are transient
 and retryable; nothing is lost, because a failed flush leaves the records queued on the device.
+
+## "the search index on this device was damaged, and has been rebuilt"
+
+The search index is two files in the vault's directory, `index.base` and `index.delta`, and a part
+of either that cannot be read loses the vectors it held. The records themselves are untouched, so
+before the vault opens it gives a vector to every memory and conversation it holds that has none,
+and says what it found and what it rebuilt. Nothing is asked of you.
+
+Embedding takes a few hundred milliseconds a record, so the first open after the damage can take
+minutes on a large vault, or on one restored by `sennit hydrate` at its default depth, which leaves
+every record without a vector. The live line counts the records as it goes.
+
+`sennit-mcp` rebuilds before it starts serving, and says so in the host's log. A host that stops
+waiting for it loses none of the work: whatever was embedded keeps its vector, and the next run to
+open the vault, the server or any `sennit` command, finishes the rest. `sennit status --offline` in
+a terminal lets it finish while you watch.

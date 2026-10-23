@@ -1,7 +1,6 @@
 package index
 
 import (
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"
@@ -35,6 +34,12 @@ func (s *Store) openTail() (size int64, err error) {
 //
 // The delta is read only when its size is not the size this store last left it
 // at, since only another process can have changed it.
+//
+// What is cut is not always an interrupted append. A length damaged in the
+// middle of the delta stops the framing there too, and then the records after it
+// are cut with it, whole as they are. That is damage, told to the store's
+// watcher before the cut takes it off the disk, so that whatever has to rebuild
+// the vectors it held knows it owes them.
 func (s *Store) settle() (int64, error) {
 	info, err := s.file.Stat()
 	if err != nil {
@@ -49,6 +54,11 @@ func (s *Store) settle() (int64, error) {
 	}
 	end := wholeRecords(s.sealer, raw)
 	if end < len(raw) {
+		if holdsWholeRecord(s.sealer, raw[end:]) {
+			if err := s.tell(Damage{Lost: int64(len(raw) - end)}); err != nil {
+				return 0, err
+			}
+		}
 		if err := s.cut(int64(end)); err != nil {
 			return 0, err
 		}
@@ -62,24 +72,22 @@ func (s *Store) settle() (int64, error) {
 //
 // A record is framed by its length, so a record cut off part way is the one the
 // framing runs out on: its length prefix is short, or it claims more bytes than
-// the file holds, or it claims none, which no record does. The replay reads
+// the file holds, or more than any entry can be, or none, which no record does.
+// The framing is frameAt's, the one the replay reads by, and the replay reads
 // nothing past that point, so cutting there loses nothing it could have
 // reached. A last record whose bytes all landed is still taken for one that
 // never finished if it does not open, because what reached the disk is not what
 // was written. A record that does not open with another one after it is damage
 // rather than an interrupted append, and it is left where it is, for the replay
-// to stop at as it always has.
+// to step over.
 func wholeRecords(sealer Sealer, raw []byte) int {
 	at, last := 0, -1
 	for at < len(raw) {
-		if len(raw)-at < 4 {
+		size, framed := frameAt(raw, at)
+		if !framed {
 			return at
 		}
-		size := int64(binary.LittleEndian.Uint32(raw[at:]))
-		if size == 0 || int64(at)+4+size > int64(len(raw)) {
-			return at
-		}
-		last, at = at, at+4+int(size)
+		last, at = at, at+4+size
 	}
 	if last < 0 {
 		return at

@@ -1,0 +1,11 @@
+ WARNING  the search index on this device was damaged, and has
+          been rebuilt
+  2 records in it could not be read. Every memory and
+  conversation this device holds that had no vector has been
+  given one, 5 in all. 1 vector of a record this device no
+  longer holds was taken out, so a forgotten record cannot come
+  back in a search.
+
+ HINT     a conversation saved recently may be found by an
+          earlier summary until it is next saved
+✓ Checked this vault (2.1s)
