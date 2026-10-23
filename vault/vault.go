@@ -47,6 +47,9 @@ type Vault struct {
 	// the check that gates the first one is not repeated on every later one.
 	ready        atomic.Bool
 	sessionStats sessionCounters
+	// repair is what this open found wrong with the search index, and what it
+	// rebuilt. See IndexRepair.
+	repair indexRepair
 	// offlineBecause records that the vault wanted a connection and could not
 	// get one. It is distinct from the caller asking to be offline, and it is
 	// reported rather than swallowed: silently working from the device is right
@@ -92,6 +95,12 @@ func Open(ctx context.Context, opts Options) (*Vault, error) {
 		return nil, err
 	}
 	if err := v.openIndex(ctx); err != nil {
+		v.Close()
+		return nil, err
+	}
+	// An index found damaged is rebuilt before the vault is handed back, and
+	// before it connects, since everything the rebuild needs is on the device.
+	if err := v.rebuildIndex(ctx); err != nil {
 		v.Close()
 		return nil, err
 	}
@@ -186,7 +195,7 @@ func (v *Vault) openIndex(ctx context.Context) error {
 	v.progress(Progress{Phase: PhaseIndexLoad})
 	v.index = index.New(v.opts.Model.Name, v.opts.Model.Dim)
 
-	vectors, err := index.OpenStore(v.opts.indexDir(), v.sealer)
+	vectors, err := index.OpenStoreWatched(v.opts.indexDir(), v.sealer, v.indexDamaged)
 	if err != nil {
 		return err
 	}
@@ -194,6 +203,9 @@ func (v *Vault) openIndex(ctx context.Context) error {
 
 	stored, err := vectors.Hydrate()
 	if err != nil {
+		return err
+	}
+	if stored, err = v.keepHeld(stored); err != nil {
 		return err
 	}
 	usable, health := classifyVectors(v.opts.Model.Name, v.opts.Model.Dim, stored)

@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/steven3002/sennit/keys"
@@ -58,12 +59,12 @@ func run() int {
 // every call with what to do about it gives them a sentence they can act on,
 // which is what the specification asks for, an unconfigured server is a tool
 // execution error, not a protocol error. The guide reads either way, because it
-// is the one thing a caller that cannot reach its vault still needs.
+// is the one thing a caller that cannot reach its vault still needs. A start
+// stopped before the vault was open is the one exception, see notOpened.
 func serve(ctx context.Context) (*mcp.Server, func()) {
 	opened, err := open(ctx)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "sennit-mcp: %v\n", err)
-		explain(err)
+		notOpened(os.Stderr, ctx, err)
 		return mcp.Unopened(err), func() {}
 	}
 
@@ -95,7 +96,10 @@ func open(ctx context.Context) (*vault.Vault, error) {
 	if err != nil {
 		return nil, err
 	}
-	opts := vault.Options{Home: vault.DefaultHome(), Phrase: phrase, Indexer: vault.DefaultIndexer()}
+	opts := vault.Options{
+		Home: vault.DefaultHome(), Phrase: phrase, Indexer: vault.DefaultIndexer(),
+		OnProgress: rebuildProgress(os.Stderr, time.Now),
+	}
 
 	appKey, err := keys.AppKeyFromEnv()
 	if err != nil {
@@ -112,6 +116,9 @@ func open(ctx context.Context) (*vault.Vault, error) {
 // read, and this is the one place a person hears of it from a server. An agent
 // finds the same in sennit://vault.
 func announce(w io.Writer, v *vault.Vault) {
+	if repair := v.IndexRepair(); repair.Ran {
+		fmt.Fprintf(w, "sennit-mcp: %s\n", rebuiltIndex(repair))
+	}
 	if dropped := v.DroppedCatalogChanges(); dropped > 0 {
 		fmt.Fprintf(w, "sennit-mcp: %s\n", droppedChanges(dropped))
 	}
@@ -138,27 +145,27 @@ func describe(v *vault.Vault) string {
 
 // explain turns the two failures a first run actually hits into instructions
 // rather than an error string.
-func explain(err error) {
+func explain(w io.Writer, err error) {
 	switch {
 	case keys.MissingAppKey(err):
-		fmt.Fprintf(os.Stderr, ""+
+		fmt.Fprintf(w, ""+
 			"  Set %s in this server's environment to the app key issued when you\n"+
 			"  approved this installation with your indexer. In a host's MCP config that is\n"+
 			"  the server's \"env\" block. It is a secret: never pass it as an argument.\n",
 			keys.AppKeyEnv)
 	case keys.WrongAppKeyLength(err):
-		fmt.Fprintf(os.Stderr, ""+
+		fmt.Fprintf(w, ""+
 			"  The key in %s reached this server damaged, most likely\n"+
 			"  truncated by the copy or the secret store it came through. Set it to the\n"+
 			"  whole value approval issued, or run sennit connect again for a new one.\n",
 			keys.AppKeyEnv)
 	case errors.Is(err, keys.ErrNoPhrase):
-		fmt.Fprintf(os.Stderr, ""+
+		fmt.Fprintf(w, ""+
 			"  Set %s in this server's environment. The vault derives its keys from it\n"+
 			"  on every run and never stores it. It cannot be read from stdin here, because\n"+
 			"  stdin carries the protocol.\n", keys.PhraseEnv)
 	}
-	fmt.Fprint(os.Stderr, "  Serving anyway: every tool will report this until it is fixed.\n")
+	fmt.Fprint(w, "  Serving anyway: every tool will report this until it is fixed.\n")
 }
 
 func usage() {

@@ -141,6 +141,11 @@ type VaultDetail struct {
 	// a crash and dropped it, so that a record which has lost its latest change
 	// is not taken for a fault in whatever made that change.
 	Catalog string `json:"catalog,omitempty" jsonschema:"a change to the catalog that a crash cut off and this server dropped, and what that means"`
+	// Index is set when this server found the search index damaged as its vault
+	// opened, or found a rebuild of it owed, and rebuilt it before serving, so
+	// that a conversation found by an earlier summary is not taken for a fault
+	// in whatever saved it.
+	Index string `json:"index,omitempty" jsonschema:"damage this server found in the search index as it opened, and what it rebuilt before serving"`
 }
 
 // A TagUse is one tag and how much of the vault carries it.
@@ -202,6 +207,7 @@ func (s *Server) fillVault(ctx context.Context, detail *VaultDetail) error {
 	}
 	detail.Restore = restoreNote(restoration)
 	detail.Catalog = catalogNote(s.vault.DroppedCatalogChanges())
+	detail.Index = indexNote(s.vault.IndexRepair())
 
 	tags, err := s.vault.TagVocabulary(VocabularyLimit)
 	if err != nil {
@@ -252,6 +258,70 @@ func catalogNote(dropped int) string {
 		"it again. A record being forgotten then may still be here: if the user asked for one to be " +
 		"forgotten just before, check, and forget it again. A `sennit hydrate` or `sennit recover` that " +
 		"was running should be run again."
+}
+
+// indexNote says what rebuilding the search index as the vault opened means for
+// what an agent goes on to search, and nothing when there was no rebuild.
+//
+// The records whose vectors were lost cannot be named: they are the ones the
+// damaged part held, and nothing could read which they were. So the note says
+// what the rebuild did for every record, and what it could not do.
+func indexNote(r vault.IndexRepair) string {
+	if !r.Ran {
+		return ""
+	}
+	var said []string
+	switch skipped, lost := r.Found.Skipped, r.Found.Lost > 0; {
+	case skipped > 0 && lost:
+		said = append(said, fmt.Sprintf("This server found the search index on this device damaged as it "+
+			"opened: %s in it could not be read, nor anything after a damaged record length.", recordCount(skipped)))
+	case skipped > 0:
+		said = append(said, fmt.Sprintf("This server found the search index on this device damaged as it "+
+			"opened: %s in it could not be read.", recordCount(skipped)))
+	case lost:
+		said = append(said, "This server found the search index on this device damaged as it opened: "+
+			"nothing in it after a damaged record length could be read.")
+	default:
+		said = append(said, "An earlier run found the search index on this device damaged, and this "+
+			"server finished rebuilding it as it opened.")
+	}
+	switch {
+	case r.Embedded > 0:
+		said = append(said, fmt.Sprintf("Before serving, it gave every memory and conversation this device "+
+			"holds that had no vector one, %d in all.", r.Embedded))
+	case r.Failed == 0 && !r.Unfinished:
+		said = append(said, "Every memory and conversation this device holds still had its vector.")
+	}
+	if r.Failed > 0 {
+		said = append(said, fmt.Sprintf("%d could not be embedded, and %s found by %s words alone.",
+			r.Failed, oneOrMany(r.Failed, "is", "are"), oneOrMany(r.Failed, "its", "their")))
+	}
+	if r.Dropped > 0 {
+		said = append(said, fmt.Sprintf("It took out %d %s of %s this device no longer holds, so a "+
+			"forgotten record cannot come back in a search.", r.Dropped,
+			oneOrMany(r.Dropped, "vector", "vectors"), oneOrMany(r.Dropped, "a record", "records")))
+	}
+	if r.Unfinished {
+		said = append(said, "Records without a vector were still arriving from another process, so the "+
+			"rest is rebuilt the next time the vault opens.")
+	}
+	said = append(said, "A conversation saved recently may be found by an earlier summary until it is "+
+		"saved again: if the user saved one just before, saving it again puts that right.")
+	return strings.Join(said, " ")
+}
+
+func recordCount(n int) string {
+	if n == 1 {
+		return "1 record"
+	}
+	return fmt.Sprintf("%d records", n)
+}
+
+func oneOrMany(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 // MemoryDetail is one memory as an address returns it.

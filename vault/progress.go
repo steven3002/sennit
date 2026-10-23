@@ -23,6 +23,10 @@ const (
 	PhaseModelLoad Phase = "model-load"
 	// PhaseIndexLoad reads the search vectors from the device.
 	PhaseIndexLoad Phase = "index-load"
+	// PhaseIndexRebuild gives a vector to every record this device holds that
+	// the search index has none for, once a read of the index has found it
+	// damaged. Done and Total count the records.
+	PhaseIndexRebuild Phase = "index-rebuild"
 	// PhaseConnect opens the connection to Sia, which warms a connection to
 	// every host the indexer lists and is the bulk of an online command's fixed
 	// cost.

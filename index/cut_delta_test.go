@@ -166,8 +166,8 @@ func TestAVectorWrittenAfterACutOffRecordSurvivesAReopen(t *testing.T) {
 
 // Only the delta's last record is taken for an interrupted append, wherever in
 // it the cut fell. A record that does not open with a whole one after it was not
-// cut off by a crash, and it is left where it is: the replay stops at it, as it
-// always has, and nothing is cut from the file.
+// cut off by a crash, and it is left where it is: the replay steps over it to the
+// record after it, and nothing is cut from the file.
 func TestOnlyARecordCutOffAtTheEndOfTheDeltaIsTakenOff(t *testing.T) {
 	written, recs := threeRecords(t)
 	whole := bytes.Join(recs[:2], nil)
@@ -186,7 +186,7 @@ func TestOnlyARecordCutOffAtTheEndOfTheDeltaIsTakenOff(t *testing.T) {
 		{"cut half way through its body", joined(whole, last[:len(last)/2]), whole, 2},
 		{"all there in length but not as written", joined(whole, garbled(last)), whole, 2},
 		{"a record that does not open with a whole one after it",
-			joined(recs[0], garbled(recs[1]), last), joined(recs[0], garbled(recs[1]), last), 1},
+			joined(recs[0], garbled(recs[1]), last), joined(recs[0], garbled(recs[1]), last), 2},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			dir := withDelta(t, c.delta)
@@ -201,9 +201,9 @@ func TestOnlyARecordCutOffAtTheEndOfTheDeltaIsTakenOff(t *testing.T) {
 			if len(got) != c.hydrates {
 				t.Fatalf("hydrated %d vectors, want %d", len(got), c.hydrates)
 			}
-			for _, e := range written[:c.hydrates] {
-				if !got[e.ID] {
-					t.Fatalf("a whole record before the damage did not hydrate")
+			for i, e := range written {
+				if bytes.Contains(c.left, recs[i]) && !got[e.ID] {
+					t.Fatalf("a whole record left in the delta did not hydrate")
 				}
 			}
 		})

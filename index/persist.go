@@ -100,14 +100,20 @@ type Store struct {
 	// tail is the size this store last left the delta at, or -1 before it has
 	// looked, so that only a delta another process has changed is read again.
 	tail int64
+	// found, when set, is told of the damage a read of the files or a settling
+	// of the delta meets, under the file lock and before anything is done on the
+	// strength of it. See OpenStoreWatched.
+	found func(Damage) error
 }
 
 // OpenStore opens or creates the persisted index in dir.
-func OpenStore(dir string, sealer Sealer) (*Store, error) {
+func OpenStore(dir string, sealer Sealer) (*Store, error) { return openStore(dir, sealer, nil) }
+
+func openStore(dir string, sealer Sealer, found func(Damage) error) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("prepare index directory %s: %w", dir, err)
 	}
-	store := &Store{dir: dir, sealer: sealer, tail: -1}
+	store := &Store{dir: dir, sealer: sealer, tail: -1, found: found}
 
 	file, err := os.OpenFile(store.path(DeltaName), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o600)
 	if err != nil {
@@ -203,6 +209,9 @@ func (s *Store) Append(entries ...Entry) (err error) {
 // keeps the read clear of the rename that installs a base: on Windows a file
 // that is open cannot be renamed over, and one that is being renamed over
 // cannot be opened.
+//
+// What it cannot read it reads past where it can, and tells the store's watcher
+// of, as readEntries describes.
 func (s *Store) Hydrate() (entries []Entry, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -214,13 +223,30 @@ func (s *Store) Hydrate() (entries []Entry, err error) {
 }
 
 func (s *Store) hydrate() ([]Entry, error) {
+	reading, err := s.read()
+	return reading.Entries, err
+}
+
+// read replays the base and then the delta, for a caller that holds the store
+// and the file lock, and tells the store's watcher of any damage it met before
+// returning what it read.
+//
+// The watcher is told here, inside the read, because every caller acts on what
+// it read while it still holds the lock, and a compaction acts on it by writing
+// a new base without the damage and emptying the delta. Told any later, the
+// damage would already be off the disk.
+func (s *Store) read() (Reading, error) {
 	at := make(map[record.ID]int)
-	var out []Entry
-	replay := func(name string) error {
-		entries, err := readEntries(s.sealer, s.path(name))
+	var (
+		out    []Entry
+		damage Damage
+	)
+	replay := func(name string, delta bool) error {
+		entries, found, err := readEntries(s.sealer, s.path(name), delta)
 		if err != nil {
 			return err
 		}
+		damage = damage.Add(found)
 		for _, entry := range entries {
 			if position, ok := at[entry.ID]; ok {
 				out[position] = entry
@@ -231,28 +257,42 @@ func (s *Store) hydrate() ([]Entry, error) {
 		}
 		return nil
 	}
-	if err := replay(BaseName); err != nil {
-		return nil, err
+	if err := replay(BaseName, false); err != nil {
+		return Reading{}, err
 	}
-	if err := replay(DeltaName); err != nil {
-		return nil, err
+	if err := replay(DeltaName, true); err != nil {
+		return Reading{}, err
 	}
 
+	reading := Reading{Removed: make(map[record.ID]bool), Damage: damage}
 	live := out[:0]
 	for _, entry := range out {
-		if !entry.Removed() {
-			live = append(live, entry)
+		if entry.Removed() {
+			reading.Removed[entry.ID] = true
+			continue
+		}
+		live = append(live, entry)
+	}
+	reading.Entries = live
+	if damage.Found() {
+		if err := s.tell(damage); err != nil {
+			return Reading{}, err
 		}
 	}
-	return live, nil
+	return reading, nil
 }
 
 // Remove withdraws a record from the persisted index.
 //
 // Removal markers are not carried into the base. Unlike the catalog, nothing
 // ever replays an older file over a newer base here, the base is written from
-// what hydration produced, which has already dropped the removed records, so
-// there is no path by which a forgotten vector could come back.
+// what hydration produced, which has already dropped the removed records.
+//
+// Damage is the one way a forgotten vector can come back. A read steps over a
+// record that does not open, and when that record was the removal, the vector
+// written before it reads as live. That is part of why damage is told to the
+// store's watcher: a vault that is told takes out the vector of every record it
+// no longer holds before it searches any of them.
 func (s *Store) Remove(ids ...record.ID) error {
 	entries := make([]Entry, len(ids))
 	for i, id := range ids {
@@ -438,40 +478,99 @@ func encodeEntry(sealer Sealer, entry Entry) ([]byte, error) {
 	return append(line, sealed...), nil
 }
 
-// readEntries parses a whole file, stopping at the first damage.
+// readEntries parses one of the index's files, and reports what of it could not
+// be read.
 //
-// Damage is bounded to the tail rather than fatal, matching how a truncated
-// record blob is treated: the entries before the break are perfectly good, and
-// the records behind the ones that are lost can be re-embedded.
-func readEntries(sealer Sealer, path string) ([]Entry, error) {
+// Damage is bounded rather than fatal, matching how a truncated record blob is
+// treated. A record whose length is whole and whose contents do not open is
+// stepped over, because the length still says where the next one starts, and
+// every record after it is as good as it was. A length that cannot be true says
+// nothing about where anything starts, so the read stops there, and the rest of
+// the file is lost to it. Either way the records behind the lost vectors are on
+// the device, and can be embedded again.
+//
+// The end of the delta is read as the store settles it when it opens. A last
+// record there that the file runs out in, or that does not open, is what a
+// process stopped part way through an append leaves: the record that append was
+// writing is lost, and that is the cost of the interruption rather than damage.
+// It is damage only when a whole record is to be found past the point the read
+// stopped at, because no interrupted append leaves a whole record behind it.
+func readEntries(sealer Sealer, path string, delta bool) ([]Entry, Damage, error) {
 	raw, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
+		return nil, Damage{}, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", path, err)
+		return nil, Damage{}, fmt.Errorf("read %s: %w", path, err)
 	}
 
-	var out []Entry
-	for offset := 0; offset+4 <= len(raw); {
-		size := int(binary.LittleEndian.Uint32(raw[offset:]))
-		offset += 4
-		if size <= 0 || offset+size > len(raw) {
+	var (
+		out    []Entry
+		damage Damage
+	)
+	for at := 0; at < len(raw); {
+		size, framed := frameAt(raw, at)
+		if !framed {
+			if !delta || holdsWholeRecord(sealer, raw[at:]) {
+				damage.Lost += int64(len(raw) - at)
+			}
 			break
 		}
-		body, err := sealer.Open(raw[offset : offset+size])
+		next := at + 4 + size
+		entry, err := openEntry(sealer, raw[at+4:next])
 		if err != nil {
-			break
-		}
-		offset += size
-
-		entry, err := decodeEntry(body)
-		if err != nil {
-			break
+			if !delta || next < len(raw) {
+				damage.Skipped++
+			}
+			at = next
+			continue
 		}
 		out = append(out, entry)
+		at = next
 	}
-	return out, nil
+	return out, damage, nil
+}
+
+const (
+	// maxEntryBody is the longest body encodeEntry can write. The model's name
+	// and the vector's width are each written as a uint16, so a body holds at
+	// most a name of 65535 bytes, a vector of 65535 four-byte values, the two
+	// lengths and the record id.
+	maxEntryBody = 2 + math.MaxUint16 + 2 + record.IDSize + 4*math.MaxUint16
+	// maxSealedEntry is the longest a sealed entry can be. Sealing adds to the
+	// body: the vault's sealer compresses it, which grows bytes that do not
+	// compress by about one in 256, and then adds a 24-byte nonce and a 16-byte
+	// tag. The allowance covers both with room to spare.
+	maxSealedEntry = maxEntryBody + maxEntryBody/128 + 4096
+)
+
+// frameAt reads the length of the record that starts at, and reports whether
+// the record it frames is all there: a length is whole, names some bytes, names
+// no more than the file holds after it, and no more than any entry can be.
+//
+// The last test is what bounds the search past a damaged length. A length read
+// at an arbitrary offset can claim nearly anything, and one claiming more than
+// an entry can be cannot be a record, so it is passed over without opening it.
+// Without it the bytes holdsWholeRecord opens grow with the square of what it
+// searches.
+func frameAt(raw []byte, at int) (int, bool) {
+	if len(raw)-at < 4 {
+		return 0, false
+	}
+	size := int64(binary.LittleEndian.Uint32(raw[at:]))
+	if size == 0 || size > maxSealedEntry || int64(at)+4+size > int64(len(raw)) {
+		return 0, false
+	}
+	return int(size), true
+}
+
+// openEntry unseals and decodes one record.
+func openEntry(sealer Sealer, sealed []byte) (Entry, error) {
+	body, err := sealer.Open(sealed)
+	if err != nil {
+		return Entry{}, err
+	}
+	return decodeEntry(body)
 }
 
 func decodeEntry(body []byte) (Entry, error) {
