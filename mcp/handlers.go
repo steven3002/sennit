@@ -10,6 +10,7 @@ import (
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/steven3002/sennit/local"
+	"github.com/steven3002/sennit/manifest"
 	"github.com/steven3002/sennit/recall"
 	"github.com/steven3002/sennit/record"
 	"github.com/steven3002/sennit/vault"
@@ -999,7 +1000,7 @@ func (s *Server) forget(_ context.Context, _ *sdk.CallToolRequest, in ForgetIn) 
 	switch address.Form {
 	case FormMemory:
 		if err := s.vault.Forget(address.ID); err != nil {
-			return nil, ForgetOut{}, err
+			return s.forgetRefused(address, err)
 		}
 		out.Note = "The memory is gone from this vault. Storage comes back later, when nothing " +
 			"written alongside it is still needed, do not report freed space."
@@ -1014,8 +1015,7 @@ func (s *Server) forget(_ context.Context, _ *sdk.CallToolRequest, in ForgetIn) 
 			if errors.Is(err, vault.ErrNoSession) {
 				// Forgetting what is already gone succeeds. A retry after a
 				// dropped response must not look like a failure.
-				return &sdk.CallToolResult{}, ForgetOut{URI: address.URI,
-					Note: "There was nothing at that address; nothing was removed."}, nil
+				return nothingThere(address)
 			}
 			return nil, ForgetOut{}, err
 		}
@@ -1046,6 +1046,76 @@ func runsLeft(runs []record.ID) string {
 	}
 	return fmt.Sprintf(" The %d run(s) it delegated are stored as conversations of their own and were "+
 		"not removed: %s.", len(runs), strings.Join(addresses, ", "))
+}
+
+// nothingThere answers a forget of an address with nothing behind it.
+//
+// It is a success that says nothing was removed, for a memory and a conversation
+// alike. An agent whose forget went through and whose answer never reached it,
+// on a dropped connection for one, asks again, and a failure then would tell it
+// the record is still stored when it is not.
+func nothingThere(address Address) (*sdk.CallToolResult, ForgetOut, error) {
+	return &sdk.CallToolResult{}, ForgetOut{URI: address.URI,
+		Note: "There was nothing at that address; nothing was removed."}, nil
+}
+
+// forgetRefused answers a forget of a memory that the vault refused.
+//
+// A refusal with the catalog's ErrNotFound means the vault found the memory
+// neither catalogued nor queued, and removed nothing. A memory already forgotten
+// is refused so, and is answered as a conversation already gone is: there was
+// nothing there. That is said only when nothing of the memory is on this device,
+// though. A remember or a forget that stopped part way can leave part of one
+// here, neither catalogued nor queued, where it can still be opened, listed or
+// recalled, and when the vault refuses that too, saying nothing was there would
+// be false. The refusal stands, and says what is left. An id that belongs to a
+// conversation, or to a piece of a transcript, is not a memory at all, and is
+// refused as what it is.
+//
+// Every other refusal goes back as the vault gave it. One is a memory a flush in
+// progress is writing, which is not gone either, and whose refusal already says
+// that nothing was removed and when to forget it again.
+func (s *Server) forgetRefused(address Address, err error) (*sdk.CallToolResult, ForgetOut, error) {
+	if !errors.Is(err, manifest.ErrNotFound) {
+		return nil, ForgetOut{}, err
+	}
+	held, readErr := s.vault.Remainder(address.ID)
+	if readErr != nil {
+		return nil, ForgetOut{}, readErr
+	}
+	switch {
+	case held.Empty():
+		return nothingThere(address)
+	case held.Kind == record.KindSession:
+		return nil, ForgetOut{}, fmt.Errorf("%s is not a memory, and nothing was removed: the record with "+
+			"that id is a conversation, at %s", address.URI, URI(record.KindSession, address.ID))
+	case held.Kind == record.KindChunk:
+		return nil, ForgetOut{}, fmt.Errorf("%s is not a memory, and nothing was removed: the record with "+
+			"that id is part of a conversation's transcript", address.URI)
+	}
+	return nil, ForgetOut{}, fmt.Errorf("%s was not forgotten, and nothing was removed. This device still "+
+		"holds %s, but not its catalog entry or a place in the upload queue, which is how a remember or a "+
+		"forget that stopped part way leaves a memory. Do not tell the user it is gone",
+		address.URI, partsLeft(held))
+}
+
+// partsLeft names what a device holds of a memory, in words an agent can pass
+// on to the user.
+func partsLeft(held vault.Remainder) string {
+	var parts []string
+	if held.Body {
+		parts = append(parts, "its body")
+	}
+	if held.Vector {
+		parts = append(parts, "its search vector")
+	}
+	if held.Rows {
+		parts = append(parts, "its metadata")
+	}
+	if len(parts) < 2 {
+		return strings.Join(parts, "")
+	}
+	return strings.Join(parts[:len(parts)-1], ", ") + " and " + parts[len(parts)-1]
 }
 
 // ── shared ──────────────────────────────────────────────────────────────────
