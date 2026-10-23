@@ -59,7 +59,20 @@ func runRemember(ctx context.Context, out *session, args []string) error {
 		}
 		req.Supersedes = &replaced
 	}
+	return rememberIn(ctx, out, v, req, *flush)
+}
 
+// rememberIn stores one memory in a vault already open, waits for the upload
+// when flush is set, and says what happened.
+//
+// The upload can fail in two places: in the flush the write itself sets off
+// when the queue is due, and in the one --flush asks for. Either way the memory
+// was stored before the upload began, and the output says so, with the id and
+// the command that retries it, because a reader told only that the command
+// failed runs it again and stores a second copy. Only a run that was asked to
+// wait for the upload ends in failure when it fails; a plain remember did what
+// it was asked and warns.
+func rememberIn(ctx context.Context, out *session, v *vault.Vault, req vault.RememberRequest, flush bool) error {
 	result, err := v.Remember(ctx, req)
 	if err != nil {
 		return err
@@ -68,20 +81,29 @@ func runRemember(ctx context.Context, out *session, args []string) error {
 	// from here the memory is on this device however the run ends.
 	out.leaves(onDevice)
 
-	if *flush && !result.OnNetwork && v.Online() {
-		flushed, err := v.Flush(ctx)
-		if err != nil {
-			if !errors.Is(err, context.Canceled) {
-				// The memory is stored and the id is how it is reached, so it
-				// is printed even though the upload failed.
-				out.failed(onDevice)
-				out.result(result.ID.String())
+	if flush && !result.OnNetwork {
+		// An upload the write already tried and failed is not tried again: it
+		// would double the wait for an answer the run already has, and `sennit
+		// flush` is there for a retry.
+		failed := result.FlushFailed
+		if failed == nil && v.Online() {
+			flushed, err := v.Flush(ctx)
+			switch {
+			case errors.Is(err, context.Canceled):
+				return err
+			case err != nil:
+				failed = err
+			case flushed != nil:
+				result.OnNetwork = true
+				result.Flushed = flushed
 			}
-			return err
 		}
-		if flushed != nil {
-			result.OnNetwork = true
-			result.Flushed = flushed
+		if failed != nil {
+			// The memory is stored and the id is how it is reached, so it is
+			// printed even though the upload failed.
+			out.failed(onDevice)
+			out.result(result.ID.String())
+			return notUploaded(failed)
 		}
 	}
 
@@ -91,6 +113,25 @@ func runRemember(ctx context.Context, out *session, args []string) error {
 		queued:   v.Pending(),
 	})
 	return nil
+}
+
+// secondCopy is the one thing a reader must not do about a failed upload, said
+// wherever one is reported.
+const secondCopy = "so do not remember it again: that would store a second copy."
+
+// retryUpload is the command that tries a failed upload again.
+const retryUpload = "`sennit flush` retries the upload"
+
+// notUploaded is the failure of a run that was asked to wait for its upload,
+// and stored the memory without it.
+//
+// It is the upload's own error, as it would be shown on its own, followed by
+// what that leaves and what retries it.
+func notUploaded(err error) error {
+	message := messageFor(err)
+	message.Explanation = append(message.Explanation, "The memory stays queued, "+secondCopy)
+	message.Hints = append(message.Hints, retryUpload)
+	return &problem{message: message, err: err}
 }
 
 // rememberFlags is what sennit remember takes.
@@ -136,7 +177,7 @@ func rememberPhases(out *session) phaseNamer {
 	}
 }
 
-// reportRemembered says which of the three things happened, and only the first
+// reportRemembered says which of the four things happened, and only the first
 // of them may say the memory is on Sia.
 //
 // Saying "saved" without that distinction would be the one dishonest thing this
@@ -146,6 +187,9 @@ func reportRemembered(out *session, outcome writeOutcome) {
 	switch {
 	case outcome.result.OnNetwork && outcome.result.Flushed != nil:
 		out.done(ui.MarkSuccess, "Remembered, and stored on Sia")
+	case outcome.result.FlushFailed != nil:
+		out.done(ui.MarkWarning, "Remembered on this device only: the upload failed, "+
+			"the next flush retries it")
 	case outcome.degraded:
 		out.done(ui.MarkWarning, "Remembered on this device only: the indexer did not answer, "+
 			"the next connected flush uploads it")
@@ -154,8 +198,34 @@ func reportRemembered(out *session, outcome writeOutcome) {
 	}
 	out.result(outcome.result.ID.String())
 	out.detail(writeDetail(outcome)...)
+	if outcome.result.FlushFailed != nil {
+		out.note(flushFailed(outcome.result))
+	}
 	for _, note := range writeAdvice(outcome.result) {
 		out.note(note)
+	}
+}
+
+// flushFailed is the warning a write gives when the flush it set off failed.
+//
+// The write still succeeded, because the memory was stored before the flush
+// began, and the warning is there so that nobody reads the failure as the
+// write's and makes it again. A flush that failed only after its upload had
+// already put the memory on Sia, which is rare, is said apart, since nothing
+// about the memory is left to retry.
+func flushFailed(result vault.RememberResult) ui.Message {
+	if result.OnNetwork {
+		return ui.Message{
+			Kind:        ui.KindWarning,
+			Text:        "the flush that stored it on Sia failed afterwards, on this device: " + result.FlushFailed.Error(),
+			Explanation: []string{"The memory is on Sia all the same, " + secondCopy},
+		}
+	}
+	return ui.Message{
+		Kind:        ui.KindWarning,
+		Text:        "the upload failed: " + result.FlushFailed.Error(),
+		Explanation: []string{"The memory is saved on this device and stays queued, " + secondCopy},
+		Hints:       []string{retryUpload},
 	}
 }
 

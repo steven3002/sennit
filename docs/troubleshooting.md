@@ -59,6 +59,14 @@ conventions on their own: both turn off when the output is piped, redirected or 
 turns colour off, `SENNIT_NO_PROGRESS=1` turns the live line into one plain line per step, and
 `--color=always` forces colour on where you know it is safe.
 
+## `remember` says the upload failed
+
+The memory is stored on this device and stays queued for Sia; only its upload failed. A plain
+`remember` succeeds and warns, and `remember --flush` exits with an error, because the upload it was
+asked to wait for did not happen. Either way, do not run `remember` again, which would store a second
+copy: `sennit flush` retries the upload. The next two entries cover the errors an upload most often
+gives.
+
 ## An error about hosts, or "not enough hosts"
 
 The indexer has not finished funding host accounts. `sennit connect` waits for this; if you

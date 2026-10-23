@@ -116,15 +116,16 @@ func TestTheAdviceAWriteLeaves(t *testing.T) {
 	}
 }
 
-// A write whose upload failed still says where the memory is, and prints the id
-// that reaches it.
+// A write whose upload failed still says where the memory is, prints the id
+// that reaches it, and says not to remember it again, since `sennit flush`
+// retries the upload.
 func TestAFailedUploadStillNamesTheRecord(t *testing.T) {
 	s := ended(t, 80, 12300*time.Millisecond)
 	s.out.phase("Uploading to Sia")
 	s.out.failed(onDevice)
 	s.out.result("9c2e41d07a5b38f6e1d4c0b7a2958e13")
-	report(t.Context(), s.out, refuse("upload batch of 1: finalize packed upload: "+
-		"not enough hosts available to upload slab 0: 22 < 30"))
+	report(t.Context(), s.out, notUploaded(refuse("upload batch of 1: finalize packed upload: "+
+		"not enough hosts available to upload slab 0: 22 < 30")))
 	s.assert(t, "a failed upload", fixture(t, "remember-upload-failed.txt"))
 }
 

@@ -10,17 +10,26 @@ line, lasts until you close it:
 - **On this device**, the record is sealed and durable locally the moment `remember` returns.
 - **On Sia**, the record is on the network, and only a completed flush puts it there.
 
-`remember` says which it achieved on the line it ends with, in one of three wordings:
+`remember` says which it achieved on the line it ends with, in one of four wordings:
 
 ```
 ✓ Remembered on this device, queued for Sia (0.8s)
 ✓ Remembered, and stored on Sia (24.4s)
 ! Remembered on this device only: the indexer did not answer, the next connected flush uploads it (0.6s)
+! Remembered on this device only: the upload failed, the next flush retries it (12.3s)
 ```
 
 The first is what a plain `remember` does, and only the second says the record is on Sia. `sennit
 status` reports what is still queued, and `sennit flush` closes the gap on demand. **No output
 claims durability on Sia before a flush has completed.**
+
+The last appears when a `remember` finds the queue due for a flush, as described below, and the
+upload it sets off fails. The memory was stored before the upload began, so the command still
+succeeds, and a warning gives the upload's error and names `sennit flush` to retry it. **Do not run
+`remember` again: that would store a second copy.** `remember --flush` is the one form that exits
+with an error when its upload fails, because the upload is what it was asked to wait for; it too
+says the memory is saved, prints its id and names `sennit flush`. The `remember` tool of an MCP
+server says the same in the `durability` line of its answer.
 
 ## When a queued record actually reaches Sia
 

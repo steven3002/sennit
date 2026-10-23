@@ -1,0 +1,10 @@
+! Remembered on this device only: the upload failed, the next flush retries it (12.3s)
+9c2e41d07a5b38f6e1d4c0b7a2958e13
+
+ WARNING  the upload failed: upload batch of 2: finalize packed
+          upload: not enough hosts available to upload slab 0:
+          22 < 30
+  The memory is saved on this device and stays queued, so do not
+  remember it again: that would store a second copy.
+
+ HINT     `sennit flush` retries the upload

@@ -53,6 +53,14 @@ type RememberResult struct {
 	OnNetwork bool
 	// Flushed describes the write, when one happened.
 	Flushed *store.Flush
+	// FlushFailed is why the flush this call set off failed, when the queue was
+	// due for one and it did not complete.
+	//
+	// The memory was stored and queued before that flush began, so the call
+	// still succeeds. OnNetwork says whether the memory reached the network
+	// before the failure; one that did not stays queued, and a later flush
+	// writes it. Remembering it again would store a second copy.
+	FlushFailed error
 
 	// Neighbours are the records already in the vault closest to this one, so
 	// the caller can decide whether it has just added a fact, restated one, or
@@ -84,6 +92,11 @@ type RememberResult struct {
 // call returns; reaching the network is queued. That ordering is what makes the
 // user's wait independent of the network, and it is also why the result says
 // plainly whether the record has left the device yet.
+//
+// When the queue is due, the call runs the flush as well. A flush that fails is
+// reported in the result rather than as the call's error, because the memory
+// was stored before the flush began; only an interrupt still ends the call
+// with the flush's error. See RememberResult.FlushFailed.
 func (v *Vault) Remember(ctx context.Context, req RememberRequest) (RememberResult, error) {
 	id, err := record.NewID()
 	if err != nil {
@@ -191,10 +204,24 @@ func (v *Vault) Remember(ctx context.Context, req RememberRequest) (RememberResu
 		Kind: record.KindMemory,
 		Blob: store.Blob{CID: cid.String(), Payload: framed},
 	})
-	if err != nil {
-		return RememberResult{}, err
-	}
 	result.FlushFor = time.Since(start)
+	if err != nil {
+		// The memory is queued before the flush its arrival can set off, so a
+		// flush that failed has not undone the write. Returned as the call's
+		// error, it read as a memory that was never stored, and a caller that
+		// stored it again had two, both bound for the network with the next
+		// flush that worked. So the call goes on, and the result says what
+		// failed and, below, whether the flush got this memory onto the network
+		// first.
+		//
+		// A memory the queue refused is not queued, and an interrupt ends the
+		// call however far the flush had got. Both still fail as they did.
+		var unflushed *packer.FlushError
+		if !errors.As(err, &unflushed) || ctx.Err() != nil {
+			return RememberResult{}, err
+		}
+		result.FlushFailed = unflushed.Err
+	}
 
 	// A memory that names the conversation it came from is recorded on that
 	// conversation too. Both directions are stored because both are asked, and
@@ -222,6 +249,11 @@ func (v *Vault) Remember(ctx context.Context, req RememberRequest) (RememberResu
 	}
 	result.AdviseFor = time.Since(start)
 
+	// Whether the memory reached the network is read from the flush's own
+	// account of what it wrote, whether or not the flush then failed. One whose
+	// upload failed wrote nothing. One that failed after the upload, recording
+	// where the batch landed, wrote this memory, and calling it only queued
+	// would understate what happened.
 	for _, written := range flushed.Flush.Written {
 		if written.CID == cid.String() {
 			result.OnNetwork = true
