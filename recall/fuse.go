@@ -11,8 +11,12 @@ import (
 // ranks rather than scores, so a BM25 score never leaves the index that computed
 // it, which is what lets the lexical pass be replaced without renegotiating a
 // score scale with the ranker.
+//
+// Given a scope, it returns the best k of the records of those classes, which
+// is how a scoped recall draws the lexical half of its pool from the records it
+// may answer with.
 type Lexical interface {
-	SearchLexical(query string, k int) ([]record.ID, error)
+	SearchLexical(query string, k int, scope ...record.Kind) ([]record.ID, error)
 }
 
 // RRFk is the rank-fusion constant. It damps the difference between the top few

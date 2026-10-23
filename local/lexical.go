@@ -111,7 +111,16 @@ func forgetLexical(tx execer, id record.ID) error {
 // The ordering is what the caller uses; the BM25 scores themselves are not
 // returned because fusion consumes ranks, and a score that nothing reads is a
 // score that can drift without any test noticing.
-func (s *Store) SearchLexical(query string, k int) ([]record.ID, error) {
+//
+// Naming classes of record confines the search to the records of those
+// classes, and the k are then the best of them, however many records of other
+// classes match better. Taking the best k of every record and dropping the rest
+// afterwards would leave nothing once k records of another class outranked
+// them all. A record this device holds no metadata for belongs to no class, so
+// a confined search never returns it. A confined search scores each record as
+// the whole search does, because BM25 weighs a term by how rare it is across
+// every record here, not across the records of the classes named.
+func (s *Store) SearchLexical(query string, k int, kinds ...record.Kind) ([]record.ID, error) {
 	if k <= 0 {
 		return nil, nil
 	}
@@ -132,9 +141,27 @@ func (s *Store) SearchLexical(query string, k int) ([]record.ID, error) {
 
 	// bm25() is negative, more so the better the match, so ascending order is
 	// best first.
-	rows, err := s.db.Query(
-		`SELECT record_id FROM record_lexical WHERE record_lexical MATCH ?
-		 ORDER BY bm25(record_lexical) LIMIT ?`, match, k)
+	statement := `SELECT record_id FROM record_lexical WHERE record_lexical MATCH ?
+		 ORDER BY bm25(record_lexical) LIMIT ?`
+	args := []any{match, k}
+	if len(kinds) > 0 {
+		// Each match is looked up in the metadata by its id, which is the
+		// metadata's key, rather than tested against a list of every record of
+		// the class built for the query. Building that list is a pass over the
+		// whole table before the first match is read, and over ten thousand
+		// records it made the search cost up to two fifths more.
+		classes := make([]any, len(kinds))
+		for i, kind := range kinds {
+			classes[i] = string(kind)
+		}
+		statement = `SELECT record_lexical.record_id FROM record_lexical
+		 JOIN record_meta ON record_meta.record_id = record_lexical.record_id
+		 WHERE record_lexical MATCH ? AND record_meta.kind IN (` +
+			strings.TrimSuffix(strings.Repeat("?,", len(kinds)), ",") + `)
+		 ORDER BY bm25(record_lexical) LIMIT ?`
+		args = append(append([]any{match}, classes...), k)
+	}
+	rows, err := s.db.Query(statement, args...)
 	if err != nil {
 		return nil, fmt.Errorf("lexical search: %w", err)
 	}
