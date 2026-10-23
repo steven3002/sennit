@@ -18,6 +18,24 @@ import (
 // Records are still queued, and a later online run writes them.
 var ErrOffline = errors.New("packer has no connection to the network")
 
+// A FlushError is a flush that failed after Add had queued its record.
+//
+// Add puts the record in the queue before it runs the flush the queue has
+// become due for, so this failure does not undo the write: the record is on
+// disk and owed to the network, and a later flush carries it. A caller that
+// took it for a write that did not happen would write the record again, and
+// both copies would reach the network with the next flush that succeeds.
+//
+// The Result Add returns beside it says what the flush wrote before it failed.
+// That is nothing when the upload is what failed, and the whole batch when a
+// step after the upload did, such as recording where the batch landed: the
+// records are on the network then, and what failed was this device's account
+// of them.
+type FlushError struct{ Err error }
+
+func (e *FlushError) Error() string { return e.Err.Error() }
+func (e *FlushError) Unwrap() error { return e.Err }
+
 // A Queued record is one sealed body awaiting a flush.
 type Queued struct {
 	ID   record.ID
@@ -88,7 +106,10 @@ func (r Result) Empty() bool { return len(r.Records) == 0 }
 // Add queues a sealed record and flushes if the policy says it is due.
 //
 // The record is on disk before this returns, so a process that exits here has
-// deferred the write rather than lost it.
+// deferred the write rather than lost it. That is also why the two ways this
+// can fail are told apart: a record the queue refused is stored nowhere, and
+// comes back as the queue's own error, while a flush that fails afterwards
+// leaves the record queued, and comes back as a FlushError.
 func (p *Packer) Add(ctx context.Context, item Queued) (Result, error) {
 	if item.Since.IsZero() {
 		item.Since = time.Now()
@@ -116,7 +137,11 @@ func (p *Packer) Add(ctx context.Context, item Queued) (Result, error) {
 	if !due || p.store == nil {
 		return Result{}, nil
 	}
-	return p.flush(ctx, reason)
+	result, err := p.flush(ctx, reason)
+	if err != nil {
+		return result, &FlushError{Err: err}
+	}
+	return result, nil
 }
 
 // Withdraw takes a record back out of the queue, so that no flush writes it,
