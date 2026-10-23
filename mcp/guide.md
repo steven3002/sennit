@@ -37,6 +37,11 @@ The response to a write tells you how many records already carry each tag you us
 too common in this vault to narrow a search. That is the one moment at which it is cheap to fix:
 records are immutable once written.
 
+A `remember` stores the memory on the user's device before any upload it sets off, so it succeeds
+even when that upload fails. The response then says so, with the upload's error, and the memory
+stays queued for a later flush. It is stored: do not remember it again, which would store a second
+copy.
+
 ## Searching
 
 Pass the user's actual question, in their words. The ranking is mostly by meaning and partly by

@@ -455,7 +455,7 @@ func (s *Server) remember(ctx context.Context, _ *sdk.CallToolRequest, in Rememb
 		ID:         stored.ID.String(),
 		Stored:     stored.Stored.String(),
 		OnNetwork:  stored.OnNetwork,
-		Durability: durability(stored.OnNetwork),
+		Durability: durability(stored.OnNetwork, stored.FlushFailed),
 	}
 	for _, neighbour := range stored.Neighbours {
 		out.Neighbours = append(out.Neighbours, neighbourOut(neighbour))
@@ -495,9 +495,24 @@ func neighbourOut(neighbour vault.Neighbour) NeighbourOut {
 // dropped: an interface that reports `onNetwork: false` and nothing else invites
 // a summary of "saved to Sia", which is the one claim this project must not make
 // before it is true.
-func durability(onNetwork bool) string {
-	if onNetwork {
+//
+// A flush the write set off and that then failed is said in the same sentence,
+// with its error. The memory is stored either way, and an answer that let the
+// failure speak for the whole write was taken for a write that never happened:
+// an agent wrote it again, and stored a second copy.
+func durability(onNetwork bool, flushFailed error) string {
+	switch {
+	case onNetwork && flushFailed != nil:
+		return fmt.Sprintf("Stored on this device and written to the network. The flush that wrote it "+
+			"failed afterwards, on this device (%v), and that does not change where the memory is: "+
+			"do not remember it again.", flushFailed)
+	case onNetwork:
 		return "Stored on this device and written to the network."
+	case flushFailed != nil:
+		return fmt.Sprintf("Stored on this device, and still queued for the network: the upload this call "+
+			"set off failed (%v). A later flush retries it: this server's next one, or `sennit flush`. "+
+			"The memory is stored, so do not remember it again, and do not tell the user it is on the "+
+			"network yet.", flushFailed)
 	}
 	return "Stored on this device. It reaches the network on the vault's ordinary schedule, " +
 		"within the hour. Do not tell the user it is on the network yet."
