@@ -51,6 +51,63 @@ func (i *Index) Search(query []float32, k int) ([]Match, error) {
 	return out, nil
 }
 
+// SearchWithin returns the k nearest records that within accepts, and the k
+// nearest of every record, each best first.
+//
+// A search that only some records may answer has to reach past every nearer
+// record that may not. Search cannot do that from outside: once its k nearest
+// are all records the caller does not want, nothing the caller does want is
+// left to choose from. So the records outside are kept out of the heap rather
+// than out of the answer, and the k nearest that remain are found however many
+// nearer ones there are.
+//
+// The k nearest of every record come back with them because a caller who
+// confined a search still has to be able to say what the confinement left out,
+// and the vectors are scored once for both. Each heap is kept exactly as Search
+// keeps its one, so the second answer is what Search returns, and keeping it
+// costs a comparison per vector rather than a second pass over the matrix.
+func (i *Index) SearchWithin(query []float32, k int, within func(record.ID) bool) (among, all []Match, err error) {
+	if len(query) != i.dim {
+		return nil, nil, fmt.Errorf("index holds %d-dimension vectors, query has %d", i.dim, len(query))
+	}
+	if k <= 0 {
+		return nil, nil, nil
+	}
+
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+
+	keep := func(best *matchHeap, match Match) {
+		if len(*best) < k {
+			heap.Push(best, match)
+			return
+		}
+		if match.Score > (*best)[0].Score {
+			(*best)[0] = match
+			heap.Fix(best, 0)
+		}
+	}
+	inside := make(matchHeap, 0, k+1)
+	every := make(matchHeap, 0, k+1)
+	for n, id := range i.ids {
+		match := Match{ID: id, Score: dot(query, i.vectors[n*i.dim:(n+1)*i.dim])}
+		keep(&every, match)
+		if within(id) {
+			keep(&inside, match)
+		}
+	}
+	return drain(inside), drain(every), nil
+}
+
+// drain empties a heap into a slice, best first.
+func drain(best matchHeap) []Match {
+	out := make([]Match, len(best))
+	for n := len(out) - 1; n >= 0; n-- {
+		out[n] = heap.Pop(&best).(Match)
+	}
+	return out
+}
+
 // dot is cosine similarity for unit vectors, which is what the embedder emits.
 func dot(a, b []float32) float32 {
 	var sum float32
