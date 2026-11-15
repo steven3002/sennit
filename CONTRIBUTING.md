@@ -1,6 +1,6 @@
 # Contributing to Sennit
 
-Thanks for your interest. Sennit is early, the architecture is settled and validated, but the implementation has not started. That makes this a good moment for **design discussion and bug reports**, and a poor moment for large speculative pull requests.
+Thanks for your interest. Sennit is in beta: the architecture is settled and validated, and releases have shipped since 2026-09-04. That makes this a good moment for **bug reports and design discussion**, and a poor moment for large speculative pull requests.
 
 ## Before you start
 

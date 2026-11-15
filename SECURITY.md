@@ -38,4 +38,12 @@ Stated plainly so reports can be triaged fairly:
 
 ## Supported versions
 
-Pre-alpha; there is no released version yet. Once releases begin, this section will state which are supported.
+Sennit is in beta. **Security fixes go into the latest release and into `main`.** Earlier releases are not patched: the fix for them is to update.
+
+| Version | Security fixes |
+|---|---|
+| The latest release, the first one on the [releases page](https://github.com/steven3002/sennit/releases) | Yes |
+| `main` | Yes |
+| Any earlier release | No, update to the latest |
+
+**A report about an earlier release is still welcome.** We check it against the latest release. If the problem is still there, it is fixed there and you are credited as for any other report. If it is already gone, we tell you which release removed it.
