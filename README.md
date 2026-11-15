@@ -6,7 +6,7 @@ Sennit gives an AI agent a long-term memory that belongs to **you** rather than 
 
 > **Status: beta.** The substrate, the CLI and the MCP server are built and measured against the live
 > Sia network, and the [quickstart](docs/quickstart.md) is tested end to end. **Prebuilt binaries are
-> available**, see [`v0.1.0-beta-mvp`](https://github.com/steven3002/sennit/releases/tag/v0.1.0-beta-mvp).
+> available**, see [`v0.2.0-beta-mvp`](https://github.com/steven3002/sennit/releases/tag/v0.2.0-beta-mvp).
 > It is beta because it works and is measured, and because it has been used by very few people. See
 > [Status](docs/status.md) for what is and is not proven, and [What's changing](docs/whats-changing.md)
 > for the parts of the quickstart a coming release replaces.

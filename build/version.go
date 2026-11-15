@@ -7,7 +7,7 @@
 package build
 
 // Version is the release this binary was cut from. Bump it in one place.
-const Version = "0.1.0-beta-mvp"
+const Version = "0.2.0-beta-mvp"
 
 // Commit and Date are stamped at link time by scripts/release.sh:
 //
