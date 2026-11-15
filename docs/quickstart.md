@@ -16,12 +16,12 @@ Roughly ten minutes, most of it waiting for one download and one approval click.
 ## 1. Install
 
 **Download a release.** Pick the archive for your machine from
-[`v0.1.0-beta-mvp`](https://github.com/steven3002/sennit/releases/tag/v0.1.0-beta-mvp). `amd64` is an
+[`v0.2.0-beta-mvp`](https://github.com/steven3002/sennit/releases/tag/v0.2.0-beta-mvp). `amd64` is an
 ordinary Intel or AMD machine; `arm64` on macOS is any Apple Silicon Mac, an M1 or later.
 
 ```sh
-tag=v0.1.0-beta-mvp
-file=sennit_0.1.0-beta-mvp_linux_amd64.tar.gz     # change to match your platform
+tag=v0.2.0-beta-mvp
+file=sennit_0.2.0-beta-mvp_linux_amd64.tar.gz     # change to match your platform
 base=https://github.com/steven3002/sennit/releases/download/$tag
 
 curl -sSLO "$base/$file"
@@ -39,8 +39,8 @@ sennit version
 On Windows, in PowerShell:
 
 ```powershell
-$tag  = "v0.1.0-beta-mvp"
-$file = "sennit_0.1.0-beta-mvp_windows_amd64.zip"
+$tag  = "v0.2.0-beta-mvp"
+$file = "sennit_0.2.0-beta-mvp_windows_amd64.zip"
 $base = "https://github.com/steven3002/sennit/releases/download/$tag"
 
 Invoke-WebRequest "$base/$file" -OutFile $file
