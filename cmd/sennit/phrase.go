@@ -51,27 +51,22 @@ func terminalPhrases(interrupted <-chan struct{}) phraseSource {
 	}
 }
 
-// readPhrase takes the recovery phrase from the environment or a pipe, then
-// from the profile sennit connect stored, and asks for it when none of them
-// supplied one and there is somebody to ask.
+// readPhrase takes the recovery phrase from the environment, then from the
+// profile sennit connect stored, then from a pipe, and asks for it when none of
+// them supplied one and there is somebody to ask.
 //
-// The order is the point and does not change. The environment comes first and
-// a pipe second, each of them something this run was handed on purpose; the
-// stored profile third; and a question only when all of them were silent. So
-// nothing that runs without a person behaves differently than it did before
-// there was a prompt or a profile, and a run with no phrase anywhere and no
-// terminal still refuses, with the message it always gave.
+// The order is the point. The environment comes first, something this run was
+// handed on purpose. The stored profile comes before stdin, because a command
+// run inside a script, or over ssh, inherits a stdin that was never meant for
+// it: read first, the next line of whatever was being fed in would be taken for
+// the phrase, and the rest of it swallowed. So once a phrase is stored, stdin
+// is left alone. With nothing stored a pipe is read as it always was, and a
+// question is asked only when everything was silent, so a run with no phrase
+// anywhere and no terminal still refuses, with the message it always gave.
 func (s *session) readPhrase() (string, error) {
-	phrase, err := keys.ReadPhrase(s.phrases.stdin)
-	if err == nil {
-		s.sources.phrase = fromStdin
-		if strings.TrimSpace(os.Getenv(keys.PhraseEnv)) != "" {
-			s.sources.phrase = keys.PhraseEnv
-		}
+	if phrase := strings.TrimSpace(os.Getenv(keys.PhraseEnv)); phrase != "" {
+		s.sources.phrase = keys.PhraseEnv
 		return phrase, nil
-	}
-	if !errors.Is(err, keys.ErrNoPhrase) {
-		return "", err
 	}
 	stored, _, found, err := s.savedProfile()
 	if err != nil {
@@ -81,8 +76,13 @@ func (s *session) readPhrase() (string, error) {
 		s.sources.phrase = fromProfile
 		return stored.Phrase, nil
 	}
-	if !s.phrases.interactive {
-		return "", keys.ErrNoPhrase
+	phrase, err := keys.ReadPhrase(s.phrases.stdin)
+	if err == nil {
+		s.sources.phrase = fromStdin
+		return phrase, nil
+	}
+	if !errors.Is(err, keys.ErrNoPhrase) || !s.phrases.interactive {
+		return "", err
 	}
 
 	fmt.Fprint(s.stderr, phrasePrompt)

@@ -84,6 +84,38 @@ func TestAStoredProfileSuppliesWhatTheEnvironmentDoesNot(t *testing.T) {
 	}
 }
 
+// Once a phrase is stored, stdin is left alone. A command run inside a script
+// or over ssh inherits a stdin that is not for it, and reading it would take
+// the next line of the script for the phrase and swallow the rest. Found on a
+// server, where `ssh host 'bash -s' < script` lost every line after the first
+// sennit command.
+func TestAStoredProfileLeavesStdinUnread(t *testing.T) {
+	const meantForSomethingElse = "the next line of a script\nand the one after it\n"
+	stdin := strings.NewReader(meantForSomethingElse)
+	s, _ := asked(t, stdin, false, "", nil)
+	stored, _ := withStoredProfile(t, s, sia.DefaultIndexer)
+
+	phrase, err := s.out.readPhrase()
+	if err != nil || phrase != stored.Phrase || s.out.sources.phrase != fromProfile {
+		t.Fatalf("the phrase came from %q (%v), want the stored profile", s.out.sources.phrase, err)
+	}
+	if stdin.Len() != len(meantForSomethingElse) {
+		t.Errorf("stdin was read with a phrase stored: %d of %d bytes left", stdin.Len(), len(meantForSomethingElse))
+	}
+}
+
+// With nothing stored, a pipe is read as it always was.
+func TestWithNothingStoredAPipeIsStillRead(t *testing.T) {
+	t.Setenv(keys.PhraseEnv, "")
+	s, _ := asked(t, strings.NewReader("twelve words from a pipe\n"), false, "", nil)
+	s.out.profiles = profile.At(t.TempDir(), profiletest.NewKeychain())
+
+	phrase, err := s.out.readPhrase()
+	if err != nil || phrase != "twelve words from a pipe" || s.out.sources.phrase != fromStdin {
+		t.Errorf("read %q from %q (%v), want the piped phrase", phrase, s.out.sources.phrase, err)
+	}
+}
+
 // The environment comes first, as it always has, and a variable naming a key
 // other than the stored one is used and said out loud.
 func TestTheEnvironmentComesBeforeTheStoredProfile(t *testing.T) {
