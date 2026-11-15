@@ -8,6 +8,7 @@ import (
 	"github.com/steven3002/sennit/local"
 	"github.com/steven3002/sennit/manifest"
 	"github.com/steven3002/sennit/record"
+	"github.com/steven3002/sennit/seal"
 	"github.com/steven3002/sennit/sia"
 	"github.com/steven3002/sennit/store/reclaim"
 )
@@ -174,11 +175,45 @@ func (v *Vault) Watermark(ctx context.Context) (reclaim.WatermarkCheck, error) {
 	if err != nil {
 		return reclaim.WatermarkCheck{}, err
 	}
-	tracked, err := v.reclaimer.Tracked()
-	if err != nil {
-		return reclaim.WatermarkCheck{}, err
+	writes := repackWrites(v.manifest.Entries(), slabBytes)
+	return reclaim.Watermark(account, writes, uint64(slabBytes)), nil
+}
+
+// repackWrites is how many slabs a repack of these records would write.
+//
+// Repack writes every live record again, end to end, so it fills as many slabs
+// as their bytes come to and no more. That is the room it needs, whatever
+// number of slabs the records are spread across today.
+//
+// Each record is counted with a frame on top. A flush catalogues the framed
+// payload it uploaded, and a repack uploads exactly that again; hydrate and
+// recover catalogue the sealed body inside the frame, which is short of it.
+// Counted with a frame, every record is counted at least at its true size, so
+// the total can only be high, and a high total costs at most one slab of
+// headroom it did not need. A low one would let a repack start that then runs
+// out of room part way.
+//
+// An entry that does not say how large its record is leaves the total unknown.
+// The answer is then the number of slabs the records are on now, which they
+// cannot outgrow, since they fit in those slabs already.
+func repackWrites(entries []manifest.Entry, slabBytes int64) int {
+	var total int64
+	on := make(map[string]struct{})
+	sized := true
+	for _, entry := range entries {
+		if entry.SlabID != "" {
+			on[entry.SlabID] = struct{}{}
+		}
+		if entry.Bytes <= 0 {
+			sized = false
+			continue
+		}
+		total += int64(entry.Bytes + seal.FrameOverhead(entry.Bytes))
 	}
-	return reclaim.Watermark(account, len(tracked), uint64(slabBytes)), nil
+	if !sized {
+		return len(on)
+	}
+	return reclaim.SlabsFor(total, slabBytes)
 }
 
 // TrackedSlabs lists every slab this vault has pinned.

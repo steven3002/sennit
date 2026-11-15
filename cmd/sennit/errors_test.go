@@ -96,7 +96,7 @@ func TestTheReclaimRefusals(t *testing.T) {
 	s := terminal(t, 80)
 	for i, p := range []*problem{
 		refuse("3 records are queued and not yet on the network").try("flush before reclaiming: `sennit flush`"),
-		refuse("repack needs 120.00 MiB free to hold the old and new slabs at once, and there is less than that"),
+		refuse("repack needs 120.00 MiB free for the slabs it writes before it releases the old ones, and there is less than that"),
 		refuse("the catalog holds no records while 1 slab is pinned").
 			because("That is what an emptied vault looks like and also what a lost or unreadable catalog looks like.").
 			try("check the vault is opened against the right home directory",

@@ -319,7 +319,7 @@ func repackAdvice(due, affordable bool) string {
 	case due && affordable:
 		return "worth running, and there is room for it"
 	case due:
-		return "worth running, but there is no longer room for the slabs it would hold at once"
+		return "worth running, but there is no longer room for the slabs it would write"
 	default:
 		return "not needed yet"
 	}
@@ -604,7 +604,7 @@ func repackNow(ctx context.Context, v *vault.Vault) (reclaim.Repack, error) {
 	}
 	if !mark.Affordable {
 		return reclaim.Repack{}, refuse(fmt.Sprintf(
-			"repack needs %s free to hold the old and new slabs at once, and there is less than that",
+			"repack needs %s free for the slabs it writes before it releases the old ones, and there is less than that",
 			humanBytes(mark.Headroom)))
 	}
 	return v.Repack(ctx)

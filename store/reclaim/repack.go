@@ -46,9 +46,9 @@ type Repack struct {
 	// side of the operation, counting the slabs kept for the records in Gone.
 	// Collapsing many partly-filled slabs into a full one is the entire point.
 	SlabsBefore, SlabsAfter int
-	// Peak is the largest number of slabs alive at once during the operation.
-	// It is one more than the account started with, which is why an account
-	// with no headroom cannot run this.
+	// Peak is the largest number of slabs alive at once during the operation:
+	// the ones these records started on and the ones written for them. It is
+	// why an account with no headroom cannot run this.
 	Peak int
 
 	Before, After sia.Account
@@ -318,9 +318,29 @@ type WatermarkCheck struct {
 	Headroom uint64
 }
 
+// SlabsFor reports how many slabs a batch of this many payload bytes fills.
+//
+// A batch is written as one packed upload, which lays its objects end to end
+// and lets one run over from a slab into the next. So the count is the bytes
+// over what a slab holds, rounded up, with nothing added per object.
+func SlabsFor(payloadBytes, slabBytes int64) int {
+	if payloadBytes <= 0 || slabBytes <= 0 {
+		return 0
+	}
+	return int((payloadBytes + slabBytes - 1) / slabBytes)
+}
+
 // Watermark reports where an account stands against the repack threshold.
-func Watermark(account sia.Account, slabs int, slabBytes uint64) WatermarkCheck {
-	check := WatermarkCheck{Headroom: uint64(slabs) * slabBytes}
+//
+// writes is the number of slabs a repack would write, which is the room it
+// needs. It is not the number of slabs the records are spread across. A repack
+// holds the old slabs and the new ones together only until the old are
+// released, and the old ones are already paid for, so what has to be free is
+// the new ones alone: one slab, for most vaults, however many it reads from.
+// Asking for as much room as the account already holds refused every account
+// past half full, which is the account a repack exists for.
+func Watermark(account sia.Account, writes int, slabBytes uint64) WatermarkCheck {
+	check := WatermarkCheck{Headroom: uint64(writes) * slabBytes}
 	if account.MaxPinnedData == 0 {
 		return check
 	}
