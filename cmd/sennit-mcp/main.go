@@ -209,6 +209,11 @@ func announce(w io.Writer, v *vault.Vault) {
 	if dropped := v.DroppedCatalogChanges(); dropped > 0 {
 		fmt.Fprintf(w, "sennit-mcp: %s\n", droppedChanges(dropped))
 	}
+	if who := v.FolderOpenTo(); who != "" {
+		fmt.Fprintf(w, "sennit-mcp: the vault's folder can be read by other accounts on this machine: it lets in %s. "+
+			"Sennit keeps every file it makes there for this account alone, and leaves a folder it did not make "+
+			"as it was set\n", who)
+	}
 	if reason := v.ListingNotDatedBecause(); reason != nil {
 		fmt.Fprintf(w, "sennit-mcp: the listing could not be dated by its records, "+
 			"and is tried again at the next open: %v\n", reason)

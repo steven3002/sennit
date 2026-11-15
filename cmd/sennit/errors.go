@@ -188,6 +188,29 @@ func cutCatalog(changes int) ui.Message {
 // listing by the records it lists as it opened. It is one line: nothing was
 // lost and nothing is asked of the reader, because the listing stays as it was
 // and the next open tries again.
+// folderOpenTo warns that the vault's folder was already there and other
+// accounts can read it.
+//
+// Sennit's own files in it are this account's alone whatever the folder
+// allows. The folder still shows anyone it lets in what is there and how large
+// it is, and a file any other program puts there takes the folder's access. A
+// folder Sennit did not make may be shared on purpose, so it is not changed.
+func folderOpenTo(home, who, goos string) ui.Message {
+	hint := "`chmod 700 " + posixWord(home) + "` makes it yours alone"
+	if goos == "windows" {
+		hint = "remove the other accounts from the folder's access list, under Security in its Properties"
+	}
+	return ui.Message{
+		Kind: ui.KindWarning,
+		Text: "the vault's folder can be read by other accounts on this machine",
+		Data: []string{home},
+		Explanation: []string{"It lets in " + who + ". Sennit keeps every file it makes there for this " +
+			"account alone, but the folder shows what is there, and a file another program puts in it takes " +
+			"the folder's access. Sennit did not make this folder, so it leaves it as it was set."},
+		Hints: []string{hint},
+	}
+}
+
 func undatedListing(reason error) ui.Message {
 	return ui.Message{
 		Kind: ui.KindWarning,

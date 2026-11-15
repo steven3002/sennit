@@ -111,6 +111,11 @@ func (f *vaultFlags) open(ctx context.Context, out *session, phases phaseNamer) 
 	if reason := v.ListingNotDatedBecause(); reason != nil {
 		out.warn(undatedListing(reason))
 	}
+	// A folder others can read was already there, and is left as it was set,
+	// so it is said at every open until somebody narrows it.
+	if who := v.FolderOpenTo(); who != "" {
+		out.warn(folderOpenTo(f.home, who, out.probe.GOOS))
+	}
 	// A vault that wanted the network and did not get it still works, and the
 	// user has to be told which of the two happened. Reads are answered from
 	// this device; writes are queued and owed. It is printed the moment it

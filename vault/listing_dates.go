@@ -186,3 +186,11 @@ func (d *listingDater) recordNoTime(chunks []record.ChunkRef) (bool, error) {
 	}
 	return true, nil
 }
+
+// FolderOpenTo names who besides this account can read the vault's folder, or
+// returns "" when nobody can.
+//
+// It is "" for a folder this vault made, since it makes them this account's
+// alone. A folder that was already there is left as it was set, because it may
+// be shared on purpose, and this is how a caller says so.
+func (v *Vault) FolderOpenTo() string { return v.folderOpenTo }

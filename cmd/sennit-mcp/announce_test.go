@@ -78,7 +78,9 @@ func announced(t *testing.T, home string) []string {
 // other way to tell that person that the vault it opened had a change cut off
 // by a crash. It is said before the line that says what is being served.
 func TestTheServerTellsItsHostOfACatalogChangeACrashCutOff(t *testing.T) {
-	home := t.TempDir()
+	// A folder the vault makes, so that where the test runs does not decide
+	// whether the folder is one other accounts can read.
+	home := filepath.Join(t.TempDir(), "vault")
 	catalogueTwoRecords(t, home)
 	path := filepath.Join(home, manifest.LogName)
 	raw, err := os.ReadFile(path)

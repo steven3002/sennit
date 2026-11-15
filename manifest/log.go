@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/steven3002/sennit/internal/filelock"
+	"github.com/steven3002/sennit/internal/private"
 	"github.com/steven3002/sennit/record"
 	"github.com/steven3002/sennit/seal"
 )
@@ -63,7 +64,8 @@ type Sealer = seal.Sealer
 
 // OpenLog opens or creates the catalog in dir.
 func OpenLog(dir string, sealer *Sealer) (*Log, error) {
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	// Made the way the vault makes its folder, since this is often the same one.
+	if _, err := private.Folder(dir); err != nil {
 		return nil, fmt.Errorf("prepare manifest directory %s: %w", dir, err)
 	}
 	log := &Log{dir: dir, sealer: sealer}
@@ -71,6 +73,12 @@ func OpenLog(dir string, sealer *Sealer) (*Log, error) {
 	file, err := os.OpenFile(log.path(LogName), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open manifest log in %s: %w", dir, err)
+	}
+	// The mode above means nothing on Windows, where a new file takes its
+	// folder's access, and a vault may be kept in a folder others can read.
+	if err := private.Restrict(file); err != nil {
+		file.Close()
+		return nil, fmt.Errorf("make the manifest log in %s private: %w", dir, err)
 	}
 	log.file = file
 	if log.lock, err = filelock.Open(log.path(LockName)); err != nil {

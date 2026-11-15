@@ -106,6 +106,17 @@ skipped it, wait a minute and retry. The first write of any process waits for re
 The hosted indexer sits behind a CDN that occasionally returns a gateway error. These are transient
 and retryable; nothing is lost, because a failed flush leaves the records queued on the device.
 
+## "the vault's folder can be read by other accounts on this machine"
+
+The vault is kept in a folder that was there before Sennit, and other accounts on this machine can
+look inside it. Sennit keeps every file it makes there for your account alone, but the folder shows
+what is there and how large it is, and a file any other program puts in it takes the folder's
+access. Sennit leaves a folder it did not make as it was set, since it may be shared on purpose.
+
+To make it yours alone, on Linux or macOS run `chmod 700` on the folder. On Windows, open the
+folder's Properties, and under Security remove every account but yours. A folder Sennit makes itself,
+such as the default `~/.sennit`, is yours alone from the start.
+
 ## "the search index on this device was damaged, and has been rebuilt"
 
 The search index is two files in the vault's directory, `index.base` and `index.delta`, and a part

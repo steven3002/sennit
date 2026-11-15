@@ -5,13 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"os"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/steven3002/sennit/embed"
 	"github.com/steven3002/sennit/index"
+	"github.com/steven3002/sennit/internal/private"
 	"github.com/steven3002/sennit/keys"
 	"github.com/steven3002/sennit/local"
 	"github.com/steven3002/sennit/manifest"
@@ -72,6 +72,9 @@ type Vault struct {
 	// records it lists. The vault opens without it, and the next open tries
 	// again.
 	listingNotDated error
+	// folderOpenTo names who besides this account can read the vault's
+	// folder, when it was already there and somebody can.
+	folderOpenTo string
 }
 
 // sessionCounters are read counts a session claim is asserted against.
@@ -91,8 +94,18 @@ func Open(ctx context.Context, opts Options) (*Vault, error) {
 	if opts.OnProgress != nil {
 		opts.OnProgress(Progress{Phase: PhaseUnlock})
 	}
-	if err := os.MkdirAll(opts.Home, 0o700); err != nil {
+	// A folder made here is this account's alone, and everything made in it
+	// after. One that was already there is left as it was, since it may be
+	// shared on purpose, and who else can read it is reported instead.
+	made, err := private.Folder(opts.Home)
+	if err != nil {
 		return nil, fmt.Errorf("prepare vault directory %s: %w", opts.Home, err)
+	}
+	var openTo string
+	if !made {
+		// Not knowing is not a reason to refuse the vault, so a failure to read
+		// the folder's access is passed over.
+		openTo, _ = private.Readers(opts.Home)
 	}
 
 	seed, err := keys.SeedFromPhrase(opts.Phrase)
@@ -106,7 +119,7 @@ func Open(ctx context.Context, opts Options) (*Vault, error) {
 	}
 	defer hierarchy.Wipe()
 
-	v := &Vault{opts: opts}
+	v := &Vault{opts: opts, folderOpenTo: openTo}
 	if err := v.openLocal(hierarchy); err != nil {
 		v.Close()
 		return nil, err
@@ -159,11 +172,29 @@ func (v *Vault) openLocal(hierarchy keys.Hierarchy) error {
 	}
 	v.sealer = sealer
 
+	// The database is made private before SQLite opens it, so that it starts
+	// that way and SQLite gives the files it adds beside it the same mode on
+	// Unix. One an earlier version made, and the files beside it, are narrowed.
+	if err := private.File(v.opts.dbPath()); err != nil {
+		return fmt.Errorf("make %s private: %w", v.opts.dbPath(), err)
+	}
+	for _, path := range []string{v.opts.dbPath() + "-wal", v.opts.dbPath() + "-shm"} {
+		if err := private.FileIfThere(path); err != nil {
+			return fmt.Errorf("make %s private: %w", path, err)
+		}
+	}
 	store, err := local.Open(v.opts.dbPath())
 	if err != nil {
 		return err
 	}
 	v.local = store
+	// SQLite has made them by now, and on Windows they took the folder's
+	// access rather than the database's, so they are limited as well.
+	for _, path := range []string{v.opts.dbPath() + "-wal", v.opts.dbPath() + "-shm"} {
+		if err := private.FileIfThere(path); err != nil {
+			return fmt.Errorf("make %s private: %w", path, err)
+		}
+	}
 
 	if err := v.checkPhrase(hierarchy); err != nil {
 		return err

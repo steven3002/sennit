@@ -1,0 +1,12 @@
+ WARNING  the vault's folder can be read by other accounts on
+          this machine
+          C:\data\sennit
+  It lets in BUILTIN\Users. Sennit keeps every file it makes
+  there for this account alone, but the folder shows what is
+  there, and a file another program puts in it takes the
+  folder's access. Sennit did not make this folder, so it leaves
+  it as it was set.
+
+ HINT     remove the other accounts from the folder's access
+          list, under Security in its Properties
+✓ Checked this vault (0.4s)

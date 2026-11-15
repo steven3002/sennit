@@ -66,7 +66,9 @@ func damageTheSecondVector(t *testing.T, home string) {
 // host's log, what it found and what it rebuilt, before the line that says what
 // it serves. The next start finds nothing to rebuild and says only that.
 func TestTheServerTellsItsHostOfASearchIndexItRebuilt(t *testing.T) {
-	home := t.TempDir()
+	// A folder the vault makes, so that where the test runs does not decide
+	// whether the folder is one other accounts can read.
+	home := filepath.Join(t.TempDir(), "vault")
 	rememberThree(t, home)
 	damageTheSecondVector(t, home)
 

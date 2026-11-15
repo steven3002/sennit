@@ -14,7 +14,9 @@ import (
 //
 // The marker's name is stored on every device, so it is spelled out here.
 func TestTheServerTellsItsHostOfAListingItCouldNotDate(t *testing.T) {
-	home := t.TempDir()
+	// A folder the vault makes, so that where the test runs does not decide
+	// whether the folder is one other accounts can read.
+	home := filepath.Join(t.TempDir(), "vault")
 	if first := announced(t, home); len(first) != 1 || !strings.HasPrefix(first[0], "sennit-mcp: serving ") {
 		t.Fatalf("a server over a new vault said %q", first)
 	}

@@ -18,6 +18,8 @@ package filelock
 import (
 	"fmt"
 	"os"
+
+	"github.com/steven3002/sennit/internal/private"
 )
 
 // A Mutex is a lock file, held open and ready to be taken.
@@ -39,6 +41,13 @@ func Open(path string) (*Mutex, error) {
 	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open lock file %s: %w", path, err)
+	}
+	// It holds nothing, and is limited anyway, so that every file Sennit makes
+	// in a vault's folder is this account's alone without an exception to
+	// remember.
+	if err := private.Restrict(file); err != nil {
+		file.Close()
+		return nil, fmt.Errorf("make lock file %s private: %w", path, err)
 	}
 	return &Mutex{path: path, file: file}, nil
 }

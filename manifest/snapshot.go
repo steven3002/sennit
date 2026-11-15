@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/steven3002/sennit/internal/private"
 	"github.com/steven3002/sennit/internal/rename"
 )
 
@@ -115,6 +116,12 @@ func (l *Log) compact() (err error) {
 	pending, err := os.OpenFile(l.path(pendingFile), os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return fmt.Errorf("open manifest snapshot: %w", err)
+	}
+	// Limited before anything is written, and kept that way when it is renamed
+	// into place.
+	if err := private.Restrict(pending); err != nil {
+		pending.Close()
+		return fmt.Errorf("make the manifest snapshot private: %w", err)
 	}
 	defer os.Remove(l.path(pendingFile))
 

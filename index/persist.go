@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/steven3002/sennit/internal/filelock"
+	"github.com/steven3002/sennit/internal/private"
 	"github.com/steven3002/sennit/internal/rename"
 	"github.com/steven3002/sennit/record"
 )
@@ -110,7 +111,8 @@ type Store struct {
 func OpenStore(dir string, sealer Sealer) (*Store, error) { return openStore(dir, sealer, nil) }
 
 func openStore(dir string, sealer Sealer, found func(Damage) error) (*Store, error) {
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	// Made the way the vault makes its folder, since this is often the same one.
+	if _, err := private.Folder(dir); err != nil {
 		return nil, fmt.Errorf("prepare index directory %s: %w", dir, err)
 	}
 	store := &Store{dir: dir, sealer: sealer, tail: -1, found: found}
@@ -118,6 +120,12 @@ func openStore(dir string, sealer Sealer, found func(Damage) error) (*Store, err
 	file, err := os.OpenFile(store.path(DeltaName), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open index delta in %s: %w", dir, err)
+	}
+	// The mode above means nothing on Windows, where a new file takes its
+	// folder's access, and a vault may be kept in a folder others can read.
+	if err := private.Restrict(file); err != nil {
+		file.Close()
+		return nil, fmt.Errorf("make the index delta in %s private: %w", dir, err)
 	}
 	store.file = file
 	if store.lock, err = filelock.Open(store.path(LockName)); err != nil {
@@ -388,6 +396,12 @@ func (s *Store) compact(entries []Entry) error {
 	pending, err := os.OpenFile(s.path(pendingFile), os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return fmt.Errorf("open index base: %w", err)
+	}
+	// Limited before anything is written, and kept that way when it is renamed
+	// into place as the base.
+	if err := private.Restrict(pending); err != nil {
+		pending.Close()
+		return fmt.Errorf("make the index base private: %w", err)
 	}
 	defer os.Remove(s.path(pendingFile))
 

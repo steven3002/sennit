@@ -1,0 +1,11 @@
+ WARNING  the vault's folder can be read by other accounts on
+          this machine
+          /srv/shared/sennit
+  It lets in every account on this machine, since its mode is
+  0755. Sennit keeps every file it makes there for this account
+  alone, but the folder shows what is there, and a file another
+  program puts in it takes the folder's access. Sennit did not
+  make this folder, so it leaves it as it was set.
+
+ HINT     `chmod 700 /srv/shared/sennit` makes it yours alone
+✓ Checked this vault (0.4s)
