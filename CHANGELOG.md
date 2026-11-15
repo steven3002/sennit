@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.2.0-beta-mvp], 2026-11-21
+
+**The first release people are asked to use.** The same substrate as 0.1.0-beta-mvp, with a
+first run that needs less typing, a vault that is private to its account on every system, and the
+defects found since September fixed. `sennit connect` now keeps the phrase and the app key, so a
+shell needs nothing set and an MCP host's configuration holds no secret. Every pull request is now
+tested on Linux, Windows and macOS.
+
 ### Verified end to end against live Sia
 
 - **An interrupted flush leaves storage that can be found and released again.** A flush of 320
@@ -68,6 +76,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   and the agent is told to ask the user rather than pick one itself. Closing the dialog resumes
   nothing, and the answer is an error that says how to resume the most recent conversation instead.
   `recent` after the command now does that without asking, which is what a bare `/resume` did.
+- **`sennit connect` keeps the recovery phrase and the app key as the default profile.** It stores
+  both in the operating system's credential store: Credential Manager on Windows, the login keychain
+  on macOS, the Secret Service keyring on Linux, with the indexer that issued the key beside them.
+  Where there is no credential store, they go to `secrets.json` in the account's configuration
+  directory, which is made private before anything is written to it, and `connect` says which of
+  the two it used. Every command and `sennit-mcp` read the stored profile when the environment does
+  not supply the secrets, so a new shell needs nothing set and an MCP host is registered with the
+  server's path alone, `claude mcp add sennit -- "$(command -v sennit-mcp)"`, with no secret in its
+  configuration. `SENNIT_PHRASE` and `SENNIT_APP_KEY` still come first, and `sennit status` says
+  where each came from. A different phrase already stored is replaced only with `--replace`.
+  `sennit connect --out <file>` still writes the key to a file and stores nothing.
 
 ### Changed
 
@@ -172,6 +191,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   taken for one a crash cut off, and the operating system lets go of it if the process dies. A
   filesystem that cannot take the lock refuses to open the vault rather than running without it. A
   server started from an earlier build takes no lock, so restart it after upgrading.
+- **`remember` succeeds when the upload it set off fails, and says so.** A write stores the memory
+  on this device and queues it before it runs any flush the queue is then due for, and a failure
+  of that flush was returned as the write's own error. An agent took it for a write that did not
+  happen and wrote the memory again under a new id, and every copy went to Sia with the next flush
+  that worked. The write now succeeds: the MCP answer keeps `onNetwork` false and its `durability`
+  line names the failure and says not to remember the memory again, a plain `sennit remember` prints
+  a warning and exits 0, and `vault.RememberResult` carries the reason in `FlushFailed`.
+  `sennit remember --flush` still exits with an error, because the upload it was asked to wait for
+  did not happen, and now says the memory stays queued and that `sennit flush` retries it. A memory
+  the queue refused, or a write that was interrupted, still fails.
+- **Forgetting a memory that is already gone is answered as forgetting a conversation that is
+  already gone.** A second `forget` of a memory failed with `no manifest entry for <id>`, so an agent
+  that repeated a forget whose answer it never received was told the memory could not be forgotten.
+  It now succeeds with `removed: false` and "There was nothing at that address; nothing was
+  removed." That is said only when nothing of the memory is left on this device. When its body, its
+  vector or its ranking rows are still here, the answer stays an error, names what is left, and asks
+  the agent not to tell the user the memory is gone. `vault.Forget` itself still returns
+  `manifest.ErrNotFound`.
+- **CI builds and tests on Windows and macOS as well as Linux.** Each pull request is built with
+  `CGO_ENABLED=0`, vetted and tested on all three. Formatting, the lint and the race detector run on
+  Linux only, and the tests that load the embedding model skip on Windows and macOS, where nothing
+  fetches the model yet.
 
 ### Fixed
 
@@ -310,6 +351,89 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   running natively on Windows Server 2025: the test suite passed apart from one package that the
   virus scanner kept from running, `sennit init` fetched the model with `HOME` unset, and memories
   written one command at a time all succeeded, including after the index had compacted.
+- **Recall and resume say what this device has not restored.** A search reads only what this
+  device holds, so on a device that had restored part of the vault, a recall answered from that part
+  as though it were the whole vault, and a resume by topic on a device holding no conversation said
+  the vault held none. Every recall on a device that knows of records it has not restored now says
+  which, with results or without, and names `sennit hydrate --depth index`, and a resume by topic
+  gets the answer a bare resume gives there. `sennit recall` reads the same check, and calls the
+  vault empty only on a device that has restored everything it knows of. An empty page after a
+  recall cursor now says the ranking ended there, where it said nothing matched.
+- **Records are listed by their own times, not by when a restore reached them.** `browse` lists
+  newest first, and on a device that restored the vault every record was dated by the restore, so
+  the listing came out in the order the restore walked the account. A memory is now dated by the
+  time its sealed body carries, and a conversation by its head's `Created`, which a conversation
+  rebuilt from turns that record no time does not have: it is listed after every dated record. A
+  device restored by an earlier build is dated again, once, the first time this build opens it, and
+  a vault this build could not date that way says so on every open until one manages it.
+- **A record is counted once however often it is saved, and a forget that stopped part way can be
+  finished.** Every save of a conversation added one to `indexed`, and so did a restore of records
+  that already had vectors, so a running server's count grew past the vault. The count is now read
+  from the search index itself. A forget that failed after removing the catalog entry left the rest
+  for good, and when only the ranking rows were left, every recall matching the memory's words
+  failed. Forgetting again now finishes the job while anything of the memory is still on this
+  device.
+- **A restore no longer brings a forgotten record back.** A forgotten record's object stayed on Sia
+  until `sennit reclaim` deleted it, and a `sennit hydrate` or `sennit recover` run before then
+  catalogued the record again, on this device or any other. A restore on the device that forgot it
+  now leaves it out, and the summary prints how many it left out. The forget also reaches Sia:
+  `sennit flush`, and the background flush of a running `sennit-mcp`, delete the object of every
+  record this device forgot, which keeps it from a restore on another device too. A forget made
+  offline stays owed across restarts. The answer to `forget` says whether the copy on Sia is gone
+  yet. `sennit reclaim --repack` no longer stops at a record whose object another device deleted,
+  and no longer releases a slab that still holds a forgotten record's copy. Space still comes back
+  only when `reclaim` releases a slab.
+- **Damage in the search index no longer drops every vector after it.** A read of the index stopped
+  at the first record it could not open and returned what came before it, with no error, and the
+  next compaction wrote that to the disk, so those records could no longer be found by meaning. When
+  the damaged record was a removal, a forgotten record's vector came back and a recall that ranked
+  it failed. A read now steps over a damaged record and goes on, and as the vault opens, every record
+  this device holds without a vector is given one again. Every command says when it did that.
+- **A scoped recall finds what is in scope past a pool of nearer records of another class.** Recall
+  drew its candidates from every record and applied the scope afterwards, so 101 memories nearer
+  the topic than the vault's one conversation left a resume by topic, or a recall scoped to
+  sessions, with nothing. Both halves of the search now draw from the records in scope.
+- **A clone made on Windows checks out with LF line endings.** With Git for Windows' defaults every
+  file came out with CRLF, so `gofmt` listed every Go file and 27 tests that compare output with a
+  file under `testdata` failed before anything had been changed. A `.gitattributes` now checks text
+  out with LF on every platform.
+- **Windows shells are shown their own commands.** `sennit connect --out` ended with a line for
+  loading the key that neither PowerShell nor cmd can run. On Windows it now gives the PowerShell
+  and the cmd form, and a POSIX shell running on Windows gets a third line, with a file name quoted
+  the way each shell quotes. The help and the docs show the PowerShell form beside each POSIX one.
+- **A phrase piped in on Windows is read whatever it was written as.** A file made with `>` in
+  Windows PowerShell is UTF-16, and a PowerShell session set to UTF-8 puts a byte order mark in front
+  of what it pipes, and both were refused as a wrong phrase when the phrase was right. The phrase is
+  now decoded by the byte order mark it opens with, which is then taken off. Text with no mark is
+  read exactly as before.
+- **A repack is no longer refused on an account more than about half full.** `sennit reclaim
+  --repack` and `sennit status` asked for free space of one slab for every slab this device holds,
+  which an account stops having once more than half its quota is in use, and that is the account a
+  repack exists for. A repack writes the live records into new slabs and then releases the old ones,
+  which are already paid for, so the room it asks for now is the slabs it would write: the live
+  records' bytes over what a slab holds, rounded up.
+- **The vault's folder and every file Sennit makes in it are this account's alone.** `vault.db`
+  holds every memory and conversation in plain text, and SQLite created it with its default mode,
+  readable by every account under a usual umask, while on Windows each file took the access of the
+  folder it was made in. A folder Sennit makes is now mode `0700` on Unix and, on Windows, has an
+  access list naming this account only, which every file later made inside inherits. Each file
+  Sennit makes in the vault's folder is limited on its own too, so it stays private in a folder
+  Sennit did not make, and a vault in a folder other accounts can read says so. SQLite's own files
+  are made private by name, which keeps the locks SQLite holds on them.
+
+### Known limitations
+- The `skill` record type, the local viewer, the graph map and session forking are not built.
+- Opening a vault on a second machine needs the phrase **and** one browser approval. This is not
+  seed-only recovery.
+- The binaries are unsigned. macOS quarantines a download until the flag is cleared by hand, as the
+  quickstart shows, and whether Windows warns about one downloaded in a browser has not been
+  checked.
+- In Claude Code, its own memory takes "remember" before Sennit does, unless it is turned off or the
+  request names Sennit. The quickstart says how.
+- `/resume` is checked in Claude Code. Antigravity offers no MCP prompts, so there a conversation is
+  brought back by asking for it.
+- Recall quality figures come from synthetic corpora, not a real personal vault.
+- Cost figures are advertised rates. No bill has ever been paid.
 
 ## [0.1.0-beta-mvp], 2026-09-04
 
