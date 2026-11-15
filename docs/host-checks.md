@@ -154,7 +154,8 @@ server connected. Record what the host *does* show.
 
 | Host | Version | Prompt visible? | How it is named | List shown as | Arguments work? | Notes |
 |---|---|---|---|---|---|---|
-| Claude Code | | | | | | |
+| Claude Code | 2.1.325, print mode | Yes | `/mcp__sennit__resume` | No dialog in print mode: it is cancelled, and nothing is resumed, which the prompt says | Yes: `recent`, and a topic | Run 2026-11-15. Step 3 resumed the newest conversation without asking; step 4 resumed "Host check" as "the closest match for "host check", at similarity 0.700". Claude Code labels the cancelled dialog's answer `ProtocolError`. The dialog itself, in the interactive interface, was not run |
+| Antigravity CLI | 1.5.9, print mode | No | Not offered: MCP prompts are not exposed, only tools, through one `call_mcp_tool` | n/a | n/a | Run 2026-11-15. `/sennit:resume recent` reached the agent as text, and it resumed "Host check" by itself through `browse` and `open`. In this host the conversation comes back by asking for it |
 | Claude Desktop | | | | | | |
 | Cursor | | | | | | |
 | VS Code | | | | | | |
@@ -251,13 +252,33 @@ body.
 
 | | Claude Code | Other host |
 |---|---|---|
-| Right record in top 5, of 10 | | |
-| Queries with ≥1 tag supplied | | |
-| Queries with ≥1 *matching* tag | | |
-| Writes with 2–4 tags | | |
-| Writes with a real context | | |
-| Used `supersedes` or `correction` on #8 | | |
-| Set `scope` on a subject question | | |
+| Right record in top 5, of 10 | 5 of the 5 questions it searched for; the other 5 it answered, correctly, from records an earlier search had shown | 10 of 10 (Antigravity CLI 1.5.9) |
+| Queries with ≥1 tag supplied | 5 of 5 | 10 of 10 |
+| Queries with ≥1 *matching* tag | 5 of 5 | 9 of 10 (`reviews` against a stored `review`) |
+| Writes with 2–4 tags | 9 of 9 | 10 of 10 |
+| Writes with a real context | 9 of 9, each opening "The user stated this as" before what it adds | 10 of 10 |
+| Used `supersedes` or `correction` on #8 | Neither: it said the first write already had the rollup at ten past, so there was nothing to correct | A `correction` record |
+| Set `scope` on a subject question | Never | Never |
+
+**Run 2026-11-15**, against an offline vault, with Claude Code 2.1.325 and Antigravity CLI 1.5.9 in
+print mode. Each tool call was read from the host's own record of the session.
+
+**Claude Code's own memory comes first.** With its built-in memory on, which is the default, all
+ten "Remember ..." statements went into Claude Code's memory files and none reached Sennit, and
+most questions were answered from those files. The column above is a second run with
+`autoMemoryEnabled` off. Someone using Sennit from Claude Code needs that setting off, or has to
+say "in Sennit" when asking it to remember.
+
+**Both hosts fetch tool descriptions on demand.** Claude Code finds the tools through its tool
+search before the first call, and Antigravity reads each tool's schema from a file it writes for
+the server. Both still supplied tags on every search they made.
+
+**Statement 8 of the script is not a correction.** Statement 1 already says ten past the hour, so
+an agent that reads it closely has nothing to correct, as Claude Code said.
+
+**A host without dialog support was not reached.** Claude Code in print mode advertises dialogs
+and cancels them, and Antigravity offers no prompts at all, so neither is given the list of
+conversations as text. That path still waits for a host that says it has no dialogs.
 
 ---
 
