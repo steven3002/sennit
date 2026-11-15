@@ -51,18 +51,38 @@ func terminalPhrases(interrupted <-chan struct{}) phraseSource {
 	}
 }
 
-// readPhrase takes the recovery phrase from the environment or a pipe, and
-// asks for it when neither supplied one and there is somebody to ask.
+// readPhrase takes the recovery phrase from the environment or a pipe, then
+// from the profile sennit connect stored, and asks for it when none of them
+// supplied one and there is somebody to ask.
 //
-// The order is the point and does not change. The environment comes first, a
-// pipe second, and a question only when both were silent, so nothing that runs
-// without a person behaves differently than it did before there was a prompt.
-// A run with no phrase and no terminal still refuses, with the message it
-// always gave.
+// The order is the point and does not change. The environment comes first and
+// a pipe second, each of them something this run was handed on purpose; the
+// stored profile third; and a question only when all of them were silent. So
+// nothing that runs without a person behaves differently than it did before
+// there was a prompt or a profile, and a run with no phrase anywhere and no
+// terminal still refuses, with the message it always gave.
 func (s *session) readPhrase() (string, error) {
 	phrase, err := keys.ReadPhrase(s.phrases.stdin)
-	if !errors.Is(err, keys.ErrNoPhrase) || !s.phrases.interactive {
-		return phrase, err
+	if err == nil {
+		s.sources.phrase = fromStdin
+		if strings.TrimSpace(os.Getenv(keys.PhraseEnv)) != "" {
+			s.sources.phrase = keys.PhraseEnv
+		}
+		return phrase, nil
+	}
+	if !errors.Is(err, keys.ErrNoPhrase) {
+		return "", err
+	}
+	stored, _, found, err := s.savedProfile()
+	if err != nil {
+		return "", err
+	}
+	if found {
+		s.sources.phrase = fromProfile
+		return stored.Phrase, nil
+	}
+	if !s.phrases.interactive {
+		return "", keys.ErrNoPhrase
 	}
 
 	fmt.Fprint(s.stderr, phrasePrompt)
@@ -81,6 +101,7 @@ func (s *session) readPhrase() (string, error) {
 	if typed = strings.TrimSpace(typed); typed == "" {
 		return "", keys.ErrNoPhrase
 	}
+	s.sources.phrase = fromPrompt
 	return typed, nil
 }
 

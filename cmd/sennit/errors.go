@@ -83,11 +83,11 @@ func messageFor(err error) ui.Message {
 		return ui.Message{
 			Kind: ui.KindError,
 			Text: "no Sia app key",
-			Explanation: []string{"The indexer issues one when you approve this installation. " +
-				"It is a secret: keep it out of shell history and never pass it as an argument."},
+			Explanation: []string{"The indexer issues one when you approve this installation, and " +
+				"`sennit connect` stores it for every later run. It is a secret: never pass it as an argument."},
 			Hints: []string{
-				"set " + keys.AppKeyEnv + " to the key that approval issued",
-				"not approved yet? `sennit connect --out sennit.key` issues one",
+				"`sennit connect` approves this installation and stores the key",
+				"or set " + keys.AppKeyEnv + " to a key that approval issued",
 				"to work without an indexer, put `--offline` before the text: " +
 					"`sennit remember --offline --context \"...\" \"...\"`",
 			},
@@ -98,17 +98,19 @@ func messageFor(err error) ui.Message {
 			Text: err.Error(),
 			Explanation: []string{"The key in " + keys.AppKeyEnv + " arrived damaged, most likely " +
 				"truncated by the copy or the secret store it came through."},
-			Hints: []string{"set it to the whole value that approval issued, or issue a new one: " +
-				"`sennit connect --out sennit.key`"},
+			Hints: []string{"set it to the whole value that approval issued, or remove it and run " +
+				"`sennit connect` to store a new one"},
 		}
 	case errors.Is(err, keys.ErrNoPhrase):
 		return ui.Message{
-			Kind:        ui.KindError,
-			Text:        "no recovery phrase",
-			Explanation: []string{"Sennit derives the vault's keys from the phrase on every run and never stores it."},
+			Kind: ui.KindError,
+			Text: "no recovery phrase",
+			Explanation: []string{"Nothing supplied one: " + keys.PhraseEnv + " is not set, nothing came in " +
+				"on stdin, and no profile is stored."},
 			Hints: []string{
-				"set " + keys.PhraseEnv + ", or pipe the phrase in on stdin",
-				"no phrase yet? `sennit init --new-phrase` prints one and stores nothing",
+				"`sennit connect` stores it with the app key for every later run",
+				"or set " + keys.PhraseEnv + ", or pipe the phrase in on stdin",
+				"no phrase yet? `sennit init --new-phrase` prints one",
 			},
 		}
 	case errors.As(err, &indexer):

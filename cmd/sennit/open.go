@@ -16,6 +16,9 @@ type vaultFlags struct {
 	home    string
 	indexer string
 	offline bool
+	// set is the command's flags, kept to tell an indexer this run named from
+	// the default one.
+	set *flag.FlagSet
 }
 
 // checkFlagOrder rejects a flag written after the positional arguments.
@@ -52,6 +55,7 @@ func flagAsShown(command, typed string) string {
 }
 
 func (f *vaultFlags) bind(fs *flag.FlagSet) {
+	f.set = fs
 	fs.StringVar(&f.home, "home", vault.DefaultHome(), "vault directory")
 	fs.StringVar(&f.indexer, "indexer", vault.DefaultIndexer(), "indexer URL")
 	fs.BoolVar(&f.offline, "offline", false, "work from this device only, without contacting the indexer")
@@ -61,25 +65,28 @@ func (f *vaultFlags) bind(fs *flag.FlagSet) {
 //
 // Neither secret is a flag. A recovery phrase or an app key passed as an
 // argument is visible in the process table and lands in shell history, which
-// would make every other precaution in the design decorative.
+// would make every other precaution in the design decorative. Each comes from
+// the environment, or from the profile sennit connect stored.
 func (f *vaultFlags) open(ctx context.Context, out *session, phases phaseNamer) (*vault.Vault, error) {
 	phrase, err := out.readPhrase()
 	if err != nil {
 		return nil, err
 	}
+	var appKey keys.AppKey
+	if !f.offline {
+		// Before the options are built, because a stored key brings the indexer
+		// that issued it.
+		if appKey, err = f.appKey(out); err != nil {
+			return nil, err
+		}
+	}
 	opts := vault.Options{
 		Home:       f.home,
 		Phrase:     phrase,
 		Indexer:    f.indexer,
+		AppKey:     appKey,
 		Offline:    f.offline,
 		OnProgress: out.watch(out.rebuilding(phases)),
-	}
-	if !f.offline {
-		appKey, err := keys.AppKeyFromEnv()
-		if err != nil {
-			return nil, err
-		}
-		opts.AppKey = appKey
 	}
 	v, err := vault.Open(ctx, opts)
 	if err != nil {

@@ -2,4 +2,6 @@
 
  WARNING  this phrase is the vault: anyone holding it can read
           every memory, and losing it loses the data
-  It is not stored anywhere.
+  Nothing has stored it. `sennit connect` keeps a copy for this
+  account, but that copy is lost with this machine: write the
+  phrase down.

@@ -10,6 +10,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/steven3002/sennit/cmd/sennit/internal/ui"
+	"github.com/steven3002/sennit/profile"
 	"github.com/steven3002/sennit/vault"
 )
 
@@ -34,6 +35,14 @@ type session struct {
 	// phrases is where a recovery phrase may come from on this run, and it is
 	// the only part of the session that reads rather than writes.
 	phrases phraseSource
+	// profiles is where sennit connect keeps the phrase and the key. Nil is no
+	// store at all, which is what a test has unless it asks for one, so that no
+	// test reads the credentials of whoever runs it.
+	profiles *profile.Store
+	// saved is the default profile once this run has read it.
+	saved storedProfile
+	// sources says where this run's phrase and key came from.
+	sources credentialSources
 	// clock reads the time the status line measures with. Nil means the real
 	// one.
 	clock func() time.Time
@@ -69,6 +78,11 @@ func newSession(interrupted <-chan struct{}) (*session, func()) {
 		errWidth:    func() int { return columnsOf(os.Stderr) },
 		interrupted: interrupted,
 		phrases:     terminalPhrases(interrupted),
+	}
+	// A machine with no configuration directory has nowhere to keep a profile,
+	// and every command still works from the environment as before.
+	if store, err := profile.Open(); err == nil {
+		s.profiles = store
 	}
 	s.probe = ui.Probe{
 		StdoutTerminal: outEscapes && term.IsTerminal(int(os.Stdout.Fd())),

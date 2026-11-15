@@ -1,11 +1,13 @@
 Approve this installation with an indexer.
 
 USAGE
-  sennit connect --out <file> [flags]
+  sennit connect [flags]
 
 FLAGS
-  --out file          File to write the issued app key to, created 0600
-                      (required)
+  --out file          File to write the issued app key to, created 0600,
+                      instead of storing it
+  --replace           Replace a stored profile whose recovery phrase is
+                      different
   --indexer url       Indexer URL (default https://sia.storage)
   --wait duration     How long to keep a live approval link available (default
                       30m)
@@ -17,7 +19,7 @@ OUTPUT FLAGS
                       auto)
 
 EXAMPLES
+  > sennit connect
   > sennit connect --out sennit.key
-  > $env:SENNIT_APP_KEY = Get-Content sennit.key
 
-The recovery phrase comes from SENNIT_PHRASE, or from stdin when that is unset.
+Without --out, the phrase and the key are stored for every later run.

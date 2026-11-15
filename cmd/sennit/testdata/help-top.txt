@@ -30,8 +30,8 @@ EXAMPLES
   $ sennit recall "what did we decide about packing"
 
 ENVIRONMENT
-  SENNIT_PHRASE      Recovery phrase; read from stdin when unset
-  SENNIT_APP_KEY     Sia app key, issued by sennit connect
+  SENNIT_PHRASE      Recovery phrase, used before the one sennit connect stored
+  SENNIT_APP_KEY     Sia app key, used before the one sennit connect stored
   SENNIT_HOME        Vault directory (default ~/.sennit)
   SENNIT_INDEXER     Indexer URL (default https://sia.storage)
   SENNIT_MODEL_DIR   Where embedding models are kept

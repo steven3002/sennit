@@ -13,6 +13,20 @@ import (
 
 // runInit prepares a vault: derive keys, fetch the embedding model, open the
 // device store, and confirm the indexer will accept writes.
+// newPhraseWarning is what a new phrase is printed with.
+//
+// It says the phrase is stored nowhere yet, and that the copy sennit connect
+// will keep is not a copy to rely on: it lives on this machine, and is lost
+// with it.
+func newPhraseWarning() ui.Message {
+	return ui.Message{
+		Kind: ui.KindWarning,
+		Text: "this phrase is the vault: anyone holding it can read every memory, and losing it loses the data",
+		Explanation: []string{"Nothing has stored it. `sennit connect` keeps a copy for this account, " +
+			"but that copy is lost with this machine: write the phrase down."},
+	}
+}
+
 func runInit(ctx context.Context, out *session, args []string) error {
 	cmd := newInvocation("init").withVault().withVerbose()
 	newPhrase, wait := initFlags(cmd)
@@ -24,11 +38,7 @@ func runInit(ctx context.Context, out *session, args []string) error {
 		// The phrase is the only thing on stdout, so it can be read by a script
 		// without anything else coming with it.
 		out.result(keys.NewPhrase())
-		out.note(ui.Message{
-			Kind:        ui.KindWarning,
-			Text:        "this phrase is the vault: anyone holding it can read every memory, and losing it loses the data",
-			Explanation: []string{"It is not stored anywhere."},
-		})
+		out.note(newPhraseWarning())
 		return nil
 	}
 

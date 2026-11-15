@@ -56,8 +56,8 @@ var groups = []struct {
 // environment lists the variables a reader has to set, and only those: the
 // ones a person never sets by hand belong in the documentation.
 var environment = [][2]string{
-	{keys.PhraseEnv, "Recovery phrase; read from stdin when unset"},
-	{keys.AppKeyEnv, "Sia app key, issued by sennit connect"},
+	{keys.PhraseEnv, "Recovery phrase, used before the one sennit connect stored"},
+	{keys.AppKeyEnv, "Sia app key, used before the one sennit connect stored"},
 	{vault.HomeEnv, "Vault directory (default ~/.sennit)"},
 	{vault.IndexerEnv, "Indexer URL (default https://sia.storage)"},
 	{vault.ModelDirEnv, "Where embedding models are kept"},
@@ -173,18 +173,16 @@ var commandHelps = map[string]commandHelp{
 	},
 	"connect": {
 		summary: "Approve this installation with an indexer.",
-		usage:   []string{"sennit connect --out <file> [flags]"},
+		usage:   []string{"sennit connect [flags]"},
 		flags: []flagHelp{
 			{"out", "--out file", ""},
+			{"replace", "--replace", ""},
 			{"indexer", "--indexer url", "(default https://sia.storage)"},
 			{"wait", "--wait duration", "(default 30m)"},
 			{"ready", "--ready duration", "(default 90s)"},
 		},
-		examples: []string{"sennit connect --out sennit.key", `export SENNIT_APP_KEY="$(cat sennit.key)"`},
-		// The PowerShell form. Someone in cmd is given cmd's when connect
-		// finishes, which prints the line for each shell.
-		windows: []string{"sennit connect --out sennit.key", "$env:SENNIT_APP_KEY = Get-Content sennit.key"},
-		footer:  "The recovery phrase comes from SENNIT_PHRASE, or from stdin when that is unset.",
+		examples: []string{"sennit connect", "sennit connect --out sennit.key"},
+		footer:   "Without --out, the phrase and the key are stored for every later run.",
 	},
 	"remember": {
 		summary: "Store a memory.",

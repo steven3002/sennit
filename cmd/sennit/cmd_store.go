@@ -126,6 +126,7 @@ func runStatus(ctx context.Context, out *session, args []string) error {
 	health := v.IndexHealth()
 	held := heldView{
 		path:    vaultPath(cmd.vault.home),
+		secrets: secretsRow(out.sources, out.saved.summary.Place),
 		stored:  len(entries),
 		queued:  v.Pending(),
 		indexed: health.Indexed,
@@ -208,7 +209,10 @@ func runStatus(ctx context.Context, out *session, args []string) error {
 
 // A heldView is what status says the vault holds, in the terms it prints.
 type heldView struct {
-	path             string
+	path string
+	// secrets says where this run's phrase and key came from. Empty shows no
+	// row, as in the screens approved before there was a profile.
+	secrets          string
 	stored, queued   int
 	indexed          int
 	model            string
@@ -220,11 +224,14 @@ type heldView struct {
 
 // statusRows is the report: what is here, what is owed, and what is billed.
 func statusRows(v heldView) [][2]string {
-	rows := [][2]string{
-		{"Vault", v.path},
+	rows := [][2]string{{"Vault", v.path}}
+	if v.secrets != "" {
+		rows = append(rows, [2]string{"Secrets", v.secrets})
+	}
+	rows = append(rows, [][2]string{
 		{"Records", fmt.Sprintf("%s stored on Sia, %s queued on this device", ui.Commas(v.stored), ui.Commas(v.queued))},
 		{"Search", fmt.Sprintf("%s indexed with %s", ui.Commas(v.indexed), v.model)},
-	}
+	}...)
 	if !v.online {
 		return append(rows, [2]string{"Sia", "offline: queued records stay on this device until a connected run"})
 	}

@@ -1,0 +1,16 @@
+✓ Connected: app key 3f9a1c2b… stored in /home/ada/.config/sennit/secrets.json (1m42s)
+
+Approved  after 1m12s, over 1 request
+Ready     after 16s, 40.00 MiB of 46.57 GiB quota in use
+
+ WARNING  there is no credential store here, so the phrase and
+          the key are kept in that file
+  The file is open to this account alone, which is all a file
+  can promise: anyone who can act as this account on this
+  machine can read it.
+  The credential store answered: The name
+  org.freedesktop.secrets was not provided by any .service files
+
+ HINT   every sennit command and sennit-mcp run as this account
+        now find the phrase and the key there, so a shell needs
+        nothing set and an MCP host needs only sennit-mcp's path

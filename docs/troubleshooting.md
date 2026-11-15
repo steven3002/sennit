@@ -40,11 +40,33 @@ same text arrives as `error:` and `hint:` lines with no colour.
 
 ## "no Sia app key"
 
-You have not completed step 3, or the key is not in the environment. Run `sennit connect --out
-sennit.key` and `export SENNIT_APP_KEY="$(cat sennit.key)"`. In PowerShell the second is
-`$env:SENNIT_APP_KEY = Get-Content sennit.key`, and in cmd `set /p SENNIT_APP_KEY=<sennit.key`;
-`sennit connect` prints the line for your shell when it finishes. To work without an indexer
-entirely, pass `--offline`.
+You have not completed step 3 as this account. Run `sennit connect`: it approves this installation
+and stores the key, with the phrase, for every later run. To work without an indexer entirely, pass
+`--offline`.
+
+## A command waits half a minute, then says the credential store did not answer
+
+The phrase and the key are stored in your operating system's credential store, and it did not
+answer within 30 seconds. On Linux that is almost always a Secret Service keyring that is locked,
+with nobody there to unlock it, as in an SSH session to a desktop machine. Unlock the keyring in the
+desktop session, or set `SENNIT_PHRASE` and `SENNIT_APP_KEY` for the run, which are read first.
+
+## Removing the stored phrase and key
+
+There is no command for it yet. **Write the phrase down first**: if the stored copy is the only
+one, removing it loses the vault. Then remove two items, `default/phrase` and `default/app-key`,
+filed under `sennit`:
+
+- **Windows:** in Credential Manager, under Windows Credentials, the two generic credentials named
+  `sennit:default/phrase` and `sennit:default/app-key`. Or `cmdkey /delete:sennit:default/phrase`
+  and `cmdkey /delete:sennit:default/app-key`.
+- **macOS:** in Keychain Access, the two items named `sennit`. Or `security delete-generic-password
+  -s sennit -a default/phrase`, and the same with `-a default/app-key`.
+- **Linux:** in your desktop's keyring manager, or `secret-tool clear service sennit username
+  default/phrase`, and the same for `default/app-key`. Where they were kept in a file, delete
+  `~/.config/sennit/secrets.json`.
+
+With both gone, Sennit treats the profile as removed and asks for the phrase again.
 
 ## Boxes or question marks in the progress line
 

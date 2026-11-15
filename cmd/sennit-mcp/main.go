@@ -20,6 +20,7 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/steven3002/sennit/keys"
 	"github.com/steven3002/sennit/mcp"
+	"github.com/steven3002/sennit/profile"
 	"github.com/steven3002/sennit/vault"
 )
 
@@ -87,26 +88,110 @@ func serve(ctx context.Context) (*mcp.Server, func()) {
 	}
 }
 
+// openProfiles is where the server looks for the profile sennit connect
+// stored. Tests point it at a store of their own.
+var openProfiles = profile.Open
+
+// open opens the vault.
+//
+// Where the phrase and the key came from is said before the vault is opened,
+// not after, so that a start that fails, on a key the indexer refuses, says
+// which key that was.
 func open(ctx context.Context) (*vault.Vault, error) {
-	// The phrase comes from the environment and never from stdin. stdin is the
-	// protocol transport here, so the command line's fallback would consume the
-	// client's first message, and neither secret is ever a flag, because a flag
-	// lands in the process table and in shell history.
-	phrase, err := keys.ReadPhrase(nil)
+	creds, err := credentialsFor(os.Stderr)
 	if err != nil {
 		return nil, err
 	}
-	opts := vault.Options{
-		Home: vault.DefaultHome(), Phrase: phrase, Indexer: vault.DefaultIndexer(),
+	fmt.Fprintf(os.Stderr, "sennit-mcp: %s\n", creds.from)
+	return vault.Open(ctx, vault.Options{
+		Home: vault.DefaultHome(), Phrase: creds.phrase, Indexer: creds.indexer, AppKey: creds.key,
 		OnProgress: rebuildProgress(os.Stderr, time.Now),
+	})
+}
+
+// credentials are the secrets a vault is opened with, the indexer that goes
+// with the key, and where they came from.
+type credentials struct {
+	phrase  string
+	key     keys.AppKey
+	indexer string
+	from    string
+}
+
+// credentialsFor takes the phrase and the key from the environment, and either
+// one the environment does not supply from the profile sennit connect stored.
+//
+// Neither comes from stdin, which is the protocol transport here, so reading a
+// phrase from it would consume the client's first message, and neither is ever
+// a flag, because a flag lands in the process table and in shell history. A
+// stored key comes with the indexer that issued it, unless SENNIT_INDEXER names
+// one. A key in the environment that is not the stored one is used, and said
+// in the log, since a variable left in a host's configuration from an earlier
+// connect would otherwise point this server at another account in silence.
+func credentialsFor(log io.Writer) (credentials, error) {
+	creds := credentials{indexer: vault.DefaultIndexer()}
+	phrase, phraseErr := keys.ReadPhrase(nil)
+	if phraseErr != nil && !errors.Is(phraseErr, keys.ErrNoPhrase) {
+		return creds, phraseErr
+	}
+	key, keyErr := keys.AppKeyFromEnv()
+	if keyErr != nil && !keys.MissingAppKey(keyErr) {
+		return creds, keyErr
 	}
 
-	appKey, err := keys.AppKeyFromEnv()
-	if err != nil {
-		return nil, err
+	var (
+		stored  profile.Profile
+		summary profile.Summary
+		found   bool
+	)
+	if store, err := openProfiles(); err == nil {
+		if phraseErr != nil || keyErr != nil {
+			stored, summary, err = store.Load()
+			switch {
+			case err == nil:
+				found = true
+			case !errors.Is(err, profile.ErrNone):
+				return creds, fmt.Errorf("read the default profile that sennit connect stored: %w", err)
+			}
+		} else if stored, err := store.Summary(); err == nil && stored.KeyID != profile.KeyID(key) {
+			fmt.Fprintf(log, "sennit-mcp: %s is set, and is not the app key sennit connect stored; the variable "+
+				"is used, so this server reaches the account its key was issued for\n", keys.AppKeyEnv)
+		}
 	}
-	opts.AppKey = appKey
-	return vault.Open(ctx, opts)
+
+	phraseFrom, keyFrom := keys.PhraseEnv, keys.AppKeyEnv
+	if phraseErr != nil {
+		if !found {
+			return creds, phraseErr
+		}
+		phrase, phraseFrom = stored.Phrase, "the default profile"
+	}
+	if keyErr != nil {
+		if !found {
+			return creds, keyErr
+		}
+		key, keyFrom = stored.AppKey, "the default profile"
+		if os.Getenv(vault.IndexerEnv) == "" {
+			creds.indexer = stored.Indexer
+		}
+	}
+	creds.phrase, creds.key = phrase, key
+	creds.from = describeSources(phraseFrom, keyFrom, summary.Place)
+	return creds, nil
+}
+
+// describeSources says where the phrase and the key came from, for the log.
+func describeSources(phraseFrom, keyFrom string, place profile.Place) string {
+	from := func(source string) string {
+		if source == "the default profile" {
+			return source + ", in " + place.Name
+		}
+		return source
+	}
+	if phraseFrom == keyFrom {
+		return "phrase and app key from " + from(phraseFrom)
+	}
+	return "phrase from " + from(phraseFrom) + ", app key from " + from(keyFrom)
 }
 
 // announce tells the host what is being served, after anything the vault found
@@ -155,9 +240,10 @@ func explain(w io.Writer, err error) {
 	switch {
 	case keys.MissingAppKey(err):
 		fmt.Fprintf(w, ""+
-			"  Set %s in this server's environment to the app key issued when you\n"+
-			"  approved this installation with your indexer. In a host's MCP config that is\n"+
-			"  the server's \"env\" block. It is a secret: never pass it as an argument.\n",
+			"  Run sennit connect once, as the account this server runs as. It approves this\n"+
+			"  installation and stores the app key where this server finds it. Set %s\n"+
+			"  in this server's environment instead to supply one here: in a host's MCP config\n"+
+			"  that is the server's \"env\" block. It is a secret: never pass it as an argument.\n",
 			keys.AppKeyEnv)
 	case keys.WrongAppKeyLength(err):
 		fmt.Fprintf(w, ""+
@@ -167,9 +253,10 @@ func explain(w io.Writer, err error) {
 			keys.AppKeyEnv)
 	case errors.Is(err, keys.ErrNoPhrase):
 		fmt.Fprintf(w, ""+
-			"  Set %s in this server's environment. The vault derives its keys from it\n"+
-			"  on every run and never stores it. It cannot be read from stdin here, because\n"+
-			"  stdin carries the protocol.\n", keys.PhraseEnv)
+			"  Run sennit connect once, as the account this server runs as. It stores the\n"+
+			"  phrase with the app key where this server finds them. Set %s in this\n"+
+			"  server's environment instead to supply it here. It cannot be read from stdin,\n"+
+			"  because stdin carries the protocol.\n", keys.PhraseEnv)
 	}
 	fmt.Fprint(w, "  Serving anyway: every tool will report this until it is fixed.\n")
 }
@@ -180,14 +267,15 @@ func usage() {
 It takes no arguments. A host launches it and speaks MCP over stdin and stdout.
 
 environment:
-  %-18s BIP-39 recovery phrase (required)
-  %-18s Sia app key, issued by indexer approval (required)
+  %-18s BIP-39 recovery phrase (default: the one sennit connect stored)
+  %-18s Sia app key (default: the one sennit connect stored)
   %-18s vault directory (default %s)
-  %-18s indexer URL (default %s)
+  %-18s indexer URL (default %s, or the one the stored key is for)
   %-18s where embedding models are kept
 
 Add it to a host's MCP configuration as a stdio server running this binary with
-no arguments and both secrets in its environment.
+no arguments. Once sennit connect has run as the same account, nothing else is
+needed: the phrase and the key are read from where it stored them.
 `,
 		keys.PhraseEnv, keys.AppKeyEnv,
 		vault.HomeEnv, vault.DefaultHome(),

@@ -12,13 +12,16 @@ import (
 	"github.com/steven3002/sennit/cmd/sennit/internal/ui"
 	"github.com/steven3002/sennit/internal/private"
 	"github.com/steven3002/sennit/keys"
+	"github.com/steven3002/sennit/profile"
 	"github.com/steven3002/sennit/sia"
 	"github.com/steven3002/sennit/vault"
 )
 
 // runConnect walks the whole onboarding path: approve, register, wait for the
-// account to be usable, and write down the credential that makes every later run
-// headless.
+// account to be usable, and keep the credential that makes every later run
+// headless. Without --out the phrase and the key are stored as the default
+// profile, where every later command and sennit-mcp find them; with --out the
+// key is written to that file and nothing is stored.
 //
 // It exists because the honest path has three pieces of friction and a
 // documentation page is a poor place to meet them. The approval request expires
@@ -28,22 +31,33 @@ import (
 // hosts; and the app key is a secret that must not be typed on a command line.
 func runConnect(ctx context.Context, out *session, args []string) error {
 	cmd := newInvocation("connect")
-	keyFile, indexer, budget, ready := connectFlags(cmd)
+	flags := connectFlags(cmd)
 	if err := cmd.parse(out, args); err != nil {
 		return err
 	}
-	if *keyFile == "" {
-		return refuse("--out is required").
-			because("The app key is a secret and is written to a file rather than printed, " +
-				"so it does not land in a terminal's scrollback or a recording.").
-			try("`sennit connect --out sennit.key`")
+	keyFile, indexer, budget, ready := flags.keyFile, flags.indexer, flags.budget, flags.ready
+	storing := *keyFile == ""
+	if storing && out.profiles == nil {
+		return refuse("there is nowhere on this machine to store the app key").
+			because("No configuration directory could be found for this account, so no profile can be kept.").
+			try("`sennit connect --out sennit.key` writes the key to a file instead")
 	}
 
-	// The phrase is read once, used twice, to register and to derive the vault
-	// keys, and never written anywhere.
+	// The phrase is read once and used twice, to register and to derive the
+	// vault keys. Without --out it is kept with the key as the default profile,
+	// and a stored phrase is never replaced by a different one unasked.
 	phrase, err := out.readPhrase()
 	if err != nil {
 		return err
+	}
+	if storing && !*flags.replace {
+		if err := keepsTheStoredPhrase(out, phrase); err != nil {
+			return err
+		}
+	}
+	again := "sennit connect"
+	if !storing {
+		again += " --out " + *keyFile
 	}
 
 	// Everything this command prints is for the person at the terminal, and
@@ -53,7 +67,7 @@ func runConnect(ctx context.Context, out *session, args []string) error {
 		"Connecting to "+*indexer,
 		"This needs one approval in a browser. The link below expires after about ten",
 		"minutes; a fresh one is issued automatically until you approve or the budget runs out.")
-	out.leaves("No app key was issued. Run `sennit connect --out " + *keyFile + "` again for a fresh link.")
+	out.leaves("No app key was issued. Run `" + again + "` again for a fresh link.")
 	out.phase("Requesting an approval link")
 
 	result, err := sia.Approve(ctx, phrase, sia.ApprovalRequest{
@@ -73,11 +87,21 @@ func runConnect(ctx context.Context, out *session, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := writeAppKey(*keyFile, result.AppKey); err != nil {
-		return err
+	var saved profile.Saved
+	if storing {
+		saved, err = out.profiles.Save(profile.Profile{Phrase: phrase, AppKey: result.AppKey, Indexer: *indexer})
+		if err != nil {
+			return err
+		}
+		out.leaves("The app key is already stored in " + saved.Place.Name +
+			". The indexer may need a little longer before the account can write.")
+	} else {
+		if err := writeAppKey(*keyFile, result.AppKey); err != nil {
+			return err
+		}
+		out.leaves("The app key is already written to " + *keyFile +
+			". The indexer may need a little longer before the account can write.")
 	}
-	out.leaves("The app key is already written to " + *keyFile +
-		". The indexer may need a little longer before the account can write.")
 
 	// Approval is not readiness. The indexer funds host accounts after the
 	// connection is approved, and a write before that completes fails with an
@@ -95,21 +119,85 @@ func runConnect(ctx context.Context, out *session, args []string) error {
 		return err
 	}
 
+	rows := connectRows(result.Attempts, result.WaitedFor, time.Since(waited), account)
+	if storing {
+		connectedAndStored(out, result.AppKey, saved, rows)
+		return nil
+	}
 	out.done(ui.MarkSuccess, fmt.Sprintf("Connected: app key %s… written to %s",
 		result.AppKey.Fingerprint(), *keyFile))
-	out.above(append([]string{""}, ui.KeyValues(
-		connectRows(result.Attempts, result.WaitedFor, time.Since(waited), account))...)...)
+	out.above(append([]string{""}, ui.KeyValues(rows)...)...)
 	out.note(keyHint(out.probe.GOOS, out.probe.Getenv("SHELL"), *keyFile))
 	return nil
 }
 
-// connectFlags is what sennit connect takes. It opens no vault, so it has none
-// of the vault flags.
-func connectFlags(cmd *invocation) (keyFile, indexer *string, budget, ready *time.Duration) {
-	return cmd.set.String("out", "", "file to write the issued app key to, created 0600 (required)"),
-		cmd.set.String("indexer", vault.DefaultIndexer(), "indexer URL"),
-		cmd.set.Duration("wait", sia.ApprovalBudget, "how long to keep a live approval link available"),
-		cmd.set.Duration("ready", 90*time.Second, "how long to wait for the account to become usable")
+// connectedAndStored is how connect ends when it kept the default profile:
+// where the secrets went, and what that means for every later run.
+func connectedAndStored(out *session, key keys.AppKey, saved profile.Saved, rows [][2]string) {
+	out.done(ui.MarkSuccess, fmt.Sprintf("Connected: app key %s… stored in %s", key.Fingerprint(), saved.Place.Name))
+	out.above(append([]string{""}, ui.KeyValues(rows)...)...)
+	if saved.Place.InFile {
+		out.note(storedInAFile(saved))
+	}
+	out.note(ui.Message{Kind: ui.KindHint, Text: "every sennit command and sennit-mcp run as this account " +
+		"now find the phrase and the key there, so a shell needs nothing set and an MCP host needs only " +
+		"sennit-mcp's path"})
+}
+
+// storedInAFile says that the profile went to a file, because the machine had
+// no credential store, and what a file can and cannot promise.
+func storedInAFile(saved profile.Saved) ui.Message {
+	explanation := []string{"The file is open to this account alone, which is all a file can " +
+		"promise: anyone who can act as this account on this machine can read it."}
+	if saved.NoKeychain != nil {
+		explanation = append(explanation, "The credential store answered: "+saved.NoKeychain.Error())
+	}
+	return ui.Message{
+		Kind:        ui.KindWarning,
+		Text:        "there is no credential store here, so the phrase and the key are kept in that file",
+		Explanation: explanation,
+	}
+}
+
+// keepsTheStoredPhrase refuses to put a different phrase in place of a stored
+// one. The stored phrase may be the only copy of it someone kept, and a
+// connect for another vault would otherwise replace it without a word.
+func keepsTheStoredPhrase(out *session, phrase string) error {
+	stored, _, found, err := out.savedProfile()
+	if err != nil {
+		return refuse("the stored profile cannot be read, so connecting could replace a phrase nobody can check").
+			because(err.Error()).
+			try("`sennit connect --replace` stores this phrase and its key in its place")
+	}
+	if !found || stored.Phrase == phrase {
+		return nil
+	}
+	return phraseWouldBeReplaced()
+}
+
+func phraseWouldBeReplaced() *problem {
+	return refuse("a different recovery phrase is stored as the default profile").
+		because("Connecting would put this phrase and its key in its place, and the stored phrase " +
+			"may be the only copy of it you kept.").
+		try("`sennit connect --replace` replaces it, once that phrase is written down somewhere else")
+}
+
+// connectOptions is what sennit connect takes. It opens no vault, so it has
+// none of the vault flags.
+type connectOptions struct {
+	keyFile, indexer *string
+	budget, ready    *time.Duration
+	replace          *bool
+}
+
+func connectFlags(cmd *invocation) connectOptions {
+	return connectOptions{
+		keyFile: cmd.set.String("out", "", "file to write the issued app key to, created 0600, instead of storing it"),
+		replace: cmd.set.Bool("replace", false, "replace a stored profile whose recovery phrase is different"),
+		indexer: cmd.set.String("indexer", vault.DefaultIndexer(), "indexer URL"),
+		budget:  cmd.set.Duration("wait", sia.ApprovalBudget, "how long to keep a live approval link available"),
+		ready:   cmd.set.Duration("ready", 90*time.Second, "how long to wait for the account to become usable"),
+	}
 }
 
 // connectRows is what the approval cost and where the account stands after it.

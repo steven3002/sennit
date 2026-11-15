@@ -17,13 +17,14 @@ and there is a results table at the end to fill in.
 CGO_ENABLED=0 go build -o ~/bin/sennit-mcp ./cmd/sennit-mcp
 ```
 
-The server takes **no arguments**. Both secrets come from its environment, never from a flag or a
+The server takes **no arguments**. Both secrets come from the profile `sennit connect` stored for
+the account the server runs as, or from its environment, which comes first. Never from a flag or a
 tool argument:
 
 | Variable | What it is |
 |---|---|
-| `SENNIT_PHRASE` | Your BIP-39 recovery phrase. Keys are derived from it on every run and never stored. |
-| `SENNIT_APP_KEY` | The Sia app key issued when you approved this installation with your indexer. |
+| `SENNIT_PHRASE` | Your BIP-39 recovery phrase. Optional once `sennit connect` has stored it for the account the host runs the server as. |
+| `SENNIT_APP_KEY` | The Sia app key issued when you approved this installation with your indexer. Optional once `sennit connect` has stored it. |
 | `SENNIT_HOME` | Optional. The vault directory (default `~/.sennit`). |
 | `SENNIT_MODEL_DIR` | Optional. Where the embedding model is kept. |
 
@@ -50,7 +51,14 @@ server explains itself instead of failing to launch.
 Every host below launches a **stdio** server: a command, no arguments, and two environment
 variables. The mechanism differs per host and each one's own documentation is authoritative.
 
-**Claude Code**, verified on this machine against **2.1.223**:
+**Claude Code**. With a profile stored by `sennit connect`, the server needs no secret in its
+configuration. This form has not yet been run against a host:
+
+```bash
+claude mcp add sennit -- ~/bin/sennit-mcp
+```
+
+Passing both secrets in its environment instead was verified on this machine against **2.1.223**:
 
 ```bash
 claude mcp add sennit \

@@ -468,11 +468,7 @@ func TestWhatInitSays(t *testing.T) {
 	t.Run("a new phrase", func(t *testing.T) {
 		s := ended(t, 80, 0)
 		s.out.result("<word1> <word2> <word3> ... <word12>")
-		s.out.note(ui.Message{
-			Kind:        ui.KindWarning,
-			Text:        "this phrase is the vault: anyone holding it can read every memory, and losing it loses the data",
-			Explanation: []string{"It is not stored anywhere."},
-		})
+		s.out.note(newPhraseWarning())
 		s.assert(t, "new phrase", fixture(t, "init-new-phrase.txt"))
 	})
 

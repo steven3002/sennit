@@ -1,0 +1,8 @@
+✓ Connected: app key 3f9a1c2b… stored in Windows Credential Manager (1m42s)
+
+Approved  after 1m12s, over 1 request
+Ready     after 16s, 40.00 MiB of 46.57 GiB quota in use
+
+ HINT   every sennit command and sennit-mcp run as this account
+        now find the phrase and the key there, so a shell needs
+        nothing set and an MCP host needs only sennit-mcp's path

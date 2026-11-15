@@ -133,16 +133,18 @@ this file; the words below stand in for a real phrase and are not a working one:
 
  WARNING  this phrase is the vault: anyone holding it can read
           every memory, and losing it loses the data
-  It is not stored anywhere.
+  Nothing has stored it. `sennit connect` keeps a copy for this
+  account, but that copy is lost with this machine: write the
+  phrase down.
 ```
 
 > ⚠️ **This phrase is the vault.** Anyone holding it can read every memory, and losing it loses the
 > data, there is no reset, because nobody else ever has the key. Write it down somewhere durable
-> before continuing.
+> before continuing. The copy step 3 stores is on this machine, and goes with it.
 
-Every command needs it, and it is read afresh on every run and never written to disk. **At a
-terminal you do not have to supply it in advance:** a command that finds no phrase asks for one,
-and nothing you type is echoed.
+Every command needs it. **Step 3 stores it**, with the app key, and every later command finds it
+there. Until then, **at a terminal you do not have to supply it in advance:** a command that finds
+no phrase asks for one, and nothing you type is echoed.
 
 ```
 Recovery phrase:
@@ -162,7 +164,7 @@ $env:SENNIT_PHRASE = "<the twelve words init printed>"
 In cmd it is `set SENNIT_PHRASE=<the twelve words init printed>`, with no quotes, because cmd
 would keep them as part of the phrase.
 
-Piping it in works too, and both take precedence over the prompt:
+Piping it in works too. Both take precedence over the stored phrase and over the prompt:
 
 ```sh
 sennit status < phrase.txt
@@ -183,7 +185,7 @@ table.
 Storing on Sia needs an **app key**, which an indexer issues after you approve it in a browser.
 
 ```sh
-sennit connect --out sennit.key
+sennit connect
 ```
 
 It prints a link and then waits on one line, counting up. Open the link, approve, and come back:
@@ -201,29 +203,31 @@ minutes; a fresh one is issued automatically until you approve or the budget run
 When you approve, it registers this installation, waits for the account to become usable, and ends:
 
 ```
-✓ Connected: app key 3f9a1c2b… written to sennit.key (1m42s)
+✓ Connected: app key 3f9a1c2b… stored in Windows Credential Manager (1m42s)
 
 Approved  after 1m12s, over 1 request
 Ready     after 16s, 40.00 MiB of 46.57 GiB quota in use
 
- HINT   load the key into this shell without putting it in your
-        history: `export SENNIT_APP_KEY=$(cat sennit.key)`
+ HINT   every sennit command and sennit-mcp run as this account
+        now find the phrase and the key there, so a shell needs
+        nothing set and an MCP host needs only sennit-mcp's path
 ```
 
-On Windows the hint names PowerShell and cmd, with the line for each, because the line is written
-differently in each and `connect` cannot tell which one it was started from.
+**The phrase and the key are now stored as the default profile**, in your operating system's
+credential store: Credential Manager on Windows, the login keychain on macOS, the Secret Service
+keyring on Linux. Every later `sennit` command and `sennit-mcp` read them from there, so nothing
+needs setting in a new shell. The indexer that issued the key is kept beside them.
 
-Then load the key it wrote:
+**Where there is no credential store**, as on a Linux server with no desktop, they are kept in a file
+only your account can open, `~/.config/sennit/secrets.json`, and `connect` says so. A file promises
+less than a credential store: anyone who can act as your account on that machine can read it.
 
-```sh
-export SENNIT_APP_KEY="$(cat sennit.key)"
-```
+`SENNIT_PHRASE` and `SENNIT_APP_KEY` still work, and come before what is stored, so a script can
+supply its own. `sennit status` says where the phrase and the key it used came from.
 
-```powershell
-$env:SENNIT_APP_KEY = Get-Content sennit.key
-```
-
-In cmd it is `set /p SENNIT_APP_KEY=<sennit.key`.
+**For scripts and CI**, `sennit connect --out sennit.key` writes the key to a file instead and stores
+nothing. It ends with the line that loads that file into your shell, for each shell you might be in.
+The file is a secret: it is written for your account alone, and it belongs in `.gitignore`.
 
 **Two things about this step are worth knowing in advance**, because both look like failures:
 
@@ -232,8 +236,6 @@ In cmd it is `set /p SENNIT_APP_KEY=<sennit.key`.
 - **Approval is not readiness.** After you approve, the indexer funds host accounts, which took
   **~16 s** when we measured it. `connect` waits for that on your behalf. If you skip `connect` and
   write immediately, the write fails with an error about *hosts*, which says nothing about waiting.
-
-`sennit.key` is a secret. It is written `0600` and it belongs in `.gitignore`.
 
 ## 4. Prepare the vault
 
@@ -338,18 +340,18 @@ with. `--verbose` adds the timings and which tier served each read.
 `sennit-mcp` speaks MCP over stdio. For Claude Code:
 
 ```sh
-claude mcp add sennit \
-  -e SENNIT_PHRASE="$SENNIT_PHRASE" \
-  -e SENNIT_APP_KEY="$SENNIT_APP_KEY" \
-  -- "$(command -v sennit-mcp)"
+claude mcp add sennit -- "$(command -v sennit-mcp)"
 ```
 
 ```powershell
-claude mcp add sennit `
-  -e SENNIT_PHRASE="$env:SENNIT_PHRASE" `
-  -e SENNIT_APP_KEY="$env:SENNIT_APP_KEY" `
-  -- (Get-Command sennit-mcp).Source
+claude mcp add sennit -- (Get-Command sennit-mcp).Source
 ```
+
+**No secret goes in the host's configuration.** The server reads the phrase and the key from the
+profile step 3 stored, as long as the host runs it as the same account. To give a server other
+credentials, set `SENNIT_PHRASE` and `SENNIT_APP_KEY` in its environment, which in a host's MCP
+config is the server's `env` block; they come before what is stored. The server's log says which it
+used.
 
 **An MCP host needs the absolute path even though the binary is on your `PATH`**, because a host does
 not launch the server from your shell and will not resolve `~` or search your `PATH`.
@@ -357,8 +359,8 @@ not launch the server from your shell and will not resolve `~` or search your `P
 PowerShell that is `(Get-Command sennit-mcp).Source`.
 
 Other hosts take a JSON config naming the same binary and the same two environment variables. We
-have verified the POSIX command above on Claude Code 2.1.223. The PowerShell form hands `claude`
-the same nine arguments, which we checked, and has not yet been run against a host on Windows.
+have verified the registration command above on Claude Code 2.1.223 with both secrets passed
+in its environment; the form without them has not yet been run against a host.
 **We have not verified the config file locations for Cursor, VS Code or Claude Desktop**, so this
 README does not guess at them.
 

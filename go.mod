@@ -6,6 +6,7 @@ require (
 	github.com/klauspost/compress v1.19.1
 	github.com/knights-analytics/hugot v0.7.6
 	github.com/modelcontextprotocol/go-sdk v1.7.0
+	github.com/zalando/go-keyring v0.2.8
 	go.sia.tech/core v0.21.0
 	go.sia.tech/coreutils v0.22.1-0.20260513143633-9856f6e895bd
 	go.sia.tech/indexd v0.2.3-0.20260519120331-4eab507a9847
@@ -18,11 +19,13 @@ require (
 )
 
 require (
+	github.com/danieljoos/wincred v1.2.3 // indirect
 	github.com/daulet/tokenizers v1.27.0 // indirect
 	github.com/dunglas/httpsfv v1.1.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
+	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/gofrs/flock v0.13.0 // indirect
 	github.com/gomlx/compute v0.0.0-20260716164435-04857206aff7 // indirect
 	github.com/gomlx/exceptions v0.0.3 // indirect

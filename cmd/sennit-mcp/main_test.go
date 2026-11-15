@@ -31,7 +31,11 @@ func server(t *testing.T, args ...string) (stdout, stderr string, code int) {
 	// No phrase and no key: the server explains itself and serves anyway,
 	// which is the path that prints the most, and it opens no vault, touches
 	// no network and loads no model.
-	cmd.Env = append(os.Environ(), runMain+"=1", "SENNIT_PHRASE=", "SENNIT_APP_KEY=")
+	// The configuration directory is the test's own, so a profile stored by
+	// whoever runs the tests is never found, on any platform.
+	config := t.TempDir()
+	cmd.Env = append(os.Environ(), runMain+"=1", "SENNIT_PHRASE=", "SENNIT_APP_KEY=",
+		"APPDATA="+config, "XDG_CONFIG_HOME="+config, "HOME="+config)
 	cmd.Stdin = strings.NewReader("")
 	var out, errs strings.Builder
 	cmd.Stdout, cmd.Stderr = &out, &errs

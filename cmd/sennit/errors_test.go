@@ -35,12 +35,13 @@ func TestTheFirstRunFailures(t *testing.T) {
 	got := shown(t, 80, keys.ErrNoPhrase)
 	want := uitest.Lines(
 		" ERROR  no recovery phrase",
-		"  Sennit derives the vault's keys from the phrase on every run",
-		"  and never stores it.",
+		"  Nothing supplied one: SENNIT_PHRASE is not set, nothing came",
+		"  in on stdin, and no profile is stored.",
 		"",
-		" HINT   set SENNIT_PHRASE, or pipe the phrase in on stdin",
-		" HINT   no phrase yet? `sennit init --new-phrase` prints one and",
-		"        stores nothing",
+		" HINT   `sennit connect` stores it with the app key for every",
+		"        later run",
+		" HINT   or set SENNIT_PHRASE, or pipe the phrase in on stdin",
+		" HINT   no phrase yet? `sennit init --new-phrase` prints one",
 	)
 	if got != want {
 		t.Errorf("no phrase:\n got %q\nwant %q", got, want)
@@ -117,10 +118,7 @@ func TestTheReclaimRefusals(t *testing.T) {
 func TestTheConnectRefusals(t *testing.T) {
 	s := terminal(t, 80)
 	for i, p := range []*problem{
-		refuse("--out is required").
-			because("The app key is a secret and is written to a file rather than printed, " +
-				"so it does not land in a terminal's scrollback or a recording.").
-			try("`sennit connect --out sennit.key`"),
+		phraseWouldBeReplaced(),
 		refuse("the connection was declined at the indexer"),
 		refuse("no approval within 30m0s: 3 request(s) were issued at https://sia.storage and each expired unapproved"),
 	} {

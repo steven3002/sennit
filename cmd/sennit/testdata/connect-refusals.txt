@@ -1,9 +1,10 @@
- ERROR  --out is required
-  The app key is a secret and is written to a file rather than
-  printed, so it does not land in a terminal's scrollback or a
-  recording.
+ ERROR  a different recovery phrase is stored as the default
+        profile
+  Connecting would put this phrase and its key in its place, and
+  the stored phrase may be the only copy of it you kept.
 
- HINT   `sennit connect --out sennit.key`
+ HINT   `sennit connect --replace` replaces it, once that phrase
+        is written down somewhere else
 
  ERROR  the connection was declined at the indexer
 
