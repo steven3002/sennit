@@ -50,8 +50,10 @@ type SaveSessionRequest struct {
 	// Archived marks the session as put away, and Unarchive takes it back out.
 	Archived, Unarchive bool
 
-	// Durable writes this call's chunks to the network before returning,
-	// instead of leaving them to the ordinary flush cadence.
+	// Durable writes the conversation's queued chunks to the network before
+	// returning, this call's and any an earlier save left queued, instead of
+	// leaving them to the ordinary flush cadence. A conversation with nothing
+	// queued is not flushed, since a flush would write nothing of it.
 	//
 	// It is off by default and that is a deliberate decision rather than an
 	// oversight. Every flush mints a whole slab whatever it holds, so forcing
@@ -79,9 +81,13 @@ type SaveSessionResult struct {
 	Messages int
 	Bytes    int64
 
-	// OnNetwork reports whether every chunk this call wrote reached Sia before
-	// it returned. When it is false the transcript is durable on this device
-	// only.
+	// OnNetwork reports whether the whole transcript is on Sia when this call
+	// returns, and not only the part it wrote: a flush has reported writing
+	// every chunk the call wrote, and no chunk the head names is still queued
+	// on this device. A save of a new summary and no turns has nothing of its
+	// own to wait for, so for it this is whether the turns earlier saves wrote
+	// have reached the network. When it is false some of the transcript is
+	// durable on this device only.
 	OnNetwork bool
 	// Flushed describes the write, when one happened.
 	Flushed *store.Flush
@@ -101,6 +107,20 @@ var ErrNoSession = errors.New("no such session")
 // megabytes still cheap to add a sentence to, and it is the reason a thousand
 // of them can be listed without reading one.
 func (v *Vault) SaveSession(ctx context.Context, req SaveSessionRequest) (SaveSessionResult, error) {
+	return v.saveSessionOver(ctx, req, v.Flush)
+}
+
+// A flushQueued is the call a durable save makes to the network: a flush of
+// everything queued, reporting what it wrote, or nil when nothing was queued.
+//
+// A save is given it rather than taking Flush from the vault so that the
+// package's tests can stand in for the network in it, as they do in a restore's
+// walk and read. They cannot flush through the packer, since outside its own
+// package a store's network half is only ever the real SDK.
+type flushQueued func(context.Context) (*store.Flush, error)
+
+// saveSessionOver is SaveSession over the flush a durable save runs.
+func (v *Vault) saveSessionOver(ctx context.Context, req SaveSessionRequest, flush flushQueued) (SaveSessionResult, error) {
 	session, from, err := v.openSession(req)
 	if err != nil {
 		return SaveSessionResult{}, err
@@ -126,7 +146,15 @@ func (v *Vault) SaveSession(ctx context.Context, req SaveSessionRequest) (SaveSe
 	}
 
 	var result SaveSessionResult
-	owed := make(map[string]bool, len(groups))
+	// What the conversation owes the network is owed by this call too, since
+	// what it reports is whether the conversation is on the network. Counting
+	// only its own chunks, a save of a new summary and no turns had nothing
+	// left to wait for, and said a conversation whose turns an earlier save had
+	// queued was on the network.
+	owed, err := v.queuedChunks(session.Chunks)
+	if err != nil {
+		return SaveSessionResult{}, err
+	}
 	for _, messages := range groups {
 		written, err := v.writeChunk(ctx, session, messages)
 		if err != nil {
@@ -139,7 +167,8 @@ func (v *Vault) SaveSession(ctx context.Context, req SaveSessionRequest) (SaveSe
 		owed[written.cid] = true
 		// Queueing a chunk can itself trip the flush policy, so what has
 		// already reached the network is taken from the queue's own answer
-		// rather than assumed.
+		// rather than assumed. That flush writes the whole queue, so it can
+		// settle what an earlier save left queued as well.
 		settle(owed, &written.flushed.Flush)
 
 		session.Chunks = append(session.Chunks, written.ref)
@@ -175,9 +204,12 @@ func (v *Vault) SaveSession(ctx context.Context, req SaveSessionRequest) (SaveSe
 	}
 
 	result.ID, result.Version, result.Title = session.ID, session.Version, session.Title
+	// A save that wrote no turns flushes as well when an earlier save's are
+	// still queued, since durable asks for the conversation to be on the
+	// network, and one that owes nothing mints no slab to write nothing.
 	if req.Durable && len(owed) > 0 {
 		start = time.Now()
-		flushed, err := v.Flush(ctx)
+		flushed, err := flush(ctx)
 		result.FlushFor = time.Since(start)
 		if err != nil {
 			return result, err
@@ -233,11 +265,43 @@ func (v *Vault) discardChunk(id record.ID) error {
 	return nil
 }
 
+// queuedChunks returns the content addresses of the chunks among these that
+// are still in this device's queue: what a conversation owes the network before
+// a save adds to it.
+//
+// The queue is asked rather than the packer's count of it. The count is this
+// process's, and another process over the same vault queues and flushes
+// without it. A chunk a head names leaves the queue when a flush that wrote it
+// has catalogued it, so one the queue no longer holds is on the network. The
+// exception is a conversation part way through being forgotten, whose head
+// outlasts the chunks it names until the forget is run again. A chunk a flush
+// has claimed is still in the queue and still owed: that flush has not
+// finished, and may yet hand it back.
+//
+// Each is owed under its content address, which is what a flush reports
+// writing. Asking costs one row of the queue's index for each chunk the head
+// names, and opens none of them.
+func (v *Vault) queuedChunks(chunks []record.ChunkRef) (map[string]bool, error) {
+	owed := make(map[string]bool)
+	for _, chunk := range chunks {
+		queued, err := v.local.Queued(chunk.ID)
+		if err != nil {
+			return nil, err
+		}
+		if queued {
+			owed[chunk.CID] = true
+		}
+	}
+	return owed, nil
+}
+
 // settle strikes off the chunks a flush reports having written.
 //
-// What is left is what this device still owes the network, and it is the only
-// thing OnNetwork is allowed to be derived from: a session with one chunk still
-// queued is not on the network, however many of its chunks are.
+// What is left is what the conversation still owes the network: the chunks
+// this call wrote and the ones earlier saves left queued, less what a flush has
+// written since. It is the only thing OnNetwork is allowed to be derived from:
+// a session with one chunk still queued is not on the network, however many of
+// its chunks are, and whichever save queued it.
 func settle(owed map[string]bool, flush *store.Flush) {
 	if flush == nil {
 		return
