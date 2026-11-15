@@ -352,6 +352,21 @@ claude mcp add sennit -- "$(command -v sennit-mcp)"
 claude mcp add sennit -- (Get-Command sennit-mcp).Source
 ```
 
+**In Claude Code, its own memory takes "remember" before Sennit does.** Claude Code keeps a memory
+of its own, on by default, and its [documentation](https://code.claude.com/docs/en/memory) says
+that when you ask it to remember something, it saves it there. In our check with Claude Code
+2.1.325, ten requests beginning "Remember" all went to that memory and none reached the vault
+([host checks](host-checks.md)). Sennit does not change Claude Code's settings, so the choice is
+yours:
+
+- **Turn Claude Code's memory off**, and "remember" goes to Sennit: encrypted on this device before
+  it is stored on Sia, and there for any other MCP client you connect to the vault. Claude Code's
+  own memory stays on the machine it was written on. To turn it off, open `/memory` in a Claude
+  Code session and use its auto memory toggle. To turn it off for one project only, set
+  `"autoMemoryEnabled": false` in that project's Claude Code settings.
+- **Or keep it on, and name Sennit when you ask**, as in "remember in Sennit that the staging
+  database is reset every Monday".
+
 **No secret goes in the host's configuration.** The server reads the phrase and the key from the
 profile step 3 stored, as long as the host runs it as the same account. To give a server other
 credentials, set `SENNIT_PHRASE` and `SENNIT_APP_KEY` in its environment, which in a host's MCP
