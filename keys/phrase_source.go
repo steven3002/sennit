@@ -6,6 +6,9 @@ import (
 	"io"
 	"os"
 	"strings"
+
+	"golang.org/x/text/encoding/unicode"
+	"golang.org/x/text/transform"
 )
 
 // PhraseEnv is the environment variable carrying the recovery phrase.
@@ -25,7 +28,7 @@ func ReadPhrase(stdin io.Reader) (string, error) {
 	if stdin == nil || isTerminal(stdin) {
 		return "", ErrNoPhrase
 	}
-	scanner := bufio.NewScanner(stdin)
+	scanner := bufio.NewScanner(asUTF8(stdin))
 	if !scanner.Scan() {
 		if err := scanner.Err(); err != nil {
 			return "", fmt.Errorf("read recovery phrase: %w", err)
@@ -37,6 +40,18 @@ func ReadPhrase(stdin io.Reader) (string, error) {
 		return "", ErrNoPhrase
 	}
 	return phrase, nil
+}
+
+// asUTF8 reads text as UTF-8 whatever it was written as, going by the byte
+// order mark it opens with, and takes the mark off.
+//
+// On Windows a phrase seldom arrives as plain bytes. Windows PowerShell writes
+// a redirected file as UTF-16, and a session set to UTF-8 puts a byte order
+// mark in front of whatever it pipes to a program. Read as they stood, the
+// first gave the wrong number of words and the second a first word nobody
+// typed, and both said the phrase was wrong when it was not.
+func asUTF8(r io.Reader) io.Reader {
+	return transform.NewReader(r, unicode.BOMOverride(unicode.UTF8.NewDecoder()))
 }
 
 // isTerminal reports whether the reader is an interactive terminal rather than
