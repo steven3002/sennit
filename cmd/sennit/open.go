@@ -16,6 +16,9 @@ type vaultFlags struct {
 	home    string
 	indexer string
 	offline bool
+	// phraseStdin is --phrase-stdin: the phrase is to be read from stdin, which
+	// is otherwise left alone.
+	phraseStdin bool
 	// set is the command's flags, kept to tell an indexer this run named from
 	// the default one.
 	set *flag.FlagSet
@@ -59,16 +62,19 @@ func (f *vaultFlags) bind(fs *flag.FlagSet) {
 	fs.StringVar(&f.home, "home", vault.DefaultHome(), "vault directory")
 	fs.StringVar(&f.indexer, "indexer", vault.DefaultIndexer(), "indexer URL")
 	fs.BoolVar(&f.offline, "offline", false, "work from this device only, without contacting the indexer")
+	bindPhraseStdin(fs, &f.phraseStdin)
 }
 
 // open prepares a vault from the flags and the environment.
 //
-// Neither secret is a flag. A recovery phrase or an app key passed as an
-// argument is visible in the process table and lands in shell history, which
-// would make every other precaution in the design decorative. Each comes from
-// the environment, or from the profile sennit connect stored.
+// Neither secret is ever the value of a flag. A recovery phrase or an app key
+// passed as an argument is visible in the process table and lands in shell
+// history, which would make every other precaution in the design decorative.
+// Each comes from the environment, or from the profile sennit connect stored,
+// and the phrase can also be typed when asked for, or piped in on stdin when
+// --phrase-stdin says to read it there.
 func (f *vaultFlags) open(ctx context.Context, out *session, phases phaseNamer) (*vault.Vault, error) {
-	phrase, err := out.readPhrase()
+	phrase, err := out.readPhrase(f.phraseStdin)
 	if err != nil {
 		return nil, err
 	}

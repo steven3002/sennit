@@ -25,15 +25,24 @@ export TMPDIR="$HOME/.tmp" && mkdir -p "$TMPDIR"
 
 ```
  ERROR  no recovery phrase
+  Nothing supplied one: SENNIT_PHRASE is not set, no profile is
+  stored, and stdin is left unread without `--phrase-stdin`.
 
- HINT   set SENNIT_PHRASE, or pipe the phrase in on stdin
- HINT   no phrase yet? `sennit init --new-phrase` prints one and
-        stores nothing
+ HINT   `sennit connect` stores it with the app key for every
+        later run
+ HINT   or set SENNIT_PHRASE
+ HINT   or pipe it in with `--phrase-stdin`
+ HINT   no phrase yet? `sennit init --new-phrase` prints one
 ```
 
 **At a terminal you should not see this**, because a command with no phrase asks for one instead.
 It appears when there is nobody to ask: stdin or stderr is redirected, which is the normal shape of
-a script, a cron job or a CI step. Set `SENNIT_PHRASE` for those, or pipe the phrase in on stdin.
+a script, a cron job or a CI step. For those, run `sennit connect` once to store the phrase, set
+`SENNIT_PHRASE`, or pipe the phrase in and pass `--phrase-stdin`, as in
+`sennit status --phrase-stdin < phrase.txt`. PowerShell has no `<`, so there it is
+`Get-Content phrase.txt | sennit status --phrase-stdin`. A phrase piped in without the flag is left
+unread on purpose: stdin is read only when the flag asks, so a command in a script never takes the
+script's next line for its phrase.
 
 Every error is shaped like this: the problem, then what to do about it. Piped or redirected, the
 same text arrives as `error:` and `hint:` lines with no colour.

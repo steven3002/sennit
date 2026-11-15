@@ -60,7 +60,7 @@ func TestAStoredProfileSuppliesWhatTheEnvironmentDoesNot(t *testing.T) {
 	s, asks := asked(t, characterDevice(t), true, "a typed phrase", nil)
 	stored, _ := withStoredProfile(t, s, "https://indexer.example")
 
-	phrase, err := s.out.readPhrase()
+	phrase, err := s.out.readPhrase(false)
 	if err != nil {
 		t.Fatalf("read the phrase: %v", err)
 	}
@@ -84,18 +84,18 @@ func TestAStoredProfileSuppliesWhatTheEnvironmentDoesNot(t *testing.T) {
 	}
 }
 
-// Once a phrase is stored, stdin is left alone. A command run inside a script
-// or over ssh inherits a stdin that is not for it, and reading it would take
-// the next line of the script for the phrase and swallow the rest. Found on a
-// server, where `ssh host 'bash -s' < script` lost every line after the first
-// sennit command.
+// A stored profile supplies the phrase and stdin is left alone, as it is on
+// every run not given --phrase-stdin. A command run inside a script or over ssh
+// inherits a stdin that is not for it, and reading it would take the next line
+// of the script for the phrase and swallow the rest. Found on a server, where
+// `ssh host 'bash -s' < script` lost every line after the first sennit command.
 func TestAStoredProfileLeavesStdinUnread(t *testing.T) {
 	const meantForSomethingElse = "the next line of a script\nand the one after it\n"
 	stdin := strings.NewReader(meantForSomethingElse)
 	s, _ := asked(t, stdin, false, "", nil)
 	stored, _ := withStoredProfile(t, s, sia.DefaultIndexer)
 
-	phrase, err := s.out.readPhrase()
+	phrase, err := s.out.readPhrase(false)
 	if err != nil || phrase != stored.Phrase || s.out.sources.phrase != fromProfile {
 		t.Fatalf("the phrase came from %q (%v), want the stored profile", s.out.sources.phrase, err)
 	}
@@ -104,15 +104,31 @@ func TestAStoredProfileLeavesStdinUnread(t *testing.T) {
 	}
 }
 
-// With nothing stored, a pipe is read as it always was.
-func TestWithNothingStoredAPipeIsStillRead(t *testing.T) {
+// With nothing stored, a pipe is left unread all the same, because nothing
+// asked for it to be read. The run refuses, and the refusal names each way a
+// phrase can be given, the flag that reads a pipe among them.
+func TestWithNothingStoredAPipeIsLeftUnread(t *testing.T) {
 	t.Setenv(keys.PhraseEnv, "")
-	s, _ := asked(t, strings.NewReader("twelve words from a pipe\n"), false, "", nil)
+	const meantForSomethingElse = "twelve words from a pipe\nand the next line of a script\n"
+	stdin := strings.NewReader(meantForSomethingElse)
+	s, asks := asked(t, stdin, false, "", nil)
 	s.out.profiles = profile.At(t.TempDir(), profiletest.NewKeychain())
 
-	phrase, err := s.out.readPhrase()
-	if err != nil || phrase != "twelve words from a pipe" || s.out.sources.phrase != fromStdin {
-		t.Errorf("read %q from %q (%v), want the piped phrase", phrase, s.out.sources.phrase, err)
+	phrase, err := s.out.readPhrase(false)
+	if !errors.Is(err, keys.ErrNoPhrase) {
+		t.Fatalf("read %q from %q (%v), want the refusal of a run with no phrase", phrase, s.out.sources.phrase, err)
+	}
+	if stdin.Len() != len(meantForSomethingElse) {
+		t.Errorf("stdin was read unasked: %d of %d bytes left", stdin.Len(), len(meantForSomethingElse))
+	}
+	if *asks != 0 || s.stderr.Len() != 0 {
+		t.Errorf("a run with nobody to ask asked %d time(s) and wrote %q", *asks, s.stderr.String())
+	}
+	hints := strings.Join(messageFor(err).Hints, "\n")
+	for _, way := range []string{"`sennit connect`", keys.PhraseEnv, "`--phrase-stdin`"} {
+		if !strings.Contains(hints, way) {
+			t.Errorf("the refusal does not name %s:\n%s", way, hints)
+		}
 	}
 }
 
@@ -125,7 +141,7 @@ func TestTheEnvironmentComesBeforeTheStoredProfile(t *testing.T) {
 	t.Setenv(keys.PhraseEnv, "twelve other words")
 	t.Setenv(keys.AppKeyEnv, hex.EncodeToString(other))
 
-	phrase, err := s.out.readPhrase()
+	phrase, err := s.out.readPhrase(false)
 	if err != nil || phrase != "twelve other words" || s.out.sources.phrase != keys.PhraseEnv {
 		t.Errorf("the phrase came from %q (%v), want %s", s.out.sources.phrase, err, keys.PhraseEnv)
 	}
@@ -200,7 +216,7 @@ func TestAProfileThatCannotBeReadSaysWhy(t *testing.T) {
 	_, keychain := withStoredProfile(t, s, sia.DefaultIndexer)
 	keychain.Refuse = errors.New("the keyring is locked")
 
-	_, err := s.out.readPhrase()
+	_, err := s.out.readPhrase(false)
 	if err == nil || !strings.Contains(err.Error(), "the keyring is locked") {
 		t.Errorf("a profile that cannot be read gave %v, want the store's reason", err)
 	}

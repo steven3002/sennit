@@ -46,7 +46,7 @@ func runConnect(ctx context.Context, out *session, args []string) error {
 	// The phrase is read once and used twice, to register and to derive the
 	// vault keys. Without --out it is kept with the key as the default profile,
 	// and a stored phrase is never replaced by a different one unasked.
-	phrase, err := out.readPhrase()
+	phrase, err := out.readPhrase(*flags.phraseStdin)
 	if err != nil {
 		return err
 	}
@@ -183,21 +183,25 @@ func phraseWouldBeReplaced() *problem {
 }
 
 // connectOptions is what sennit connect takes. It opens no vault, so it has
-// none of the vault flags.
+// none of the vault flags, but it reads a phrase, so it takes --phrase-stdin as
+// they do.
 type connectOptions struct {
-	keyFile, indexer *string
-	budget, ready    *time.Duration
-	replace          *bool
+	keyFile, indexer     *string
+	budget, ready        *time.Duration
+	replace, phraseStdin *bool
 }
 
 func connectFlags(cmd *invocation) connectOptions {
-	return connectOptions{
-		keyFile: cmd.set.String("out", "", "file to write the issued app key to, created 0600, instead of storing it"),
-		replace: cmd.set.Bool("replace", false, "replace a stored profile whose recovery phrase is different"),
-		indexer: cmd.set.String("indexer", vault.DefaultIndexer(), "indexer URL"),
-		budget:  cmd.set.Duration("wait", sia.ApprovalBudget, "how long to keep a live approval link available"),
-		ready:   cmd.set.Duration("ready", 90*time.Second, "how long to wait for the account to become usable"),
+	options := connectOptions{
+		keyFile:     cmd.set.String("out", "", "file to write the issued app key to, created 0600, instead of storing it"),
+		replace:     cmd.set.Bool("replace", false, "replace a stored profile whose recovery phrase is different"),
+		indexer:     cmd.set.String("indexer", vault.DefaultIndexer(), "indexer URL"),
+		budget:      cmd.set.Duration("wait", sia.ApprovalBudget, "how long to keep a live approval link available"),
+		ready:       cmd.set.Duration("ready", 90*time.Second, "how long to wait for the account to become usable"),
+		phraseStdin: new(bool),
 	}
+	bindPhraseStdin(cmd.set, options.phraseStdin)
+	return options
 }
 
 // connectRows is what the approval cost and where the account stands after it.

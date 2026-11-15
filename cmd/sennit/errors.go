@@ -102,14 +102,18 @@ func messageFor(err error) ui.Message {
 				"`sennit connect` to store a new one"},
 		}
 	case errors.Is(err, keys.ErrNoPhrase):
+		// Stdin is read only when --phrase-stdin asks, so a phrase piped in
+		// without it is left where it was. The explanation says so, because a
+		// pipe is otherwise the one way in that looks as though it was tried.
 		return ui.Message{
 			Kind: ui.KindError,
 			Text: "no recovery phrase",
-			Explanation: []string{"Nothing supplied one: " + keys.PhraseEnv + " is not set, nothing came in " +
-				"on stdin, and no profile is stored."},
+			Explanation: []string{"Nothing supplied one: " + keys.PhraseEnv + " is not set, no profile is " +
+				"stored, and stdin is left unread without `--phrase-stdin`."},
 			Hints: []string{
 				"`sennit connect` stores it with the app key for every later run",
-				"or set " + keys.PhraseEnv + ", or pipe the phrase in on stdin",
+				"or set " + keys.PhraseEnv,
+				"or pipe it in with `--phrase-stdin`",
 				"no phrase yet? `sennit init --new-phrase` prints one",
 			},
 		}

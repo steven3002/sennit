@@ -1,6 +1,7 @@
 package keys
 
 import (
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -72,6 +73,27 @@ func TestTheEnvironmentIsPreferredEvenOverATerminal(t *testing.T) {
 	}
 	if got != "from the environment" {
 		t.Errorf("read %q", got)
+	}
+}
+
+// ReadPhraseFrom reads the stream it is given and nothing else, so a caller
+// that has settled where the phrase comes from gets that phrase or none: the
+// environment is not consulted, and only the first line is the phrase.
+func TestReadPhraseFromReadsOnlyItsStream(t *testing.T) {
+	t.Setenv(PhraseEnv, "from the environment")
+
+	got, err := ReadPhraseFrom(strings.NewReader("  from the stream  \nand the line after it\n"))
+	if err != nil || got != "from the stream" {
+		t.Errorf("read %q (%v), want the stream's first line", got, err)
+	}
+	for name, stream := range map[string]io.Reader{
+		"no stream":                         nil,
+		"an empty stream":                   strings.NewReader(""),
+		"a line of nothing but white space": strings.NewReader(" \t\r\nfrom the second line\n"),
+	} {
+		if got, err := ReadPhraseFrom(stream); err != ErrNoPhrase {
+			t.Errorf("%s gave %q (%v), want %v", name, got, err, ErrNoPhrase)
+		}
 	}
 }
 

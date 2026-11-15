@@ -155,9 +155,13 @@ var (
 		{"home", "--home dir", "(default ~/.sennit)"},
 		{"indexer", "--indexer url", "(default https://sia.storage)"},
 		{"offline", "--offline", ""},
+		phraseStdinFlagHelp,
 	}
 	colorFlagHelp   = flagHelp{"color", "--color when", "(default auto)"}
 	verboseFlagHelp = flagHelp{"verbose", "--verbose", ""}
+	// phraseStdinFlagHelp is shown with the vault flags, and among connect's
+	// own, since connect reads a phrase and opens no vault.
+	phraseStdinFlagHelp = flagHelp{"phrase-stdin", "--phrase-stdin", ""}
 )
 
 var commandHelps = map[string]commandHelp{
@@ -180,6 +184,7 @@ var commandHelps = map[string]commandHelp{
 			{"indexer", "--indexer url", "(default https://sia.storage)"},
 			{"wait", "--wait duration", "(default 30m)"},
 			{"ready", "--ready duration", "(default 90s)"},
+			phraseStdinFlagHelp,
 		},
 		examples: []string{"sennit connect", "sennit connect --out sennit.key"},
 		footer:   "Without --out, the phrase and the key are stored for every later run.",

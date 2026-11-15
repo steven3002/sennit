@@ -118,7 +118,7 @@ func newInvocation(name string) *invocation {
 	return r
 }
 
-// withVault adds the three flags every command that opens a vault shares.
+// withVault adds the four flags every command that opens a vault shares.
 func (r *invocation) withVault() *invocation {
 	r.vault = &vaultFlags{}
 	r.vault.bind(r.set)

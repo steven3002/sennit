@@ -166,20 +166,22 @@ would keep them as part of the phrase.
 
 The environment comes first, before the phrase step 3 stores as well.
 
-Piping it in works too, until step 3 stores the phrase:
+Or pipe it in, and pass `--phrase-stdin` to have it read:
 
 ```sh
-sennit status < phrase.txt
+sennit status --phrase-stdin < phrase.txt
 ```
 
 PowerShell has no `<`, so there the file is piped:
 
 ```powershell
-Get-Content phrase.txt | sennit status
+Get-Content phrase.txt | sennit status --phrase-stdin
 ```
 
-Once a phrase is stored, stdin is left alone, so a command inside a script or an ssh session never
-takes the script's next line for a phrase. To use another phrase then, set `SENNIT_PHRASE`.
+Stdin is read only when `--phrase-stdin` asks for it, so a command inside a script or an ssh session
+never takes the script's next line for a phrase. The flag comes before the phrase step 3 stores, so
+it is also how to use another phrase once one is stored. Use it or `SENNIT_PHRASE`, not both: given
+the two together, a command refuses rather than guess which phrase you meant.
 
 The environment is the least private of the three, because every child process a command starts
 inherits it. Typing it when asked keeps it out of your shell's history and out of the process
