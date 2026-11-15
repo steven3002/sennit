@@ -36,6 +36,28 @@ mv sennit sennit-mcp ~/.local/bin/
 sennit version
 ```
 
+On Windows, in PowerShell:
+
+```powershell
+$tag  = "v0.1.0-beta-mvp"
+$file = "sennit_0.1.0-beta-mvp_windows_amd64.zip"
+$base = "https://github.com/steven3002/sennit/releases/download/$tag"
+
+Invoke-WebRequest "$base/$file" -OutFile $file
+Invoke-WebRequest "$base/SHA256SUMS" -OutFile SHA256SUMS
+
+# The next two lines must print the same thing.
+(Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
+(Select-String -Path SHA256SUMS -Pattern $file -SimpleMatch).Line.Split(" ")[0]
+
+Expand-Archive $file -DestinationPath .
+$dir = "$env:LOCALAPPDATA\Programs\sennit"
+New-Item -ItemType Directory -Force $dir | Out-Null
+Move-Item ".\$($file -replace '\.zip$','')\*.exe" $dir
+$env:Path += ";$dir"
+sennit version
+```
+
 **Verify the checksum rather than skipping it.** These binaries derive and hold the keys to
 everything you store, so "it downloaded, it is probably fine" is not a good enough standard for
 them.
@@ -48,9 +70,18 @@ export PATH="$HOME/.local/bin:$PATH"
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc     # or ~/.zshrc
 ```
 
-Anywhere on your `PATH` works; `/usr/local/bin` is the other usual choice and needs `sudo`. On
-Windows, put the two `.exe` files in a folder of your choosing and add that folder to `Path` under
-*Edit environment variables for your account*.
+Anywhere on your `PATH` works; `/usr/local/bin` is the other usual choice and needs `sudo`.
+
+On Windows the lines above put the two `.exe` files in `%LOCALAPPDATA%\Programs\sennit` and add
+that folder to `Path` for the window they ran in. To keep it for new windows:
+
+```powershell
+[Environment]::SetEnvironmentVariable("Path",
+  [Environment]::GetEnvironmentVariable("Path", "User") + ";$env:LOCALAPPDATA\Programs\sennit", "User")
+```
+
+Any folder works there too, and *Edit environment variables for your account* in Settings does the
+same thing by hand.
 
 > ⚠️ **macOS will refuse to open it the first time, and that is expected.** These binaries are
 > unsigned and un-notarized, so Gatekeeper quarantines anything downloaded from a browser and says
@@ -74,6 +105,14 @@ git clone https://github.com/steven3002/sennit
 cd sennit
 CGO_ENABLED=0 go build -o ~/.local/bin/sennit ./cmd/sennit
 CGO_ENABLED=0 go build -o ~/.local/bin/sennit-mcp ./cmd/sennit-mcp
+```
+
+In PowerShell the last two lines are:
+
+```powershell
+$env:CGO_ENABLED = "0"
+go build -o "$env:LOCALAPPDATA\Programs\sennit\sennit.exe" ./cmd/sennit
+go build -o "$env:LOCALAPPDATA\Programs\sennit\sennit-mcp.exe" ./cmd/sennit-mcp
 ```
 
 The first build downloads dependencies and takes a few minutes. A binary you built yourself reports
@@ -116,10 +155,23 @@ environment instead:
 export SENNIT_PHRASE="<the twelve words init printed>"
 ```
 
+```powershell
+$env:SENNIT_PHRASE = "<the twelve words init printed>"
+```
+
+In cmd it is `set SENNIT_PHRASE=<the twelve words init printed>`, with no quotes, because cmd
+would keep them as part of the phrase.
+
 Piping it in works too, and both take precedence over the prompt:
 
 ```sh
 sennit status < phrase.txt
+```
+
+PowerShell has no `<`, so there the file is piped:
+
+```powershell
+Get-Content phrase.txt | sennit status
 ```
 
 The environment is the least private of the three, because every child process a command starts
@@ -158,11 +210,20 @@ Ready     after 16s, 40.00 MiB of 46.57 GiB quota in use
         history: `export SENNIT_APP_KEY=$(cat sennit.key)`
 ```
 
+On Windows the hint names PowerShell and cmd, with the line for each, because the line is written
+differently in each and `connect` cannot tell which one it was started from.
+
 Then load the key it wrote:
 
 ```sh
 export SENNIT_APP_KEY="$(cat sennit.key)"
 ```
+
+```powershell
+$env:SENNIT_APP_KEY = Get-Content sennit.key
+```
+
+In cmd it is `set /p SENNIT_APP_KEY=<sennit.key`.
 
 **Two things about this step are worth knowing in advance**, because both look like failures:
 
@@ -201,6 +262,15 @@ sennit remember \
   "Sia bills a slab whole, so packing many records into one slab is a cost decision rather than an optimisation."
 ```
 
+PowerShell continues a line with a backtick where a POSIX shell uses a backslash:
+
+```powershell
+sennit remember `
+  --context "Recorded while checking the README quickstart from a clean environment." `
+  --tags "sia,storage" `
+  "Sia bills a slab whole, so packing many records into one slab is a cost decision rather than an optimisation."
+```
+
 ```
 ✓ Remembered on this device, queued for Sia (0.8s)
 <record id>
@@ -215,7 +285,8 @@ A connected run takes longer than the time above: every online command first con
 and that is most of the wall time you see in the next step.
 
 The line above the id counts up while the write happens. The id is the only thing on stdout, so
-`id=$(sennit remember ...)` captures it and nothing else. `--verbose` adds the content id and the
+`id=$(sennit remember ...)` captures it and nothing else, as does `$id = sennit remember ...` in
+PowerShell. `--verbose` adds the content id and the
 tag counts.
 
 To wait for the upload on one write, add `--flush`. It shows a percentage while the upload runs and
@@ -273,13 +344,23 @@ claude mcp add sennit \
   -- "$(command -v sennit-mcp)"
 ```
 
+```powershell
+claude mcp add sennit `
+  -e SENNIT_PHRASE="$env:SENNIT_PHRASE" `
+  -e SENNIT_APP_KEY="$env:SENNIT_APP_KEY" `
+  -- (Get-Command sennit-mcp).Source
+```
+
 **An MCP host needs the absolute path even though the binary is on your `PATH`**, because a host does
 not launch the server from your shell and will not resolve `~` or search your `PATH`.
-`command -v sennit-mcp` prints the full path, which is what to paste anywhere a config wants one.
+`command -v sennit-mcp` prints the full path, which is what to paste anywhere a config wants one. In
+PowerShell that is `(Get-Command sennit-mcp).Source`.
 
 Other hosts take a JSON config naming the same binary and the same two environment variables. We
-have verified the command above on Claude Code 2.1.223; **we have not verified the config file
-locations for Cursor, VS Code or Claude Desktop**, so this README does not guess at them.
+have verified the POSIX command above on Claude Code 2.1.223. The PowerShell form hands `claude`
+the same nine arguments, which we checked, and has not yet been run against a host on Windows.
+**We have not verified the config file locations for Cursor, VS Code or Claude Desktop**, so this
+README does not guess at them.
 
 The server exposes `remember`, `recall`, `browse`, `open`, `save_session` and `forget`, plus a
 `/resume` prompt. Two clients can run against one vault at once, each in its own process.

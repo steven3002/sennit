@@ -496,9 +496,26 @@ func TestWhatConnectSays(t *testing.T) {
 	s.out.done(ui.MarkSuccess, "Connected: app key 3f9a1c2b… written to sennit.key")
 	s.out.above(append([]string{""}, ui.KeyValues(
 		connectRows(1, 72*time.Second, 16*time.Second, account(40*mib, 46*gib+583*mib+269228)))...)...)
-	s.out.note(ui.Message{Kind: ui.KindHint,
-		Text: "load the key into this shell without putting it in your history: `export SENNIT_APP_KEY=$(cat sennit.key)`"})
+	s.out.note(keyHint("linux", "/bin/bash", "sennit.key"))
 	s.assert(t, "connect", fixture(t, "connect.txt"))
+}
+
+// On Windows the same ending names each of its shells, because the line that
+// loads the key is written differently in each and connect cannot tell which
+// one it was started from. A POSIX shell running there is given its own line as
+// well.
+func TestWhatConnectSaysOnWindows(t *testing.T) {
+	for name, shell := range map[string]string{
+		"connect-windows.txt":          "",
+		"connect-windows-git-bash.txt": "/usr/bin/bash",
+	} {
+		s := ended(t, 80, 102*time.Second)
+		s.out.done(ui.MarkSuccess, "Connected: app key 3f9a1c2b… written to sennit.key")
+		s.out.above(append([]string{""}, ui.KeyValues(
+			connectRows(1, 72*time.Second, 16*time.Second, account(40*mib, 46*gib+583*mib+269228)))...)...)
+		s.out.note(keyHint("windows", shell, "sennit.key"))
+		s.assert(t, name, fixture(t, name))
+	}
 }
 
 // The vault path a reader recognises, which is also one they can use.

@@ -52,7 +52,7 @@ func run() int {
 		fmt.Fprintf(out.stdout, "sennit %s\n", build.String())
 		return 0
 	case "help", "-h", "--help":
-		printHelp(out, topLevelHelp())
+		printHelp(out, topLevelHelp(out.probe.GOOS))
 		return 0
 	default:
 		err = unknownCommand(os.Args[1])
@@ -148,7 +148,7 @@ func (r *invocation) parse(out *session, args []string) error {
 	case err == nil:
 		return nil
 	case errors.Is(err, flag.ErrHelp):
-		printHelp(out, commandHelpLines(r.name, r.set))
+		printHelp(out, commandHelpLines(out.probe.GOOS, r.name, r.set))
 		return errHelpAsked
 	}
 	return refuse(err.Error()).

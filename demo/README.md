@@ -10,6 +10,9 @@ export SENNIT_APP_KEY=...     # issued by `sennit connect`
 ./demo/two-machines.sh
 ```
 
+The demo is a bash script, so the lines above are written for bash. On Windows that means Git Bash
+or WSL, and it has not been tried in either.
+
 **Measured end to end on 2026-09-25: 69 s**, 23 s to write and put on Sia, 37 s to rebuild in a
 directory that has never held the vault, 9 s to read it back with a different client. The rebuild
 lists every object on the account, so it takes longer on an account that holds more. Building the

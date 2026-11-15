@@ -65,7 +65,7 @@ var environment = [][2]string{
 
 // topLevelHelp is everything sennit does, grouped by what a reader is trying to
 // get done rather than alphabetically.
-func topLevelHelp() []ui.Line {
+func topLevelHelp(goos string) []ui.Line {
 	out := []ui.Line{text(summary), {}, heading("USAGE"), text("  sennit <command> [flags]")}
 	for _, group := range groups {
 		out = append(out, ui.Line{}, heading(group.title))
@@ -77,9 +77,9 @@ func topLevelHelp() []ui.Line {
 		text("  -h, --help       Show help for sennit or a command"),
 		text("      --version    Show the version"),
 		ui.Line{}, heading("EXAMPLES"),
-		example("sennit init --new-phrase"),
-		example(`sennit remember --context "why it matters" "the statement"`),
-		example(`sennit recall "what did we decide about packing"`),
+		example(goos, "sennit init --new-phrase"),
+		example(goos, `sennit remember --context "why it matters" "the statement"`),
+		example(goos, `sennit recall "what did we decide about packing"`),
 		ui.Line{}, heading("ENVIRONMENT"))
 	for _, variable := range environment {
 		out = append(out, text("  "+width.Pad(variable[0], 19)+variable[1]))
@@ -107,9 +107,17 @@ func heading(title string) ui.Line { return ui.Line{ui.S(ui.Bold, title)} }
 func text(line string) ui.Line     { return ui.Line{ui.T(line)} }
 
 // example marks the prompt faint, so what a reader copies is the command and
-// not the dollar sign in front of it.
-func example(line string) ui.Line {
-	return ui.Line{ui.T("  "), ui.S(ui.Faint, "$"), ui.T(" " + line)}
+// not the sign in front of it.
+//
+// The sign is the one the reader's own shells end their prompts with. On
+// Windows that is not a dollar sign, and a dollar sign in front of a PowerShell
+// line that itself begins with one reads as part of the command.
+func example(goos, line string) ui.Line {
+	prompt := "$"
+	if goos == "windows" {
+		prompt = ">"
+	}
+	return ui.Line{ui.T("  "), ui.S(ui.Faint, prompt), ui.T(" " + line)}
 }
 
 // A flagHelp is one flag as the help shows it: the name with its placeholder,
@@ -131,7 +139,11 @@ type commandHelp struct {
 	vault    bool
 	verbose  bool
 	examples []string
-	footer   string
+	// windows replaces examples on Windows, for a command whose examples are
+	// written in a shell's own syntax. Nil means the examples run as they are
+	// in PowerShell and in cmd.
+	windows []string
+	footer  string
 }
 
 // vaultFlagHelp and outputFlagHelp are the two groups every command shares.
@@ -169,7 +181,10 @@ var commandHelps = map[string]commandHelp{
 			{"ready", "--ready duration", "(default 90s)"},
 		},
 		examples: []string{"sennit connect --out sennit.key", `export SENNIT_APP_KEY="$(cat sennit.key)"`},
-		footer:   "The recovery phrase comes from SENNIT_PHRASE, or from stdin when that is unset.",
+		// The PowerShell form. Someone in cmd is given cmd's when connect
+		// finishes, which prints the line for each shell.
+		windows: []string{"sennit connect --out sennit.key", "$env:SENNIT_APP_KEY = Get-Content sennit.key"},
+		footer:  "The recovery phrase comes from SENNIT_PHRASE, or from stdin when that is unset.",
 	},
 	"remember": {
 		summary: "Store a memory.",
@@ -253,7 +268,7 @@ var commandHelps = map[string]commandHelp{
 }
 
 // commandHelpLines lays out one command's screen from its own flags.
-func commandHelpLines(name string, fs *flag.FlagSet) []ui.Line {
+func commandHelpLines(goos, name string, fs *flag.FlagSet) []ui.Line {
 	spec := commandHelps[name]
 	groups := []struct {
 		title string
@@ -302,8 +317,12 @@ func commandHelpLines(name string, fs *flag.FlagSet) []ui.Line {
 		}
 	}
 	out = append(out, ui.Line{}, heading("EXAMPLES"))
-	for _, e := range spec.examples {
-		out = append(out, example(e))
+	examples := spec.examples
+	if goos == "windows" && spec.windows != nil {
+		examples = spec.windows
+	}
+	for _, e := range examples {
+		out = append(out, example(goos, e))
 	}
 	if spec.footer != "" {
 		out = append(out, ui.Line{}, text(spec.footer))

@@ -41,7 +41,9 @@ same text arrives as `error:` and `hint:` lines with no colour.
 ## "no Sia app key"
 
 You have not completed step 3, or the key is not in the environment. Run `sennit connect --out
-sennit.key` and `export SENNIT_APP_KEY="$(cat sennit.key)"`. To work without an indexer
+sennit.key` and `export SENNIT_APP_KEY="$(cat sennit.key)"`. In PowerShell the second is
+`$env:SENNIT_APP_KEY = Get-Content sennit.key`, and in cmd `set /p SENNIT_APP_KEY=<sennit.key`;
+`sennit connect` prints the line for your shell when it finishes. To work without an indexer
 entirely, pass `--offline`.
 
 ## Boxes or question marks in the progress line
@@ -52,6 +54,11 @@ Nothing is wrong with the vault; pick a set your font has:
 ```sh
 export SENNIT_GLYPHS=basic   # circles and dots, which almost every font carries
 export SENNIT_GLYPHS=ascii   # | / - \ and plain ok and x
+```
+
+```powershell
+$env:SENNIT_GLYPHS = "basic"
+$env:SENNIT_GLYPHS = "ascii"
 ```
 
 `SENNIT_GLYPHS=full` forces the full set back on. Colour and the live line follow the usual

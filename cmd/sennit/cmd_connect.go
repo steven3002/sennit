@@ -98,9 +98,7 @@ func runConnect(ctx context.Context, out *session, args []string) error {
 		result.AppKey.Fingerprint(), *keyFile))
 	out.above(append([]string{""}, ui.KeyValues(
 		connectRows(result.Attempts, result.WaitedFor, time.Since(waited), account))...)...)
-	out.note(ui.Message{Kind: ui.KindHint, Text: fmt.Sprintf(
-		"load the key into this shell without putting it in your history: `export %s=$(cat %s)`",
-		keys.AppKeyEnv, *keyFile)})
+	out.note(keyHint(out.probe.GOOS, out.probe.Getenv("SHELL"), *keyFile))
 	return nil
 }
 

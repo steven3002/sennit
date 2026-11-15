@@ -23,7 +23,7 @@ func rendered(s *screen, lines []ui.Line) string {
 func TestHelpScreens(t *testing.T) {
 	s := terminal(t, 80)
 	for name, lines := range map[string][]ui.Line{
-		"help-top.txt":  topLevelHelp(),
+		"help-top.txt":  topLevelHelp("linux"),
 		"help-bare.txt": bareHelp(),
 	} {
 		if got, want := uitest.Strip(rendered(s, lines)), fixture(t, name); got != want {
@@ -31,7 +31,7 @@ func TestHelpScreens(t *testing.T) {
 		}
 	}
 	for _, command := range []string{"init", "connect", "remember", "recall", "flush", "status", "reclaim", "recover", "hydrate"} {
-		got := uitest.Strip(rendered(s, commandHelpLines(command, flagsOf(t, command))))
+		got := uitest.Strip(rendered(s, commandHelpLines("linux", command, flagsOf(t, command))))
 		if want := fixture(t, "help-"+command+".txt"); got != want {
 			t.Errorf("sennit %s --help:\n got %q\nwant %q", command, got, want)
 		}
@@ -46,7 +46,7 @@ func TestHelpIsStyledOnlyWhereItWasApproved(t *testing.T) {
 	if uitest.HasEscape(got) {
 		t.Errorf("the short screen has no headings and no prompts, so nothing in it is styled: %q", got)
 	}
-	got = rendered(s, topLevelHelp())
+	got = rendered(s, topLevelHelp("linux"))
 	for _, want := range []string{"\x1b[1mUSAGE\x1b[0m", "\x1b[1mLEARN MORE\x1b[0m", "  \x1b[2m$\x1b[0m sennit init --new-phrase"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the top-level screen is missing %q", want)
@@ -71,7 +71,7 @@ func TestRememberDoesNotWaitForTheUploadByDefault(t *testing.T) {
 		t.Errorf("--flush defaults to %q: a bare remember pays a whole slab and the upload's wall time "+
 			"for one record", flush.DefValue)
 	}
-	screen := uitest.Strip(rendered(terminal(t, 80), commandHelpLines("remember", flagsOf(t, "remember"))))
+	screen := uitest.Strip(rendered(terminal(t, 80), commandHelpLines("linux", "remember", flagsOf(t, "remember"))))
 	if !strings.Contains(screen, "default false") {
 		t.Errorf("the help screen does not say the flag is off by default:\n%s", screen)
 	}
@@ -95,7 +95,7 @@ func TestRememberDoesNotWaitForTheUploadByDefault(t *testing.T) {
 func TestEveryFlagAppearsInItsHelpScreen(t *testing.T) {
 	for _, command := range []string{"init", "connect", "remember", "recall", "flush", "status", "reclaim", "recover", "hydrate"} {
 		set := flagsOf(t, command)
-		screen := uitest.Strip(rendered(terminal(t, 80), commandHelpLines(command, set)))
+		screen := uitest.Strip(rendered(terminal(t, 80), commandHelpLines("linux", command, set)))
 		set.VisitAll(func(f *flag.Flag) {
 			if !strings.Contains(screen, "--"+f.Name) {
 				t.Errorf("sennit %s defines --%s and its help does not mention it", command, f.Name)
