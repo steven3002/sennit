@@ -1,0 +1,8 @@
+# Check every text file out with LF line endings, on every platform.
+#
+# Git for Windows converts line endings to CRLF on checkout unless told
+# otherwise. The expected output under testdata then ends its lines with a
+# carriage return the program never prints, and gofmt reports every Go file as
+# unformatted, so a fresh clone on Windows fails its tests before anything has
+# been changed.
+* text=auto eol=lf
