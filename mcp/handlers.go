@@ -969,7 +969,7 @@ type SaveSessionOut struct {
 	Messages   int    `json:"messages" jsonschema:"how many turns this call stored"`
 	Bytes      int64  `json:"bytes" jsonschema:"how much transcript this call stored"`
 	Chunks     int    `json:"chunks" jsonschema:"how many immutable pieces it was stored in"`
-	OnNetwork  bool   `json:"onNetwork" jsonschema:"whether every piece this call wrote reached the network"`
+	OnNetwork  bool   `json:"onNetwork" jsonschema:"whether every piece of the conversation's transcript has reached the network, the ones earlier saves wrote as well as this call's"`
 	Durability string `json:"durability" jsonschema:"where the conversation is right now, in words you may repeat to the user"`
 	Resume     string `json:"resume" jsonschema:"how the user brings this conversation back"`
 }
