@@ -17,7 +17,10 @@ import (
 // the folder it is made in. So the list is replaced by one entry, full access
 // for this account, and marked protected so that nothing is handed down from
 // the folder again.
-func Restrict(file *os.File) error {
+func Restrict(file *os.File) error { return restrictPath(file.Name()) }
+
+// restrictPath does what Restrict does, by name, without opening the file.
+func restrictPath(name string) error {
 	user, err := windows.GetCurrentProcessToken().GetTokenUser()
 	if err != nil {
 		return fmt.Errorf("find the account running this: %w", err)
@@ -30,12 +33,12 @@ func Restrict(file *os.File) error {
 	if err != nil {
 		return fmt.Errorf("build an access list for this account alone: %w", err)
 	}
-	// By name and not through the handle: the handle was opened to write the
-	// file, which does not carry the right to change who may open it.
-	err = windows.SetNamedSecurityInfo(file.Name(), windows.SE_FILE_OBJECT,
+	// By name and not through a handle: a handle opened to write the file does
+	// not carry the right to change who may open it.
+	err = windows.SetNamedSecurityInfo(name, windows.SE_FILE_OBJECT,
 		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, list, nil)
 	if err != nil {
-		return fmt.Errorf("limit %s to this account: %w", file.Name(), err)
+		return fmt.Errorf("limit %s to this account: %w", name, err)
 	}
 	return nil
 }

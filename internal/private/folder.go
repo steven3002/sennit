@@ -39,11 +39,21 @@ func Folder(dir string) (bool, error) {
 // here first, the file starts private, and SQLite gives the files it adds
 // beside it the same mode on Unix. A file an earlier version made more open
 // is narrowed.
+//
+// A file that is already there is narrowed by name and never opened. On Unix
+// the locks SQLite keeps belong to the whole process, and closing any
+// descriptor for a file drops every one of them, so opening and closing a
+// database this process already has open would let another process take it
+// over while this one still uses it.
 func File(path string) error {
-	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
-	if err != nil {
+	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
+	switch {
+	case errors.Is(err, fs.ErrExist):
+		return Path(path)
+	case err != nil:
 		return err
 	}
+	// Made just now, so nothing in this process can hold a lock on it.
 	if err := Restrict(file); err != nil {
 		file.Close()
 		return err
@@ -52,21 +62,21 @@ func File(path string) error {
 }
 
 // FileIfThere limits the file at path to this account when there is one, and
-// does nothing when there is not.
+// does nothing when there is not. Like Path, it never opens the file.
 func FileIfThere(path string) error {
-	file, err := os.OpenFile(path, os.O_RDWR, 0)
+	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	err := Path(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
-	if err != nil {
-		return err
-	}
-	if err := Restrict(file); err != nil {
-		file.Close()
-		return err
-	}
-	return file.Close()
+	return err
 }
+
+// Path limits the file at path to this account by its name, without opening
+// it, so that it is safe on a file this process holds locks on. See File.
+func Path(path string) error { return restrictPath(path) }
 
 // Readers names who besides this account can read what is in dir, or returns
 // "" when nobody can.
