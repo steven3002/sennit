@@ -58,6 +58,39 @@ jobs:
       - name: test (race)
         run: go test -race ./local/... ./manifest/... ./store/... ./index/...
 
+  # The release ships Windows and macOS programs as well, and until this job
+  # their tests had been run by hand once on Windows and never on macOS. #64 is
+  # what that costs: the released Windows program could not set up a vault,
+  # and nothing showed it until somebody ran it there. Formatting, the lint and
+  # the race detector say the same on every platform, so they stay on Linux.
+  # The tests that load the embedding model skip here, because nothing fetches
+  # it; running them on every platform is #99.
+  other-platforms:
+    name: build and test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: build
+        env:
+          CGO_ENABLED: "0"
+        run: go build ./...
+
+      - name: vet
+        run: go vet ./...
+
+      - name: test
+        run: go test ./...
+
   recall-regression:
     name: recall regression (hit@k)
     runs-on: ubuntu-latest
