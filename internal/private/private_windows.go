@@ -1,6 +1,6 @@
 //go:build windows
 
-package main
+package private
 
 import (
 	"fmt"
@@ -9,7 +9,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// keepPrivate leaves a file open to the account running this and to nobody
+// Restrict leaves a file open to the account running this and to nobody
 // else.
 //
 // A file mode means nothing here: Windows keeps one bit of it, read-only, and
@@ -17,7 +17,7 @@ import (
 // the folder it is made in. So the list is replaced by one entry, full access
 // for this account, and marked protected so that nothing is handed down from
 // the folder again.
-func keepPrivate(file *os.File) error {
+func Restrict(file *os.File) error {
 	user, err := windows.GetCurrentProcessToken().GetTokenUser()
 	if err != nil {
 		return fmt.Errorf("find the account running this: %w", err)
@@ -40,7 +40,7 @@ func keepPrivate(file *os.File) error {
 	return nil
 }
 
-// ownerOnly is the access list keepPrivate sets, in the notation Windows prints
+// ownerOnly is the access list Restrict sets, in the notation Windows prints
 // one in: protected from inheritance, with one entry allowing the account full
 // access to the file.
 func ownerOnly(account *windows.SID) string {

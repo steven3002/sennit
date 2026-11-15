@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/steven3002/sennit/internal/private/privatetest"
 	"github.com/steven3002/sennit/keys"
 )
 
@@ -28,7 +29,7 @@ func TestTheAppKeyWrittenIsTheAppKeyReadBack(t *testing.T) {
 	}
 	// What makes a file private is the platform's own: a mode where there are
 	// modes, and an access list on Windows.
-	onlyThisAccountMayOpen(t, path)
+	privatetest.OnlyThisAccountMayOpen(t, path)
 
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -62,12 +63,12 @@ func TestAKeyWrittenOverAFileAnyoneCanReadLeavesItPrivate(t *testing.T) {
 	key := make(keys.AppKey, 64)
 	copy(key, []byte{0x5e, 0xcc, 0x12, 0x07})
 	path := filepath.Join(t.TempDir(), "sennit.key")
-	openToEveryone(t, path)
+	privatetest.OpenToEveryone(t, path)
 
 	if err := writeAppKey(path, key); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	onlyThisAccountMayOpen(t, path)
+	privatetest.OnlyThisAccountMayOpen(t, path)
 	if err := verifyAppKey(path, key); err != nil {
 		t.Fatalf("the file made private no longer reads back as the key: %v", err)
 	}

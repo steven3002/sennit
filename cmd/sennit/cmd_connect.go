@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/steven3002/sennit/cmd/sennit/internal/ui"
+	"github.com/steven3002/sennit/internal/private"
 	"github.com/steven3002/sennit/keys"
 	"github.com/steven3002/sennit/sia"
 	"github.com/steven3002/sennit/vault"
@@ -133,7 +134,7 @@ func writeAppKey(path string, key keys.AppKey) error {
 	if err != nil {
 		return fmt.Errorf("write the app key: %w", err)
 	}
-	if err := keepPrivate(file); err != nil {
+	if err := private.Restrict(file); err != nil {
 		file.Close()
 		return fmt.Errorf("write the app key: %w", err)
 	}
