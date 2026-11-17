@@ -17,7 +17,9 @@ import (
 // them and the index that searches them are device-local by decision, so both
 // are rebuilt here. The catalog is cheap and the index is not, hundreds of
 // milliseconds a record, which is why this can stop after any stage and why it
-// says what each one cost.
+// says what each one cost. It goes as far as the index unless it is told to
+// stop sooner, because a vault restored without it finds a record only by the
+// words it shares with a question.
 func runHydrate(ctx context.Context, out *session, args []string) error {
 	cmd := newInvocation("hydrate").withVault().withVerbose()
 	depth, quiet := hydrateFlags(cmd)
@@ -70,7 +72,7 @@ func runHydrate(ctx context.Context, out *session, args []string) error {
 
 // hydrateFlags is what sennit hydrate takes.
 func hydrateFlags(cmd *invocation) (depth *string, quiet *bool) {
-	return cmd.set.String("depth", string(vault.HydrateMetadata),
+	return cmd.set.String("depth", string(vault.HydrateIndex),
 			"how far to go: catalog (locate records), metadata (hold and file them), index (search by meaning)"),
 		cmd.set.Bool("quiet", false, "report only the summary, not each record")
 }
@@ -106,6 +108,7 @@ func hydrateRows(report vault.HydrateReport, indexer string) [][2]string {
 //
 // The fields it calls not recoverable are the ones every rebuilt conversation
 // lost. A field only some of them lost is said of those alone, by lostBySome.
+// Below index depth the search vector is neither: see verdictOn.
 func rebuiltHeads(report vault.HydrateReport) (ui.Message, bool) {
 	if report.Sessions == 0 {
 		return ui.Message{}, false
@@ -180,6 +183,10 @@ type partlyLost struct {
 	fields, titles []string
 }
 
+// searchVector is the field of a head that holds its search vector, named as
+// vault.HeadFields names it.
+const searchVector = "embedding"
+
 // verdictOn reads what was lost off each head the hydrate rebuilt.
 //
 // It is read head by head and not from the rebuild's verdict across all of them.
@@ -190,6 +197,11 @@ type partlyLost struct {
 // rebuilt beside it. It also took in the heads this device already held. A
 // rebuild reconstructs those to report on and does not store them, so such a
 // conversation keeps the head that was written and lost nothing here.
+//
+// Below index depth it leaves the search vector out. The rebuild was not asked
+// to make one and reports it lost, which is its own verdict and stays so, but
+// the hint the summary ends on says that `--depth index` makes one, and a
+// summary that called it not recoverable right above that would be false.
 func verdictOn(report vault.HydrateReport) rebuiltVerdict {
 	var heads []vault.RebuiltHead
 	for _, head := range report.Rebuild.Heads {
@@ -201,10 +213,14 @@ func verdictOn(report vault.HydrateReport) rebuiltVerdict {
 	if len(heads) == 0 {
 		return verdict
 	}
+	_, vectorsHinted := deeperHint(report.Depth)
 	// Fields lost by the same conversations are said together, so a set of
 	// them is found again by which conversations lost it.
 	groups := make(map[string]int)
 	for _, field := range vault.HeadFields {
+		if field == searchVector && vectorsHinted {
+			continue
+		}
 		var lostBy []int
 		invented := false
 		for i, head := range heads {

@@ -137,6 +137,11 @@ type VaultDetail struct {
 	// the network, or knows of records there that it has not restored, so that
 	// the counts above are not read as the vault's.
 	Restore string `json:"restore,omitempty" jsonschema:"what this device has not restored from the network, and the command that restores it"`
+	// Search is set on a device holding records with no search vector, as a
+	// hydrate at metadata depth leaves every record it restores, so that the
+	// records counted above are not taken for records a search reaches by
+	// meaning.
+	Search string `json:"search,omitempty" jsonschema:"what this device holds that a search matches only by its words, because it has no search vector, and the command that gives it one"`
 	// Catalog is set when this server found a change to the catalog cut off by
 	// a crash and dropped it, so that a record which has lost its latest change
 	// is not taken for a fault in whatever made that change.
@@ -206,6 +211,7 @@ func (s *Server) fillVault(ctx context.Context, detail *VaultDetail) error {
 		return err
 	}
 	detail.Restore = restoreNote(restoration)
+	detail.Search = searchNote(restoration.Unembedded)
 	detail.Catalog = catalogNote(s.vault.DroppedCatalogChanges())
 	detail.Index = indexNote(s.vault.IndexRepair())
 
@@ -235,6 +241,18 @@ func restoreNote(restoration vault.Restoration) string {
 			unrestoredRecords(restoration))
 	}
 	return ""
+}
+
+// searchNote says which of the records counted cannot be found by meaning,
+// because they have no search vector, and nothing when every record this device
+// holds has one. The counts include them either way, since they are held here.
+func searchNote(unembedded vault.Unembedded) string {
+	if unembedded.Total() == 0 {
+		return ""
+	}
+	return fmt.Sprintf("This device holds %s with no search vector yet, so `recall` matches them only by "+
+		"the words they share with a question, never by meaning. `sennit hydrate --depth index` gives "+
+		"them their search vectors.", unembeddedRecords(unembedded))
 }
 
 // catalogNote says what dropping a change the catalog found cut off means for

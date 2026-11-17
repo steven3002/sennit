@@ -244,3 +244,37 @@ func TestAConversationThisDeviceStillHeldLosesNothingInTheSummary(t *testing.T) 
 		t.Errorf("a conversation that kept its head is named among the ones that lost a field: %+v", notes)
 	}
 }
+
+// Below index depth the summary does not call the search vector not
+// recoverable, and the hint that follows it says how to make one.
+//
+// A hydrate at metadata depth does not ask the rebuild to embed, so the rebuild
+// reports the vector of every conversation it stores as lost, which is its own
+// verdict and stays so. The summary listed it among the fields that are not
+// recoverable, right above the hint that says `--depth index` makes one.
+func TestBelowIndexDepthTheSummaryDoesNotCallTheSearchVectorNotRecoverable(t *testing.T) {
+	report := hydrated(vault.HydrateMetadata, rebuiltFromTranscripts(t, false,
+		transcript{opening: "Which of the Tidepool gauges report hourly?"},
+		transcript{opening: "Why does every flush bill a whole slab?", dated: true},
+	))
+	if origin := report.Rebuild.Origins["embedding"]; origin != vault.OriginLost {
+		t.Fatalf("the rebuild reports the search vector %q, want its own verdict, %q", origin, vault.OriginLost)
+	}
+
+	if lost := unrecoverable(t, report); slices.Contains(lost, "embedding") {
+		t.Errorf("the summary calls the search vector not recoverable at metadata depth: %v", lost)
+	}
+	if invented := reconstructed(t, report); slices.Contains(invented, "embedding") {
+		t.Errorf("the summary says a search vector was made at metadata depth: %v", invented)
+	}
+	for _, note := range lostBySome(report) {
+		if strings.Contains(note.Text, "embedding") {
+			t.Errorf("a warning calls the search vector not recoverable for some conversations: %q", note.Text)
+		}
+	}
+	hint, ok := deeperHint(report.Depth)
+	if !ok || !strings.Contains(hint.Text, "search vectors") || !strings.Contains(hint.Text, "`--depth index`") {
+		t.Errorf("the hint below the summary does not say that `--depth index` makes the search vectors: %q",
+			hint.Text)
+	}
+}

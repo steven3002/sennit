@@ -92,3 +92,61 @@ func TestSennitRecallSaysWhatThisDeviceHasNotRestored(t *testing.T) {
 		})
 	}
 }
+
+// sennit recall says when the records this device holds have no search vector,
+// as a hydrate at metadata depth leaves every record it restores, and names the
+// hydrate that gives them one. With nothing to show, it says that rather than
+// that the vault holds nothing searchable.
+//
+// The restorations are the ones the vault's own tests show such a device
+// reporting, for a vault of two memories and a conversation: restored whole at
+// metadata depth, and restored in part, with one memory at metadata depth and
+// the rest only located.
+func TestSennitRecallSaysWhenTheRecordsHereHaveNoSearchVector(t *testing.T) {
+	byWords := recall.Hit{Found: recall.Found{Memory: &record.Memory{
+		ID: id(t, "4083dbdd9e9f0f816c797080eed61fba"), Kind: record.KindMemory, Type: record.TypeFact,
+		Statement: "The harbour gauge at Tidepool reads in centimetres.",
+		Context:   "From the fictional Tidepool field guide.",
+		Tags:      []string{"harbour", "gauge"},
+	}}, Lexical: 0.016}
+	restored := vault.Restoration{Unembedded: vault.Unembedded{Memories: 2, Sessions: 1}}
+
+	const command = "`sennit hydrate --depth index` gives them their search vectors"
+	for _, c := range []struct {
+		name        string
+		restoration vault.Restoration
+		hits        []recall.Hit
+		// want is what the answer says, and wrong what it must not.
+		want, wrong []string
+	}{
+		{name: "a question no record shares a word with", restoration: restored,
+			want: []string{"hint: this device holds 2 memories and 1 conversation with no search vector yet",
+				"none shares a word with this one", command},
+			wrong: []string{"this vault holds nothing", "has not restored"}},
+		{name: "a question that shares words with a memory", restoration: restored, hits: []recall.Hit{byWords},
+			want: []string{"Found 1 memory", byWords.Memory.Statement,
+				"hint: this device holds 2 memories and 1 conversation with no search vector yet",
+				"only by words shared with the query", command},
+			wrong: []string{"this vault holds nothing", "has not restored"}},
+		{name: "a device that has also not restored part of the vault",
+			restoration: vault.Restoration{Memories: 1, Chunks: 1, Unembedded: vault.Unembedded{Memories: 1}},
+			hits:        []recall.Hit{byWords},
+			want: []string{"hint: this device knows of 1 memory and at least one conversation on Sia that it " +
+				"has not restored", "hint: this device holds 1 memory with no search vector yet", command},
+			wrong: []string{"this vault holds nothing", "conversation with no search vector"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			printed := recalledThroughAPipe(t, c.restoration, 0, c.hits...)
+			for _, want := range c.want {
+				if !strings.Contains(printed, want) {
+					t.Errorf("the answer does not say %q:\n%s", want, printed)
+				}
+			}
+			for _, wrong := range c.wrong {
+				if strings.Contains(printed, wrong) {
+					t.Errorf("the answer says %q:\n%s", wrong, printed)
+				}
+			}
+		})
+	}
+}

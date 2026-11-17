@@ -257,11 +257,11 @@ var commandHelps = map[string]commandHelp{
 		summary: "Restore this vault on a machine that never held it.",
 		usage:   []string{"sennit hydrate [flags]"},
 		flags: []flagHelp{
-			{"depth", "--depth level", "(default metadata)"},
+			{"depth", "--depth level", "(default index)"},
 			{"quiet", "--quiet", ""},
 		},
 		vault: true, verbose: true,
-		examples: []string{"sennit hydrate", "sennit hydrate --depth index"},
+		examples: []string{"sennit hydrate", "sennit hydrate --depth metadata"},
 	},
 }
 

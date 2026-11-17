@@ -5,7 +5,7 @@ USAGE
 
 FLAGS
   --depth level    How far to go: catalog (locate records), metadata (hold and
-                   file them), index (search by meaning) (default metadata)
+                   file them), index (search by meaning) (default index)
   --quiet          Report only the summary, not each record
 
 VAULT FLAGS
@@ -19,4 +19,4 @@ OUTPUT FLAGS
 
 EXAMPLES
   $ sennit hydrate
-  $ sennit hydrate --depth index
+  $ sennit hydrate --depth metadata

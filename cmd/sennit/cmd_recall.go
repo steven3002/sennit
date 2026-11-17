@@ -148,7 +148,7 @@ func reportRecall(out *session, result recall.Result, hits []recall.Hit, restora
 	// returns its least-bad guess when it holds nothing relevant is worse than
 	// one that says so, and a vault that holds nothing searchable is a
 	// different situation that looks identical from the outside.
-	if hint, ok := searchedHint(len(rows) == 0 && result.Searched == 0, restoration); ok {
+	for _, hint := range searchedHints(len(rows) == 0 && result.Searched == 0, restoration) {
 		out.note(hint)
 	}
 	if result.SupersededHidden > 0 {
@@ -158,17 +158,21 @@ func reportRecall(out *session, result recall.Result, hits []recall.Hit, restora
 	}
 }
 
-// searchedHint says what a search on this device could reach, from the check
+// searchedHints say what a search on this device could reach, from the check
 // the server makes for the same answer: how much of what its catalog names this
-// device has restored.
+// device has restored, and how many of the records it holds have no search
+// vector.
 //
 // With nothing to search, that check is what tells an empty vault from a
 // device holding nothing of it. One that never restored the vault holds
-// nothing whatever the vault holds, and one that knows of records it has not
-// restored holds part of it. The second says so with its results too, because
-// they come from the part it holds and look no different from a whole vault's.
-func searchedHint(nothingSearched bool, restoration vault.Restoration) (ui.Message, bool) {
-	hint := func(text string) (ui.Message, bool) { return ui.Message{Kind: ui.KindHint, Text: text}, true }
+// nothing whatever the vault holds, one that knows of records it has not
+// restored holds part of it, and one restored at metadata depth holds every
+// record and no search vector, so it can match a question only by its words.
+// The last two say so with their results too, because those come from what
+// the search could reach and look no different from a whole vault's.
+func searchedHints(nothingSearched bool, restoration vault.Restoration) []ui.Message {
+	hint := func(text string) []ui.Message { return []ui.Message{{Kind: ui.KindHint, Text: text}} }
+	unembedded := restoration.Unembedded
 	switch {
 	case nothingSearched && restoration.Untouched:
 		return hint("nothing on this device is searchable yet, and it has not restored any record of this " +
@@ -178,14 +182,38 @@ func searchedHint(nothingSearched bool, restoration vault.Restoration) (ui.Messa
 		return hint(fmt.Sprintf("nothing on this device is searchable yet, though it knows of %s on Sia "+
 			"that it has not restored; `sennit hydrate --depth index` restores this vault's records and "+
 			"makes them searchable", unrestored(restoration)))
+	case nothingSearched && unembedded.Total() > 0:
+		return hint(fmt.Sprintf("this device holds %s with no search vector yet, which a search matches "+
+			"only by words shared with the query, and none shares a word with this one; "+
+			"`sennit hydrate --depth index` gives them their search vectors", heldWithoutVectors(unembedded)))
 	case nothingSearched:
 		return hint("this vault holds nothing searchable yet; `sennit remember` stores the first record")
-	case !restoration.Complete():
-		return hint(fmt.Sprintf("this device knows of %s on Sia that it has not restored, so the search "+
-			"could not reach them; `sennit hydrate --depth index` restores this vault's records and makes "+
-			"them searchable", unrestored(restoration)))
 	}
-	return ui.Message{}, false
+	var hints []ui.Message
+	if !restoration.Complete() {
+		hints = append(hints, hint(fmt.Sprintf("this device knows of %s on Sia that it has not restored, so the search "+
+			"could not reach them; `sennit hydrate --depth index` restores this vault's records and makes "+
+			"them searchable", unrestored(restoration)))...)
+	}
+	if unembedded.Total() > 0 {
+		hints = append(hints, hint(fmt.Sprintf("this device holds %s with no search vector yet, which the search "+
+			"could match only by words shared with the query; `sennit hydrate --depth index` gives them their "+
+			"search vectors", heldWithoutVectors(unembedded)))...)
+	}
+	return hints
+}
+
+// heldWithoutVectors names the records this device holds without a search
+// vector, as the server's answers count them, by class.
+func heldWithoutVectors(unembedded vault.Unembedded) string {
+	var named []string
+	if unembedded.Memories > 0 {
+		named = append(named, plural(unembedded.Memories, "memory"))
+	}
+	if unembedded.Sessions > 0 {
+		named = append(named, plural(unembedded.Sessions, "conversation"))
+	}
+	return andList(named)
 }
 
 // unrestored names what this device knows of on Sia and has not restored, as

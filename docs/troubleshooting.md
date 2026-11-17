@@ -125,7 +125,7 @@ before the vault opens it gives a vector to every memory and conversation it hol
 and says what it found and what it rebuilt. Nothing is asked of you.
 
 Embedding takes a few hundred milliseconds a record, so the first open after the damage can take
-minutes on a large vault, or on one restored by `sennit hydrate` at its default depth, which leaves
+minutes on a large vault, or on one restored by `sennit hydrate --depth metadata`, which leaves
 every record without a vector. The live line counts the records as it goes.
 
 `sennit-mcp` rebuilds before it starts serving, and says so in the host's log. A host that stops

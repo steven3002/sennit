@@ -42,3 +42,24 @@ func TestTheGuidanceSaysWhatAnEmptyResultMeansOnEachKindOfDevice(t *testing.T) {
 		}
 	}
 }
+
+// What an agent is told the hint means on a device whose records have no
+// search vector, as a restore at metadata depth leaves every record, and what
+// to tell the user instead of that the vault does not hold something.
+//
+// Neither the instructions nor recall's description said that such a device
+// exists. A recall there finds a record only by the words it shares with the
+// question, and an agent told only that an empty result means the vault does
+// not hold the record tells the user so about a record this device holds.
+func TestTheGuidanceSaysWhatTheHintMeansOnADeviceWithoutSearchVectors(t *testing.T) {
+	for name, text := range map[string]string{
+		"the instructions":              strings.Join(strings.Fields(mcp.Instructions), " "),
+		"the recall tool's description": strings.Join(strings.Fields(mcp.RecallTool.Description), " "),
+	} {
+		for _, must := range []string{"no search vector", "sennit hydrate --depth index"} {
+			if !strings.Contains(text, must) {
+				t.Errorf("%s: %q is not said", name, must)
+			}
+		}
+	}
+}

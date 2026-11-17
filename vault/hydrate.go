@@ -31,7 +31,9 @@ const (
 	// search by meaning works, and no model has been loaded.
 	HydrateMetadata HydrateDepth = "metadata"
 	// HydrateIndex additionally gives every record a search vector, which is the
-	// expensive stage and the one a device can run in the background.
+	// expensive stage and the one a device can run in the background. It is the
+	// depth a hydrate goes to unless it is asked for less: a restored vault that
+	// cannot search by meaning is rarely what anyone wants.
 	HydrateIndex HydrateDepth = "index"
 )
 
@@ -48,8 +50,10 @@ func (d HydrateDepth) Valid() bool { _, ok := hydrateRank[d]; return ok }
 
 // A HydrateRequest tunes a hydration.
 type HydrateRequest struct {
-	// Depth is how far to go. Empty means HydrateMetadata, which is the point at
-	// which a vault is usable for everything except search by meaning.
+	// Depth is how far to go. Empty means HydrateIndex, which is the point at
+	// which every record is held and searchable by meaning. HydrateMetadata
+	// stops short of the vectors, and leaves a vault that finds a record only by
+	// the words it shares with a query.
 	Depth HydrateDepth
 	// OnRecord is called as each record is catalogued, so a long hydration can
 	// report progress rather than appearing to hang.
@@ -137,7 +141,7 @@ type (
 // hydrateOver is Hydrate over the network's walk and read.
 func (v *Vault) hydrateOver(ctx context.Context, req HydrateRequest, walk walkObjects, read readObject) (HydrateReport, error) {
 	if req.Depth == "" {
-		req.Depth = HydrateMetadata
+		req.Depth = HydrateIndex
 	}
 	if !req.Depth.Valid() {
 		return HydrateReport{}, fmt.Errorf("hydrate depth %q is not one of %s, %s, %s",
@@ -344,6 +348,12 @@ func catalogEntry(frame seal.Frame, object sia.StoredObject, body []byte, cid se
 // HydrateCatalog stops once the catalog is written, so a record the catalog
 // names and the device does not hold was located on the network and not
 // restored here.
+//
+// A record this device holds can still be one a search reaches only by its
+// words. The network holds no search vector, so each is made on the device
+// that restores the record, and a hydrate short of HydrateIndex makes none. A
+// search finds such a record by the words it shares with a query and never by
+// meaning, so it is counted apart from the records that are not held at all.
 type Restoration struct {
 	// Untouched reports that nothing on this device shows a record restored
 	// from the network or written to it: its catalog has never named one, and
@@ -360,15 +370,46 @@ type Restoration struct {
 	// lists, counts and ranks it. A chunk has no metadata, and holding it is
 	// what its conversation is rebuilt from.
 	Memories, Chunks int
+	// Unembedded counts the records this device holds that have no search
+	// vector, the memories and the conversations it lists and counts. Every
+	// record a hydrate short of HydrateIndex restores is one of them. A record
+	// whose vector another model made is not: it has a vector, and IndexHealth
+	// counts it as one this vault cannot search.
+	//
+	// It is read from the index this process loaded, which is the one its
+	// searches read. A record another process has given a vector since is still
+	// counted here, as it is still not searched here, until this process opens
+	// the vault again.
+	Unembedded Unembedded
 }
+
+// Unembedded counts the records of each class that a device holds without a
+// search vector.
+type Unembedded struct {
+	Memories, Sessions int
+}
+
+// Total is how many records it counts.
+func (u Unembedded) Total() int { return u.Memories + u.Sessions }
 
 // Complete reports whether this device holds every record its catalog names.
 func (r Restoration) Complete() bool { return r.Memories == 0 && r.Chunks == 0 }
 
 // Restoration reports how much of what its catalog names this device has
-// restored. It reads the catalog as this process loaded it and the device's own
-// store, and nothing on the network.
+// restored, and how many of the records it holds have no search vector. It
+// reads the catalog and the index as this process loaded them and the device's
+// own store, and nothing on the network.
 func (v *Vault) Restoration() (Restoration, error) {
+	described, err := v.local.RankingMetaIDs(record.KindMemory)
+	if err != nil {
+		return Restoration{}, err
+	}
+	sessions, err := v.local.RankingMetaIDs(record.KindSession)
+	if err != nil {
+		return Restoration{}, err
+	}
+	restoration := Restoration{Unembedded: v.unembedded(described, sessions)}
+
 	if v.manifest.Named() == 0 {
 		// The ledger is asked as well because every process over this device
 		// shares it, where the catalog is read once, when a process opens the
@@ -379,17 +420,14 @@ func (v *Vault) Restoration() (Restoration, error) {
 		if err != nil {
 			return Restoration{}, err
 		}
-		return Restoration{Untouched: len(slabs) == 0}, nil
+		restoration.Untouched = len(slabs) == 0
+		return restoration, nil
 	}
 	entries := v.manifest.Entries()
 	if len(entries) == 0 {
-		return Restoration{}, nil
+		return restoration, nil
 	}
 
-	described, err := v.local.RankingMetaIDs(record.KindMemory)
-	if err != nil {
-		return Restoration{}, err
-	}
 	held, err := v.local.BodyIDsOfKind(record.KindChunk)
 	if err != nil {
 		return Restoration{}, err
@@ -402,7 +440,6 @@ func (v *Vault) Restoration() (Restoration, error) {
 		restored[id] = true
 	}
 
-	var restoration Restoration
 	for _, entry := range entries {
 		if restored[entry.ID] {
 			continue
@@ -415,4 +452,28 @@ func (v *Vault) Restoration() (Restoration, error) {
 		}
 	}
 	return restoration, nil
+}
+
+// unembedded counts the memories and the conversations named that have no
+// search vector: none in the index this process searches, and none from
+// another model, which this index leaves out and IndexHealth counts.
+func (v *Vault) unembedded(memories, sessions []record.ID) Unembedded {
+	v.healthMu.Lock()
+	defer v.healthMu.Unlock()
+	vectored := func(id record.ID) bool {
+		_, foreign := v.foreign[id]
+		return foreign || (v.index != nil && v.index.Has(id))
+	}
+	var counted Unembedded
+	for _, id := range memories {
+		if !vectored(id) {
+			counted.Memories++
+		}
+	}
+	for _, id := range sessions {
+		if !vectored(id) {
+			counted.Sessions++
+		}
+	}
+	return counted
 }
