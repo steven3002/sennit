@@ -345,9 +345,10 @@ func TestAnIdAloneResumesTheConversationItNames(t *testing.T) {
 		Tags:      []string{"harbour", "survey"},
 	}), mcp.Scheme+"memory/")
 	for _, unknown := range []string{memory, strings.Repeat("0", 32)} {
-		want := "no record at that address: " + mcp.Scheme + "session/" + unknown
-		if got := refusal(t, session, map[string]string{"session": unknown}); got != want {
-			t.Errorf("resume %s was refused with %q, want %q", unknown, got, want)
+		address := mcp.Scheme + "session/" + unknown
+		got := refusal(t, session, map[string]string{"session": unknown})
+		if want := refusal(t, session, map[string]string{"session": address}); got != want {
+			t.Errorf("resume %s was refused with %q, and its address with %q", unknown, got, want)
 		}
 	}
 }
