@@ -41,9 +41,10 @@ func (v *Vault) putVector(id record.ID, vector []float32) error {
 // removeVector takes a record out of the durable index and then out of the
 // searchable one.
 //
-// Both halves are needed. The searchable index is loaded once, when the vault
-// opens, so a vector removed only from disk goes on answering queries in this
-// process for a record nothing else holds any more, until something reopens.
+// Both halves are needed. The searchable index is loaded when the vault opens,
+// and read again only for a change another process makes, so a vector this
+// process removed only from disk goes on answering queries here for a record
+// nothing else holds any more, until something reopens.
 //
 // The durable half goes first, as it does in putVector and for the same reason:
 // a removal that fails to reach disk leaves the record searchable here and in

@@ -108,6 +108,13 @@ func (l *Log) compact() (err error) {
 	if err != nil {
 		return err
 	}
+	// The snapshot is written from the files, so this process's copy of the
+	// catalog accounts for it only when it accounted for the files. When
+	// another process has written to them since this one read them, the new
+	// snapshot holds what that process wrote and the copy does not, and it is
+	// left for Changed to report.
+	before, err := l.stat()
+	ours := err == nil && l.accounts(before)
 	entries := make([]Entry, 0, len(order))
 	for _, id := range order {
 		entries = append(entries, held[id])
@@ -163,5 +170,10 @@ func (l *Log) compact() (err error) {
 	l.snapshotBytes, l.logBytes = written, 0
 	l.written += written
 	l.compactions++
+	// A stat that fails leaves the files counted as changed, which costs the
+	// next look a read of them and loses nothing.
+	if after, err := l.stat(); ours && err == nil {
+		l.saw(after)
+	}
 	return nil
 }

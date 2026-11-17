@@ -166,9 +166,14 @@ const VocabularyLimit = 40
 
 func (s *Server) resolveVault(ctx context.Context, address Address) (Resolution, error) {
 	detail := VaultDetail{}
-	if err := s.ready(); err != nil {
+	if err := s.opened(); err != nil {
 		detail.Ready = err.Error()
 	} else {
+		// A vault that is open and cannot be read again is a failure to read
+		// this resource, and not a vault that is not ready.
+		if err := s.ready(); err != nil {
+			return Resolution{}, err
+		}
 		if err := s.fillVault(ctx, &detail); err != nil {
 			return Resolution{}, err
 		}

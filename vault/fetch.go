@@ -71,6 +71,14 @@ func (v *Vault) fetchBody(ctx context.Context, id record.ID) (record.Kind, []byt
 	}
 	v.countMiss(recall.TierLocal)
 
+	// A forget takes the catalog entry before the body, in whichever process
+	// it runs, so a body this device no longer holds may be one another
+	// process has forgotten since this one last read the catalog. Looked up in
+	// a copy that still names it, it would be read back from the network and
+	// kept here again.
+	if _, err := v.manifest.Refresh(); err != nil {
+		return "", nil, "", err
+	}
 	entry, err := v.manifest.Lookup(id)
 	if err != nil {
 		return "", nil, "", err

@@ -268,6 +268,15 @@ func (p *Packer) flush(ctx context.Context, reason Reason) (Result, error) {
 	return result, p.refresh()
 }
 
+// Refresh reads what is queued again from the device's store.
+//
+// Every process with the vault open queues to that one store and flushes from
+// it, and a packer counts only what it adds, withdraws and flushes itself. So a
+// long-lived process reads it again before it says what is pending, or the
+// records a command queued, flushed or forgot in another process are counted
+// as they were.
+func (p *Packer) Refresh() error { return p.refresh() }
+
 func (p *Packer) refresh() error {
 	state, err := p.queue.QueueState()
 	if err != nil {

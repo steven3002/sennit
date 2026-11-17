@@ -75,6 +75,39 @@ func (i *Index) Add(id record.ID, model string, vector []float32) error {
 	return nil
 }
 
+// Replace makes the index hold these vectors and no others, as a series of Add
+// calls on an empty index would.
+//
+// It is for an index whose vectors were read from disk again, because another
+// process changed them. Every vector is checked as Add checks it before
+// anything is replaced, so one that is refused leaves the index as it was, and
+// the replacement is made in one step: a search running meanwhile scores what
+// the index held before or what it holds after, never part of each.
+func (i *Index) Replace(entries []Entry) error {
+	ids := make([]record.ID, 0, len(entries))
+	vectors := make([]float32, 0, len(entries)*i.dim)
+	at := make(map[record.ID]int, len(entries))
+	for _, entry := range entries {
+		if entry.Model != i.model {
+			return fmt.Errorf("%w: index holds %q, got %q for %s", ErrForeignModel, i.model, entry.Model, entry.ID)
+		}
+		if len(entry.Vector) != i.dim {
+			return fmt.Errorf("index holds %d-dimension vectors, got %d for %s", i.dim, len(entry.Vector), entry.ID)
+		}
+		if position, ok := at[entry.ID]; ok {
+			copy(vectors[position*i.dim:(position+1)*i.dim], entry.Vector)
+			continue
+		}
+		at[entry.ID] = len(ids)
+		ids = append(ids, entry.ID)
+		vectors = append(vectors, entry.Vector...)
+	}
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	i.ids, i.vectors, i.at = ids, vectors, at
+	return nil
+}
+
 // Remove withdraws a record's vector, reporting whether the index held one.
 //
 // The index lives as long as the process does, so a vector left behind by a

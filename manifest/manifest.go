@@ -33,6 +33,44 @@ func Load(log *Log) (*Manifest, error) {
 	return &Manifest{log: log, entries: entries, order: order}, nil
 }
 
+// Refresh reads the catalog's files again when another process has written to
+// them since this one last read them, and reports whether it did.
+//
+// The catalog is read once, when it is loaded, and every change this process
+// makes is made to that copy as well as to the files. Every process with the
+// vault open appends to the same files, though: a flush or a forget run in a
+// terminal, or a second agent's server. Without this, a long-lived process goes
+// on answering from a copy that no longer says what the vault holds, until it
+// restarts.
+//
+// Telling whether the files have changed costs a stat of each, so it can be
+// asked before every answer. Reading them again costs what loading them does,
+// and is done only when they have changed. The copy is replaced while the
+// catalog is held, so a reader sees the copy from before or the one from after,
+// and nothing this process appends in the meantime is left out of either.
+func (m *Manifest) Refresh() (bool, error) {
+	if !m.Changed() {
+		return false, nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// Another call may have read them while this one waited for the catalog.
+	if !m.Changed() {
+		return false, nil
+	}
+	entries, order, err := m.log.Replay()
+	if err != nil {
+		return false, err
+	}
+	m.entries, m.order = entries, order
+	return true, nil
+}
+
+// Changed reports whether another process has written to the catalog's files
+// since this one last read them, which is when Refresh reads them again. It
+// costs a stat of each file. See Log.Changed.
+func (m *Manifest) Changed() bool { return m.log.Changed() }
+
 // Append records where a record version landed.
 //
 // The catalog folds itself into a snapshot when the log has outgrown one,
