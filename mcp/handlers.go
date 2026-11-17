@@ -257,6 +257,9 @@ func candidatePool(want int) int {
 // results as well as one that has none. A search reads only what the device
 // holds, so on a device that has not restored every record its catalog names,
 // the hint also says what the search could not reach, whatever else it says.
+// And it matches a record by meaning only through the record's search vector,
+// so on a device holding records without one, the hint also says which the
+// search could match only by their words.
 func (s *Server) recallHint(in RecallIn, out RecallOut, offset int, scope []record.Kind) (string, error) {
 	restoration, err := s.vault.Restoration()
 	if err != nil {
@@ -295,15 +298,20 @@ func (s *Server) recallHint(in RecallIn, out RecallOut, offset int, scope []reco
 		// nothing to search, and the answer says so in the same words.
 		return nothingSearchable(restoration), nil
 	}
-	return joinSentences(hint, unreachedNote(unreached(restoration, scope))), nil
+	missing := unreached(restoration, scope)
+	return joinSentences(hint, unreachedNote(missing), unembeddedNote(missing.Unembedded)), nil
 }
 
 // nothingSearchable says why a recall had nothing on this device to search.
 //
-// That is an empty vault only on a device that has restored what the network
-// holds of it. A device that has not restored the vault holds nothing to search
-// whatever the vault holds, so it says so and names the depth of hydrate that
-// makes a record searchable, which is deeper than the default.
+// That is an empty vault only on a device that holds nothing to search, having
+// restored what the network holds of it. A device that has not restored the
+// vault holds nothing to search whatever the vault holds, so it says so and
+// names the depth of hydrate that makes a record searchable. One that holds
+// records without a search vector, as a hydrate at metadata depth leaves every
+// record it restores, found nothing by meaning because it had no vector to
+// search, and nothing by words because no record shares one with the question,
+// so it says that the records are there and names the same depth.
 func nothingSearchable(restoration vault.Restoration) string {
 	switch {
 	case restoration.Untouched:
@@ -317,14 +325,22 @@ func nothingSearchable(restoration vault.Restoration) string {
 			"on the network that it has not restored, and a search reads only what this device holds. "+
 			"`sennit hydrate --depth index` restores this vault's records from the network and makes "+
 			"them searchable.", unrestoredRecords(restoration))
+	case restoration.Unembedded.Total() > 0:
+		return fmt.Sprintf("This device holds %s with no search vector yet, which a search matches only "+
+			"by the words they share with the query, never by meaning, and none of them shares a word with "+
+			"this one. They are held here, so this does not show that the vault is empty or that it does "+
+			"not hold the answer. `sennit hydrate --depth index` gives them their search vectors, and "+
+			"`browse` lists them meanwhile.", unembeddedRecords(restoration.Unembedded))
 	}
 	return "This vault holds nothing searchable yet. Use `remember` to store the first record."
 }
 
-// unreached is what a search on this device could not have found: the records
-// its catalog names that it has not restored, of the classes the scope lets
-// answer. A record the scope excludes would not have been returned had it been
-// restored, so it is not one the answer is missing.
+// unreached is what a search on this device could not have found, or could
+// have found only by its words: the records its catalog names that it has not
+// restored, and the records it holds without a search vector, of the classes
+// the scope lets answer. A record the scope excludes would not have been
+// returned had it been restored or given a vector, so it is not one the answer
+// is missing.
 func unreached(restoration vault.Restoration, scope []record.Kind) vault.Restoration {
 	if len(scope) == 0 {
 		return restoration
@@ -332,9 +348,11 @@ func unreached(restoration vault.Restoration, scope []record.Kind) vault.Restora
 	var missing vault.Restoration
 	if slices.Contains(scope, record.KindMemory) {
 		missing.Memories = restoration.Memories
+		missing.Unembedded.Memories = restoration.Unembedded.Memories
 	}
 	if slices.Contains(scope, record.KindSession) {
 		missing.Chunks = restoration.Chunks
+		missing.Unembedded.Sessions = restoration.Unembedded.Sessions
 	}
 	return missing
 }
@@ -355,6 +373,25 @@ func unreachedNote(missing vault.Restoration) string {
 		"reads only what this device holds, so this answer leaves them out. `sennit hydrate --depth index` "+
 		"restores this vault's records from the network and makes them searchable.",
 		unrestoredRecords(missing))
+}
+
+// unembeddedNote says which records this device holds that a search could match
+// only by their words, because they have no search vector, and nothing when
+// every record it holds has one.
+//
+// Like unreachedNote, it goes with results as well as without them. A device
+// restored at metadata depth answers from the records that share a word with
+// the question, and that answer looks like one ranked by meaning: only this
+// note says that a record answering in other words was not found, and what
+// would find it.
+func unembeddedNote(unembedded vault.Unembedded) string {
+	if unembedded.Total() == 0 {
+		return ""
+	}
+	return fmt.Sprintf("This device holds %s with no search vector yet, which a search matches only by the "+
+		"words they share with the query, never by meaning, so this answer leaves out any of them that "+
+		"answers it in other words. `sennit hydrate --depth index` gives them their search vectors.",
+		unembeddedRecords(unembedded))
 }
 
 // joinSentences joins the parts of a hint that are present, as one paragraph.
@@ -1407,4 +1444,18 @@ func unrestoredRecords(restoration vault.Restoration) string {
 		return "at least one stored conversation"
 	}
 	return memories
+}
+
+// unembeddedRecords names the records this device holds without a search
+// vector, for an answer that has to say so. Both classes are counted, since
+// both are held here, and a class with none is left out.
+func unembeddedRecords(unembedded vault.Unembedded) string {
+	var named []string
+	if unembedded.Memories > 0 {
+		named = append(named, fmt.Sprintf("%d memory record(s)", unembedded.Memories))
+	}
+	if unembedded.Sessions > 0 {
+		named = append(named, fmt.Sprintf("%d stored conversation(s)", unembedded.Sessions))
+	}
+	return joinList(named, "and")
 }

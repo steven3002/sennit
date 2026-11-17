@@ -73,8 +73,10 @@ type RebuildRequest struct {
 	// rebuilt head is strictly poorer than a written one, so a vault that still
 	// has the real head must not have it replaced by a reconstruction.
 	Overwrite bool
-	// Embed gives each rebuilt head a search vector. Without it the session is
-	// present and loadable but not findable by meaning.
+	// Embed gives each rebuilt head a search vector, and each head this device
+	// already held that has none, so every conversation the rebuild reaches is
+	// findable by meaning. Without it a rebuilt session is present and loadable
+	// but not findable by meaning.
 	Embed bool
 }
 
@@ -398,6 +400,19 @@ func (v *Vault) rebuildHead(ctx context.Context, id record.ID, chunks []*record.
 	if !req.Overwrite {
 		if _, err := v.local.GetSessionHead(id); err == nil {
 			built.Existing = true
+			// The head this device holds stays, being richer than a rebuild of
+			// it, and a rebuild asked to embed still gives it a search vector
+			// when it has none. A hydrate at metadata depth stores the heads it
+			// rebuilds without one, and a hydrate at index depth run after it
+			// kept them so, which left every conversation the first one
+			// rebuilt found by its words alone. A head the model will not
+			// embed, or one a forget takes meanwhile, is passed over, as the
+			// index's own rebuild passes it over.
+			if req.Embed && !v.index.Has(id) {
+				if _, err := v.embedAgain(ctx, missingRecord{id: id, kind: record.KindSession}); err != nil {
+					return RebuiltHead{}, err
+				}
+			}
 			return built, nil
 		} else if !errors.Is(err, local.ErrNotFound) {
 			return RebuiltHead{}, err

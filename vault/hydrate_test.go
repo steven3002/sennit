@@ -1,6 +1,7 @@
 package vault
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"slices"
@@ -149,5 +150,99 @@ func TestAConversationWithoutTurnTimesIsListedAfterADatedOneWhereItWasRebuilt(t 
 				t.Errorf("the device that rebuilt them lists %v, want %v, the dated one first", got, want)
 			}
 		})
+	}
+}
+
+// gaugeSurveyNetwork has a writer store a memory and a conversation and flush
+// both to the network the test stands in for. It returns their ids and the
+// network.
+func gaugeSurveyNetwork(t *testing.T) (memory, conversation record.ID, network *standInNetwork) {
+	t.Helper()
+	writer := OpenWithLedgerForTest(t, t.TempDir())
+	memory = rememberFact(t, writer, "The harbour gauge at Tidepool reads in centimetres.", "harbour")
+	saved, err := writer.SaveSession(context.Background(), SaveSessionRequest{
+		Title:    "Tidepool gauge survey",
+		Summary:  "Counted the stations reporting hourly.",
+		Messages: exchange("survey", true),
+	})
+	if err != nil {
+		t.Fatalf("save the conversation: %v", err)
+	}
+	return memory, saved.ID, standIn(t, FlushToNetworkForTest(t, writer))
+}
+
+// unvectored names the records of the ones given that have no search vector on
+// v.
+func unvectored(v *Vault, records map[string]record.ID) []string {
+	var names []string
+	for name, id := range records {
+		if !v.index.Has(id) {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	return names
+}
+
+// A hydrate that is not told a depth goes to index depth, so the device it
+// restores searches every record by meaning.
+//
+// It went to metadata depth, which brings back every record and rebuilds every
+// conversation and writes no search vector. A recall on the device then found a
+// record only by a word it shared with the question.
+func TestAHydrateToldNoDepthGivesEveryRecordASearchVector(t *testing.T) {
+	memory, conversation, network := gaugeSurveyNetwork(t)
+	device := OpenWithLedgerForTest(t, t.TempDir())
+
+	report, err := device.hydrateOver(context.Background(), HydrateRequest{}, network.walk, network.read)
+	if err != nil {
+		t.Fatalf("hydrate: %v", err)
+	}
+	if report.Depth != HydrateIndex {
+		t.Errorf("a hydrate told no depth went to depth %s, want %s", report.Depth, HydrateIndex)
+	}
+	if missing := unvectored(device, map[string]record.ID{
+		"the memory": memory, "the conversation": conversation,
+	}); len(missing) > 0 {
+		t.Errorf("after a hydrate told no depth, %v have no search vector", missing)
+	}
+}
+
+// A hydrate at index depth, run on a device that a hydrate at metadata depth
+// restored, gives every record a search vector, the conversations included, and
+// keeps the heads the first one rebuilt.
+//
+// The summary of a hydrate at metadata depth, and every answer on the device it
+// restored, name `--depth index` as what makes a record searchable by meaning.
+// Run afterwards, it gave each memory its vector and no conversation one. The
+// rebuild keeps a head the device already holds, since it cannot rebuild one as
+// well as the one that was stored, and it kept the head's want of a vector with
+// it, so each conversation was found by its words alone however often the
+// hydrate ran.
+func TestAHydrateAtIndexDepthAfterOneAtMetadataDepthGivesEveryRecordAVector(t *testing.T) {
+	memory, conversation, network := gaugeSurveyNetwork(t)
+	device := OpenWithLedgerForTest(t, t.TempDir())
+	network.hydrateInto(device, HydrateMetadata)
+	rebuilt, err := device.local.GetSessionHead(conversation)
+	if err != nil {
+		t.Fatalf("the head the hydrate at metadata depth rebuilt: %v", err)
+	}
+
+	report := network.hydrateInto(device, HydrateIndex)
+	if report.Rebuild.Stored != 0 || report.Rebuild.Skipped != 1 {
+		t.Errorf("the hydrate at index depth stored %d head(s) and kept %d, want none stored and the 1 "+
+			"this device held kept", report.Rebuild.Stored, report.Rebuild.Skipped)
+	}
+	if missing := unvectored(device, map[string]record.ID{
+		"the memory": memory, "the conversation": conversation,
+	}); len(missing) > 0 {
+		t.Errorf("after a hydrate at index depth, %v have no search vector", missing)
+	}
+	kept, err := device.local.GetSessionHead(conversation)
+	if err != nil {
+		t.Fatalf("the head after the hydrate at index depth: %v", err)
+	}
+	if !bytes.Equal(kept, rebuilt) {
+		t.Error("the hydrate at index depth replaced the head this device held")
 	}
 }

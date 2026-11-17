@@ -251,6 +251,9 @@ func TestADeviceThatRestoredTheVaultKeepsItsAnswers(t *testing.T) {
 		if len(found.Results) == 0 || found.Results[0].Title != harbourGauge {
 			t.Errorf("recall answered %+v, want the harbour gauge first", found.Results)
 		}
+		if found.Hint != "" {
+			t.Errorf("recall on a device holding every record and its search vector says %q", found.Hint)
+		}
 		for way, arguments := range resumeBothWays {
 			if refusal := resumeRefusal(t, session, arguments); refusal != "" {
 				t.Errorf("%s refused on a device holding a conversation: %s", way, refusal)
@@ -260,8 +263,10 @@ func TestADeviceThatRestoredTheVaultKeepsItsAnswers(t *testing.T) {
 		if records, _ := detail["records"].(float64); records != 3 {
 			t.Errorf("the vault resource counts %v record(s), want 3", records)
 		}
-		if restore, present := detail["restore"]; present {
-			t.Errorf("the vault resource says what a restored device lacks: %v", restore)
+		for _, note := range []string{"restore", "search"} {
+			if said, present := detail[note]; present {
+				t.Errorf("the vault resource says what a restored device lacks: %s %v", note, said)
+			}
 		}
 	})
 

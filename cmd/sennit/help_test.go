@@ -199,3 +199,29 @@ func TestAnUnknownCommandIsRefusedWithWhatWasProbablyMeant(t *testing.T) {
 		}
 	}
 }
+
+// sennit hydrate goes to index depth unless it is told otherwise, and its help
+// says so.
+//
+// It went to metadata depth, which restores every record and writes no search
+// vector, so a vault restored by a bare hydrate found a record only by the
+// words it shared with a question. The help states the default in words of its
+// own rather than reading it from the flag, so the two are checked together.
+func TestHydrateGoesToIndexDepthByDefault(t *testing.T) {
+	depth := flagsOf(t, "hydrate").Lookup("depth")
+	if depth == nil {
+		t.Fatal("hydrate has no --depth flag")
+	}
+	if depth.DefValue != string(vault.HydrateIndex) {
+		t.Errorf("--depth defaults to %q, want %q: a bare hydrate restores a vault that cannot search by "+
+			"meaning", depth.DefValue, vault.HydrateIndex)
+	}
+	screen := strings.Join(strings.Fields(uitest.Strip(rendered(terminal(t, 80),
+		commandHelpLines("linux", "hydrate", flagsOf(t, "hydrate"))))), " ")
+	if want := "(default " + depth.DefValue + ")"; !strings.Contains(screen, want) {
+		t.Errorf("the help screen does not say %q:\n%s", want, screen)
+	}
+	if !strings.Contains(screen, "(default index)") {
+		t.Errorf("the help screen does not say the depth is index by default:\n%s", screen)
+	}
+}

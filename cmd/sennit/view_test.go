@@ -434,6 +434,7 @@ func TestWhatHydrateSays(t *testing.T) {
 		transcript{opening: "Can a repack run while the server is up?", dated: true},
 	)
 	report := vault.HydrateReport{
+		Depth:   vault.HydrateMetadata,
 		Records: 1008, Objects: 14, Bytes: 2013265, Bodies: 1008, Sessions: rebuilt.Stored, Slabs: 14,
 		Rebuild: rebuilt,
 	}
@@ -453,8 +454,8 @@ func TestWhatHydrateSays(t *testing.T) {
 	s.out.note(hint)
 	s.assert(t, "hydrate", fixture(t, "hydrate-metadata.txt"))
 
-	shallow := vault.HydrateReport{Records: 1008, Objects: 14, Bytes: 2013265, Slabs: 14,
-		Rebuild: vault.RebuildReport{Gaps: 1}}
+	shallow := vault.HydrateReport{Depth: vault.HydrateCatalog, Records: 1008, Objects: 14, Bytes: 2013265,
+		Slabs: 14, Rebuild: vault.RebuildReport{Gaps: 1}}
 	s = ended(t, 80, 18400*time.Millisecond)
 	s.out.done(ui.MarkSuccess, "Hydrated 1,008 records to depth catalog")
 	s.out.report(hydrateRows(shallow, "https://sia.storage"))
