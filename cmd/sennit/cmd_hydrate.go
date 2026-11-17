@@ -51,16 +51,8 @@ func runHydrate(ctx context.Context, out *session, args []string) error {
 			"%s stopped parsing part way, %d could not be opened at all",
 			plural(report.Damaged, "object"), report.Unreadable)})
 	}
-	if note, ok := rebuiltHeads(report); ok {
+	for _, note := range rebuiltNotes(report.Rebuild) {
 		out.note(note)
-	}
-	for _, note := range lostBySome(report) {
-		out.note(note)
-	}
-	if report.Rebuild.Gaps > 0 {
-		out.note(ui.Message{Kind: ui.KindWarning, Text: fmt.Sprintf(
-			"%s %s missing part of the transcript in the middle",
-			plural(report.Rebuild.Gaps, "conversation"), verb(report.Rebuild.Gaps, "is", "are"))})
 	}
 	if hint, ok := deeperHint(vault.HydrateDepth(*depth)); ok {
 		out.note(hint)
@@ -96,21 +88,41 @@ func hydrateRows(report vault.HydrateReport, indexer string) [][2]string {
 	return rows
 }
 
+// rebuiltNotes is everything a restore says of the conversations it rebuilt:
+// what all of them came back without, which of them lost a field the others got
+// back, and how many are missing part of the transcript in the middle.
+//
+// Hydrate and recover both rebuild the conversations whose transcripts they put
+// back, with the same rebuild, so both say it in these words.
+func rebuiltNotes(rebuilt vault.RebuildReport) []ui.Message {
+	var notes []ui.Message
+	if note, ok := rebuiltHeads(rebuilt); ok {
+		notes = append(notes, note)
+	}
+	notes = append(notes, lostBySome(rebuilt)...)
+	if rebuilt.Gaps > 0 {
+		notes = append(notes, ui.Message{Kind: ui.KindWarning, Text: fmt.Sprintf(
+			"%s %s missing part of the transcript in the middle",
+			plural(rebuilt.Gaps, "conversation"), verb(rebuilt.Gaps, "is", "are"))})
+	}
+	return notes
+}
+
 // rebuiltHeads says plainly what a rebuilt conversation does not carry.
 //
 // A session head is the one record that never reaches the network, so what
 // comes back is assembled from the transcript. Most of it is exact and some of
 // it is invented, and a device that presented the two identically would be
 // claiming something it has not restored. It stays in the default output for
-// that reason: it is the honest half of a successful hydrate.
+// that reason: it is the honest half of a successful hydrate or recover.
 //
 // The fields it calls not recoverable are the ones every rebuilt conversation
 // lost. A field only some of them lost is said of those alone, by lostBySome.
-func rebuiltHeads(report vault.HydrateReport) (ui.Message, bool) {
-	if report.Sessions == 0 {
+func rebuiltHeads(rebuilt vault.RebuildReport) (ui.Message, bool) {
+	if rebuilt.Stored == 0 {
 		return ui.Message{}, false
 	}
-	verdict := verdictOn(report)
+	verdict := verdictOn(rebuilt)
 	explanation := "The messages are exact. A conversation's own description is not on Sia"
 	if len(verdict.invented) > 0 {
 		explanation += ", so these were reconstructed here: " + strings.Join(verdict.invented, ", ")
@@ -122,8 +134,8 @@ func rebuiltHeads(report vault.HydrateReport) (ui.Message, bool) {
 	return ui.Message{
 		Kind: ui.KindWarning,
 		Text: fmt.Sprintf("%s %s rebuilt from %s",
-			plural(report.Sessions, "conversation"), verb(report.Sessions, "was", "were"),
-			pick(report.Sessions, "its transcript", "their transcripts")),
+			plural(rebuilt.Stored, "conversation"), verb(rebuilt.Stored, "was", "were"),
+			pick(rebuilt.Stored, "its transcript", "their transcripts")),
 		Explanation: []string{explanation},
 	}, true
 }
@@ -134,8 +146,8 @@ func rebuiltHeads(report vault.HydrateReport) (ui.Message, bool) {
 // Saying it of every conversation would be false of most of them. Each is named
 // by its title, the one it was rebuilt with and is listed under on this device,
 // and a long list stops at listedConversations and says how many more there are.
-func lostBySome(report vault.HydrateReport) []ui.Message {
-	verdict := verdictOn(report)
+func lostBySome(rebuilt vault.RebuildReport) []ui.Message {
+	verdict := verdictOn(rebuilt)
 	out := make([]ui.Message, 0, len(verdict.some))
 	for _, group := range verdict.some {
 		note := ui.Message{
@@ -157,11 +169,11 @@ func lostBySome(report vault.HydrateReport) []ui.Message {
 }
 
 // listedConversations is how many conversations a warning names before it
-// counts the rest. A hydrate can rebuild hundreds, and a list that long hides
+// counts the rest. A restore can rebuild hundreds, and a list that long hides
 // the warning it belongs to.
 const listedConversations = 5
 
-// A rebuiltVerdict is what the conversations a hydrate rebuilt came back
+// A rebuiltVerdict is what the conversations a restore rebuilt came back
 // without.
 type rebuiltVerdict struct {
 	// rebuilt is how many conversations it covers.
@@ -180,7 +192,7 @@ type partlyLost struct {
 	fields, titles []string
 }
 
-// verdictOn reads what was lost off each head the hydrate rebuilt.
+// verdictOn reads what was lost off each head a restore rebuilt.
 //
 // It is read head by head and not from the rebuild's verdict across all of them.
 // That verdict keeps the weakest origin any head reported, which is what a claim
@@ -190,9 +202,9 @@ type partlyLost struct {
 // rebuilt beside it. It also took in the heads this device already held. A
 // rebuild reconstructs those to report on and does not store them, so such a
 // conversation keeps the head that was written and lost nothing here.
-func verdictOn(report vault.HydrateReport) rebuiltVerdict {
+func verdictOn(rebuilt vault.RebuildReport) rebuiltVerdict {
 	var heads []vault.RebuiltHead
-	for _, head := range report.Rebuild.Heads {
+	for _, head := range rebuilt.Heads {
 		if !head.Existing && head.Session != nil {
 			heads = append(heads, head)
 		}

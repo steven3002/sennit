@@ -34,14 +34,22 @@ type RecoveryReport struct {
 	// Embedded is how many records were given a fresh vector.
 	Embedded int
 
+	// Rebuild is the reconstruction of the conversations whose transcripts were
+	// recovered, including the field by field account of what a rebuilt head
+	// does and does not carry. A conversation whose head this device already
+	// held keeps that head, and is counted there as skipped.
+	Rebuild RebuildReport
+
 	Elapsed time.Duration
 }
 
 // A RecoveryRequest tunes a rebuild.
 type RecoveryRequest struct {
-	// Embed regenerates the search vectors as records are recovered. Without
-	// it the records are all present and readable but not yet findable by
-	// meaning, and a later pass has to supply the vectors.
+	// Embed regenerates the search vectors as records are recovered, and gives
+	// each conversation rebuilt from them a vector too, so a recovered
+	// conversation is findable by meaning exactly when a recovered memory is.
+	// Without it the records are all present and readable but not yet findable
+	// by meaning, and a later pass has to supply the vectors.
 	Embed bool
 	// OnRecord is called for each record as it is recovered, so a long rebuild
 	// can report progress.
@@ -59,6 +67,12 @@ type RecoveryRequest struct {
 // Damage is bounded rather than fatal at every level. An object that will not
 // open is skipped, an object that stops parsing yields the records before the
 // break, and a frame that does not decrypt under this key is somebody else's.
+//
+// The conversations come back with the records. Their transcripts are among
+// them, and the heads that list them and that a resume reads never reach the
+// network, so once every record is back the heads are rebuilt from the
+// transcripts, as a hydrate rebuilds them. A head this device already holds is
+// kept rather than replaced by a reconstruction.
 func (v *Vault) Recover(ctx context.Context, req RecoveryRequest) (RecoveryReport, error) {
 	if v.client == nil {
 		return RecoveryReport{}, errOffline
@@ -113,10 +127,23 @@ func (v *Vault) recoverOver(ctx context.Context, req RecoveryRequest, walk walkO
 		return nil
 	})
 	report.Unreadable = len(stats.Unreadable)
+	if err != nil {
+		report.Elapsed = time.Since(start)
+		return report, err
+	}
+
+	// The heads come last, for the reasons they do in a hydrate: a head is
+	// assembled out of chunks the walk has only just restored, and a memory's
+	// edge back into a session is only readable once the memory is here. They
+	// are embedded when the records were, so a recovered conversation is
+	// searchable by meaning exactly when a recovered memory is.
+	v.progress(Progress{Phase: PhaseRebuild})
+	rebuilt, err := v.RebuildSessions(ctx, RebuildRequest{Embed: req.Embed})
 	report.Elapsed = time.Since(start)
 	if err != nil {
 		return report, err
 	}
+	report.Rebuild = rebuilt
 	return report, nil
 }
 
@@ -199,10 +226,9 @@ func (v *Vault) recoverFrame(ctx context.Context, frame seal.Frame, object sia.S
 // A chunk carries no vector and no ranking metadata: it is never searched, and
 // the summary that is searched lives on the head. The head itself is not
 // recoverable this way at all, it is the one record that is never packed into a
-// slab, so a vault rebuilt from the indexer alone gets its transcripts back and
-// not the sessions that name them. Each chunk records the session it belongs to,
-// so what a rebuild recovers is enough to reconstruct a head, which nothing does
-// yet.
+// slab, so what comes back from the indexer is the transcripts and not the
+// sessions that name them. Each chunk records the session it belongs to, and
+// that is what Recover rebuilds the heads from once every chunk is back.
 func (v *Vault) recoverChunk(frame seal.Frame, object sia.StoredObject, body []byte) error {
 	chunk, err := record.UnmarshalChunk(body)
 	if err != nil {

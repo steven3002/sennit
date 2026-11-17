@@ -1,0 +1,14 @@
+✓ Recovered 1,008 records from 14 objects (56.5s)
+
+Skipped  12 frames this phrase does not open
+
+ WARNING  3 conversations were rebuilt from their transcripts
+  The messages are exact. A conversation's own description is
+  not on Sia, so these were reconstructed here: version, title,
+  kind, embedding. These are not recoverable: summary, tags,
+  project, archived, agent, agentRef, models, counts.tokens,
+  counts.durationMs, lineage, preservedTail, links.memories.
+
+ WARNING  created and updated are not recoverable for 1 of the 3
+          conversations
+          Which of the Tidepool gauges report hourly?

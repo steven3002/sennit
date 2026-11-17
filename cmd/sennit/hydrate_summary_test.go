@@ -90,7 +90,7 @@ func hydrated(depth vault.HydrateDepth, rebuilt vault.RebuildReport) vault.Hydra
 // every conversation it rebuilt.
 func unrecoverable(t *testing.T, report vault.HydrateReport) []string {
 	t.Helper()
-	note, ok := rebuiltHeads(report)
+	note, ok := rebuiltHeads(report.Rebuild)
 	if !ok {
 		t.Fatal("conversations were rebuilt and the summary says nothing of them")
 	}
@@ -105,7 +105,7 @@ func unrecoverable(t *testing.T, report vault.HydrateReport) []string {
 // reconstructed is the fields the hydrate summary says were made up here.
 func reconstructed(t *testing.T, report vault.HydrateReport) []string {
 	t.Helper()
-	note, _ := rebuiltHeads(report)
+	note, _ := rebuiltHeads(report.Rebuild)
 	explained := strings.Join(note.Explanation, " ")
 	_, invented, found := strings.Cut(explained, "so these were reconstructed here: ")
 	if !found {
@@ -135,7 +135,7 @@ func TestHydrateSaysWhichConversationsLostAFieldTheOthersGotBack(t *testing.T) {
 		t.Errorf("created and updated are called not recoverable for all four conversations, "+
 			"when one lost them: %v", lost)
 	}
-	notes := lostBySome(report)
+	notes := lostBySome(report.Rebuild)
 	if len(notes) != 1 {
 		t.Fatalf("%d warning(s) about fields some conversations lost, want 1: %+v", len(notes), notes)
 	}
@@ -158,7 +158,7 @@ func TestFieldsLostByDifferentConversationsAreSaidApart(t *testing.T) {
 	))
 
 	var said [][]string
-	for _, note := range lostBySome(report) {
+	for _, note := range lostBySome(report.Rebuild) {
 		said = append(said, append([]string{note.Text}, note.Data...))
 	}
 	want := [][]string{
@@ -186,7 +186,7 @@ func TestAFieldEveryRebuiltConversationLostIsSaidOnce(t *testing.T) {
 	if !slices.Contains(lost, "created") || !slices.Contains(lost, "updated") {
 		t.Errorf("neither conversation records a time, and the summary calls %v not recoverable", lost)
 	}
-	if notes := lostBySome(report); len(notes) != 0 {
+	if notes := lostBySome(report.Rebuild); len(notes) != 0 {
 		t.Errorf("%d warning(s) name conversations one by one for fields all of them lost: %+v", len(notes), notes)
 	}
 }
@@ -198,7 +198,7 @@ func TestAWarningNamesOnlySoManyConversations(t *testing.T) {
 		transcripts = append(transcripts, transcript{opening: fmt.Sprintf("Which gauge is number %d?", i)})
 	}
 	transcripts = append(transcripts, transcript{opening: "Why does every flush bill a whole slab?", dated: true})
-	notes := lostBySome(hydrated(vault.HydrateMetadata, rebuiltFromTranscripts(t, false, transcripts...)))
+	notes := lostBySome(rebuiltFromTranscripts(t, false, transcripts...))
 
 	if len(notes) != 1 {
 		t.Fatalf("%d warning(s), want 1: %+v", len(notes), notes)
@@ -240,7 +240,7 @@ func TestAConversationThisDeviceStillHeldLosesNothingInTheSummary(t *testing.T) 
 		t.Errorf("the rebuilt conversation was given a search vector here, and the summary says only %v "+
 			"were reconstructed", reconstructed(t, report))
 	}
-	if notes := lostBySome(report); len(notes) != 0 {
+	if notes := lostBySome(report.Rebuild); len(notes) != 0 {
 		t.Errorf("a conversation that kept its head is named among the ones that lost a field: %+v", notes)
 	}
 }

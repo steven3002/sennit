@@ -634,14 +634,24 @@ func runRecover(ctx context.Context, out *session, args []string) error {
 		return needsIndexer("recover", v, "")
 	}
 	// Each record is written whole before the next is read, so what was
-	// restored stays. Whether running it again is safe has not been
-	// established, so nothing here suggests it.
+	// restored stays. The conversations are rebuilt once every record is back,
+	// and an interrupt then leaves each one rebuilt whole or not at all.
+	// Whether running it again is safe has not been established, so nothing
+	// here suggests it.
 	out.leaves("Records recovered before the interrupt stay on this device.")
 
 	report, err := v.Recover(ctx, vault.RecoveryRequest{Embed: *embed})
 	if err != nil {
 		return err
 	}
+	reportRecovered(out, report)
+	return nil
+}
+
+// reportRecovered says what a recovery put back and what it left out, and then
+// what the conversations it rebuilt came back without, in the words a hydrate
+// uses for them.
+func reportRecovered(out *session, report vault.RecoveryReport) {
 	out.done(ui.MarkSuccess, fmt.Sprintf("Recovered %s from %s",
 		plural(report.Recovered, "record"), plural(report.Objects, "object")))
 	if rows := recoverRows(report); len(rows) > 0 {
@@ -652,7 +662,9 @@ func runRecover(ctx context.Context, out *session, args []string) error {
 			"%s stopped parsing part way, %d could not be opened at all",
 			plural(report.Damaged, "object"), report.Unreadable)})
 	}
-	return nil
+	for _, note := range rebuiltNotes(report.Rebuild) {
+		out.note(note)
+	}
 }
 
 // reclaimFlags is what sennit reclaim takes. Each of them releases something
@@ -675,7 +687,8 @@ func reclaimFlags(cmd *invocation) (repack, orphans, unreadable, takeOwnership, 
 // recoverFlags is what sennit recover takes.
 func recoverFlags(cmd *invocation) *bool {
 	return cmd.set.Bool("embed", true,
-		"regenerate search vectors as records are recovered, so they are findable by meaning and not only by id")
+		"regenerate search vectors as records are recovered and conversations rebuilt, "+
+			"so they are findable by meaning and not only by id")
 }
 
 // verb picks the form of a verb that agrees with a count.

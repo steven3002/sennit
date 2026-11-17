@@ -415,9 +415,20 @@ func (v *Vault) rebuildHead(ctx context.Context, id record.ID, chunks []*record.
 }
 
 // storeRebuiltHead writes a reconstructed head over whatever this device holds.
+//
+// The vector is made before anything is written, as a save makes it, so a
+// rebuild that stops while it embeds, interrupted or failing, leaves no head
+// stored without one. A rebuild that does not overwrite keeps every head this
+// device already holds, so a head stored first and embedded second would stay
+// unfindable by meaning however often the restore was run again.
 func (v *Vault) storeRebuiltHead(ctx context.Context, session *record.Session, embed bool) error {
+	var vector []float32
 	if embed {
 		session.Embedding = v.embedding()
+		var err error
+		if vector, err = v.embedder.EmbedOne(ctx, session.IndexText()); err != nil {
+			return fmt.Errorf("embed rebuilt session %s: %w", session.ID, err)
+		}
 	}
 	head, err := record.MarshalSession(session)
 	if err != nil {
@@ -449,10 +460,6 @@ func (v *Vault) storeRebuiltHead(ctx context.Context, session *record.Session, e
 	}
 	if !embed {
 		return nil
-	}
-	vector, err := v.embedder.EmbedOne(ctx, session.IndexText())
-	if err != nil {
-		return fmt.Errorf("embed rebuilt session %s: %w", session.ID, err)
 	}
 	return v.putVector(session.ID, vector)
 }
