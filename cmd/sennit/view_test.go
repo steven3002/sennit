@@ -412,7 +412,7 @@ func TestWhatIsPrintedAgreesWithItsCount(t *testing.T) {
 
 // rebuiltText is the warning hydrate prints for n rebuilt conversations.
 func rebuiltText(n int) string {
-	msg, _ := rebuiltHeads(vault.HydrateReport{Sessions: n})
+	msg, _ := rebuiltHeads(vault.RebuildReport{Stored: n})
 	return msg.Text
 }
 
@@ -441,12 +441,12 @@ func TestWhatHydrateSays(t *testing.T) {
 	s := ended(t, 80, 25100*time.Millisecond)
 	s.out.done(ui.MarkSuccess, "Hydrated 1,008 records to depth metadata")
 	s.out.report(hydrateRows(report, "https://sia.storage"))
-	note, ok := rebuiltHeads(report)
+	note, ok := rebuiltHeads(report.Rebuild)
 	if !ok {
 		t.Fatal("four rebuilt conversations were reported as nothing to say")
 	}
 	s.out.note(note)
-	for _, note := range lostBySome(report) {
+	for _, note := range lostBySome(report.Rebuild) {
 		s.out.note(note)
 	}
 	hint, _ := deeperHint(vault.HydrateMetadata)

@@ -4,8 +4,9 @@ USAGE
   sennit recover [flags]
 
 FLAGS
-  --embed          Regenerate search vectors as records are recovered, so they
-                   are findable by meaning and not only by id (default true)
+  --embed          Regenerate search vectors as records are recovered and
+                   conversations rebuilt, so they are findable by meaning and
+                   not only by id (default true)
 
 VAULT FLAGS
   --home dir       Vault directory (default ~/.sennit)
