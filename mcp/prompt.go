@@ -169,6 +169,13 @@ func (s *Server) resume(ctx context.Context, req *sdk.GetPromptRequest) (*sdk.Ge
 
 	loaded, err := s.vault.LoadSession(ctx, vault.LoadSessionRequest{ID: session, Transcript: true})
 	if err != nil {
+		// An address or an id the user typed can name no conversation here, and
+		// the answer then says what to do instead. A conversation this server
+		// chose itself, from the list, as the most recent or for a topic, was
+		// found here a moment before, so a miss there is answered as it was.
+		if want.how != "" && errors.Is(err, vault.ErrNoSession) {
+			return nil, s.noConversationAt(session)
+		}
 		return nil, notFound(Address{URI: URI(record.KindSession, session)}, err)
 	}
 	replayed := loaded.Messages
@@ -460,13 +467,16 @@ func (r resumeRequest) namesNothing() bool {
 // start in the first argument.
 //
 // The first argument is resolved in a fixed order: an address, then an id on
-// its own, then the reserved word, then a topic. Each of the first three names
-// one conversation, so all that can follow one is how many of its turns to
-// replay, which a host that fills arguments in order puts in topic. A count is
-// read from there, or from turns, where a host that fills them by name puts
-// it. Any other word in topic is refused rather than dropped: nothing after such
-// a word is searched for, and a word dropped without telling the user leaves
-// them believing it was used.
+// its own, then the reserved word, then a topic. An address or an id is read
+// with any quotes around it taken off, and an address also without its scheme
+// (see addressMeant), so that one copied with quotes, or without sennit://,
+// still names its conversation rather than being searched for as words. Each
+// of the first three names one conversation, so all that can follow one is how
+// many of its turns to replay, which a host that fills arguments in order puts
+// in topic. A count is read from there, or from turns, where a host that fills
+// them by name puts it. Any other word in topic is refused rather than dropped:
+// nothing after such a word is searched for, and a word dropped without telling
+// the user leaves them believing it was used.
 //
 // A topic takes the words in all three arguments. From a host that fills them
 // one each that is at most three words, because a fourth is lost before it
@@ -498,26 +508,36 @@ func readResume(args map[string]string) (resumeRequest, error) {
 	// and again is that word as the command takes it, for a refusal to say what
 	// to run instead.
 	var named, again string
-	switch {
-	case isAddress(first):
+	// word is the first word as an address or an id is read from it, with any
+	// quotes around it taken off. The reserved word and a topic are read from
+	// first, quotes and all, for the reason unquoted gives.
+	word := unquoted(first)
+	switch address, meant := addressMeant(word); {
+	case meant:
 		// A malformed address is refused here, before any word after it is read,
 		// because it is the mistake to put right first. Searching for it instead
 		// would resume whichever conversation lies nearest to a string the user
 		// meant as an address.
-		id, err := addressOf(first, FormSession)
+		id, err := addressOf(address, FormSession)
 		if err != nil {
+			// A memory's own address is refused as the memory's id is, with
+			// how to read it, rather than as an address of the wrong form,
+			// which pointed at a conversation's address with the same id.
+			if parsed, parseErr := Parse(address); parseErr == nil && parsed.Form == FormMemory {
+				return resumeRequest{}, memoryNotResumed(parsed.ID)
+			}
 			return resumeRequest{}, err
 		}
 		want.session, want.how = id, "by address"
-		named, again = "an address", first
-	case isID(first):
+		named, again = "an address", word
+	case isID(word):
 		// `sennit recall --memory-text` shows each result's id alone, and an id
 		// names a conversation as exactly as its address does. Searching for it
 		// instead would resume whichever conversation lies nearest to a string
 		// the user meant as an id.
-		id, _ := record.ParseID(first)
+		id, _ := record.ParseID(word)
 		want.session, want.how = id, "by id"
-		named, again = "an id", first
+		named, again = "an id", word
 	case strings.EqualFold(first, ResumeRecent):
 		// Matched regardless of case, because a person types it after a slash
 		// command and the host passes the word on exactly as it was typed.
@@ -642,12 +662,59 @@ func cannotReplay(word string, topic bool) error {
 // gives.
 const resumeCommand = "/mcp__sennit__resume"
 
-// isAddress reports whether a word is meant as an address, which is whether it
-// starts with the scheme. The scheme's case is not held against it here, so an
-// address typed in capitals is refused as an address rather than searched for as
-// a topic.
+// isAddress reports whether a word starts with the scheme, which makes it meant
+// as an address whatever follows. The scheme's case is not held against it
+// here, so an address typed in capitals is refused as an address rather than
+// searched for as a topic.
 func isAddress(word string) bool {
 	return len(word) >= len(Scheme) && strings.EqualFold(word[:len(Scheme)], Scheme)
+}
+
+// addressMeant reports whether a word is meant as an address, and the address
+// it means.
+//
+// A word that starts with the scheme is one. So is a word written as an address
+// is written after its scheme: a class of record an address names, a slash and
+// an id, as session/{id}, which is what is left of an address copied without
+// sennit://. The scheme is put back, and whatever follows the id is left for the
+// address to refuse, as it would be refused with the scheme. The class's case is
+// not held against it, as the scheme's is not.
+//
+// Nothing short of that is an address. A topic can hold the word session, a
+// slash or a run of hex digits, and is searched for, because only an address
+// has a whole id after its class.
+func addressMeant(word string) (string, bool) {
+	if isAddress(word) {
+		return word, true
+	}
+	class, rest, found := strings.Cut(word, "/")
+	if !found {
+		return "", false
+	}
+	id, _, _ := strings.Cut(rest, "/")
+	addressed := strings.EqualFold(class, string(record.KindSession)) ||
+		strings.EqualFold(class, string(record.KindMemory))
+	if !addressed || !isID(id) {
+		return "", false
+	}
+	return Scheme + word, true
+}
+
+// quotes are the marks a word can arrive wrapped in: straight and curly quotes,
+// double and single, and backticks, which Markdown puts around an address.
+const quotes = "\"'`“”‘’"
+
+// unquoted is a word with the quotes around it taken off, which is how an
+// address or an id is read from it.
+//
+// Quotes reach the prompt inside the words, as readResume says, so an address
+// or an id the user put in quotes arrives with them, and it was searched for as
+// a topic. Only an address or an id is read without them. A topic keeps its
+// quotes, because they are part of what was typed, and the reserved word in
+// quotes is a word to search for, which is how a topic that starts with it is
+// asked for.
+func unquoted(word string) string {
+	return strings.TrimSpace(strings.Trim(word, quotes))
 }
 
 // isID reports whether a word is a record's id on its own: the 32 hex digits an
@@ -761,25 +828,128 @@ var errNoConversations = errors.New("this vault holds no conversations yet. " +
 //
 // That is errNoConversations only on a device that has restored what the network
 // holds of the vault. One that has not says so instead, and names the command
-// that restores it. Memories it has not restored go unmentioned, because they are
-// not what a resume is short of.
+// that restores it.
 func (s *Server) noConversations() error {
 	restoration, err := s.vault.Restoration()
 	if err != nil {
 		return err
 	}
+	return noConversationsOn(restoration)
+}
+
+// noConversationsOn is noConversations on a device that has restored what
+// restoration says.
+func noConversationsOn(restoration vault.Restoration) error {
+	note := conversationsNotRestored(restoration)
 	switch {
 	case restoration.Untouched:
-		return errors.New("this device holds no conversations yet, and it has not restored any record " +
-			"of this vault from the network, so this does not show that the vault has none. If this vault " +
-			"was just created here, there is nothing to restore; otherwise `sennit hydrate` restores its " +
-			"records from the network, conversations included. New ones are stored with `save_session`")
-	case restoration.Chunks > 0:
-		return errors.New("this device holds no conversations yet, though it knows of at least one " +
-			"stored conversation on the network that it has not restored. `sennit hydrate` restores " +
-			"this vault's records from the network, conversations included")
+		return errors.New("this device holds no conversations yet" + note +
+			". New ones are stored with `save_session`")
+	case note != "":
+		return errors.New("this device holds no conversations yet" + note)
 	}
 	return errNoConversations
+}
+
+// conversationsNotRestored is what an answer that found no conversation on this
+// device goes on to say about the conversations it has not restored, as a clause
+// that follows the finding, with the command that restores them. It is empty on
+// a device that has restored every conversation its catalog names.
+//
+// Memories it has not restored go unmentioned, because they are not what a
+// resume is short of.
+func conversationsNotRestored(restoration vault.Restoration) string {
+	missing := unreached(restoration, []record.Kind{record.KindSession})
+	switch {
+	case restoration.Untouched:
+		return ", and it has not restored any record of this vault from the network, so this does not " +
+			"show that the vault has none. If this vault was just created here, there is nothing to " +
+			"restore; otherwise `sennit hydrate` restores its records from the network, conversations " +
+			"included"
+	case !missing.Complete():
+		return fmt.Sprintf(", though it knows of %s on the network that it has not restored. "+
+			"`sennit hydrate` restores this vault's records from the network, conversations included",
+			unrestoredRecords(missing))
+	}
+	return ""
+}
+
+// noConversationAt is what a resume says when the address or the id it was
+// given names no conversation this device holds.
+//
+// When this device can tell that the id is a memory's, it says so, since a
+// memory cannot be resumed, and says how to read the memory instead. Otherwise
+// it says what to run instead: the list of recent conversations, or a search by
+// what the conversation was about, which are the two ways to a conversation
+// without its address. On a device that holds no conversation neither finds
+// one, so there the id gets the answer a resume that names nothing gets, as a
+// topic does in noConversationFound. Where some conversation is held, a device
+// that has not restored every conversation its catalog names says so and names
+// the command that restores them, since the one asked for may be among them,
+// and a device that has says what can have become of it.
+func (s *Server) noConversationAt(id record.ID) error {
+	restoration, err := s.vault.Restoration()
+	if err != nil {
+		return err
+	}
+	memory, err := s.isMemory(id, restoration)
+	if err != nil {
+		return err
+	}
+	if memory {
+		return memoryNotResumed(id)
+	}
+	held, err := s.vault.ListSessions(local.SessionQuery{Limit: 1})
+	if err != nil {
+		return err
+	}
+	if len(held) == 0 {
+		return noConversationsOn(restoration)
+	}
+	address := URI(record.KindSession, id)
+	answer := "nothing was resumed, because this vault holds no conversation at " + address +
+		": it was never saved here, or it has been forgotten"
+	if note := conversationsNotRestored(restoration); note != "" {
+		answer = "nothing was resumed, because this device holds no conversation at " + address + note
+	}
+	return errors.New(answer + ". " + resumeInstead)
+}
+
+// resumeInstead is what a resume of an address or an id that names no
+// conversation here says to run instead. Of the ways the prompt takes to name a
+// conversation, these two find one the user has no address for. The most recent
+// one, which recent resumes, is the first the list offers.
+const resumeInstead = "Run " + resumeCommand + " alone to choose from the recent conversations, or with " +
+	"what the conversation was about to search for it"
+
+// isMemory reports whether id is a memory's, as far as this device can tell.
+//
+// What this device holds under the id says which class of record it belongs
+// to, as it does for a forget the vault refused (see forgetRefused). A memory
+// this device has not restored leaves only its entry in the catalog, which
+// names its class too, so the catalog is read for it, on a device that
+// Restoration says has such a memory.
+func (s *Server) isMemory(id record.ID, restoration vault.Restoration) (bool, error) {
+	held, err := s.vault.Remainder(id)
+	if err != nil {
+		return false, err
+	}
+	if held.Kind != "" || restoration.Memories == 0 {
+		return held.Kind == record.KindMemory, nil
+	}
+	for _, entry := range s.vault.Entries() {
+		if entry.ID == id {
+			return entry.Kind == record.KindMemory, nil
+		}
+	}
+	return false, nil
+}
+
+// memoryNotResumed is what a resume says to a memory's id, or to its address.
+func memoryNotResumed(id record.ID) error {
+	return fmt.Errorf("nothing was resumed, because %s is the id of a memory, not of a conversation, "+
+		"and a memory cannot be resumed. Ask your agent to read it with `open` on %s",
+		id, URI(record.KindMemory, id))
 }
 
 // offerRecent answers a resume that names nothing with the recent
