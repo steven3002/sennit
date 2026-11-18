@@ -40,7 +40,8 @@ func (r Remainder) Empty() bool { return !r.Body && !r.Rows && !r.Vector && !r.H
 // The vector is looked for in the searchable index, which is what recall ranks
 // from, and not in the files that persist it, which can answer for one record
 // only by being read whole. The index is loaded from those files when the vault
-// opens and follows every vector this process writes or removes. A vector from
+// opens, and again at a Refresh once another process has changed them, and it
+// follows every vector this process writes or removes. A vector from
 // another model stays in the files alone, cannot be searched, and is not counted
 // here.
 func (v *Vault) Remainder(id record.ID) (Remainder, error) {

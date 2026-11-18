@@ -260,21 +260,31 @@ func (v *Vault) openIndex(ctx context.Context) error {
 	if stored, err = v.keepHeld(stored); err != nil {
 		return err
 	}
+	return v.searchFrom(stored)
+}
+
+// searchFrom makes the searchable index hold the stored vectors this vault's
+// model made, and counts the rest as stored and unsearchable. It is how the
+// index is built as the vault opens, and how it is built again when another
+// process has changed what is stored.
+func (v *Vault) searchFrom(stored []index.Entry) error {
 	usable, health := classifyVectors(v.opts.Model.Name, v.opts.Model.Dim, stored)
-	for _, vector := range usable {
-		if err := v.index.Add(vector.ID, vector.Model, vector.Vector); err != nil {
-			return err
-		}
-	}
-	v.health = health
 	// What the index did not take is what it cannot search. Each is named, so
 	// that a later save or forget of its record can take it off the count.
-	v.foreign = make(map[record.ID]string, health.Stale())
+	foreign := make(map[record.ID]string, health.Stale())
 	for _, vector := range stored {
-		if !v.index.Has(vector.ID) {
-			v.foreign[vector.ID] = vector.Model
+		if vector.Model != health.Model || vector.Dim != health.Dim {
+			foreign[vector.ID] = vector.Model
 		}
 	}
+	// The index and the counts beside it change together, so a reader of the
+	// vault's health sees the two from before or the two from after.
+	v.healthMu.Lock()
+	defer v.healthMu.Unlock()
+	if err := v.index.Replace(usable); err != nil {
+		return err
+	}
+	v.health, v.foreign = health, foreign
 	return nil
 }
 
@@ -379,6 +389,53 @@ func (v *Vault) IndexHealth() IndexHealth {
 		health.Indexed = v.index.Len()
 	}
 	return health
+}
+
+// Refresh brings what this vault holds in memory up to date with what another
+// process on the device has since changed, before a caller that keeps the
+// vault open answers from it.
+//
+// The catalog and the search index are read once, when the vault opens, and
+// the count of what is queued for the network is kept beside the queue. Each
+// follows every change this process makes, and none of them sees what another
+// process does: a hydrate run in a terminal, a second agent's server
+// forgetting a record, a flush. A process that keeps the vault open for hours,
+// as the protocol server does, would answer from them as they were when it
+// opened, searching nothing another process restored and ranking what another
+// process forgot.
+//
+// What has changed is told from a stat of the catalog's two files and the
+// index's two, and only what has changed is read again. A change this process
+// made is never taken for one, so a caller can ask before every answer and pay
+// four stats and one read of the queue's size each time nobody else has written.
+// The queue is the device's own database, which every process shares, so its
+// size is read again every time.
+//
+// It is safe to call while other calls are using the vault: what is read again
+// replaces what was held in one step, under the same locks that this process's
+// own writes take, so a call in flight sees the vault from before or from
+// after, and no write of this process's own is lost between the read and the
+// replacement. It reads under the file locks every process takes to write, so
+// it never reads a change another process is part way through writing.
+func (v *Vault) Refresh() error {
+	if v.manifest == nil || v.vectors == nil {
+		return nil
+	}
+	if _, err := v.manifest.Refresh(); err != nil {
+		return fmt.Errorf("read the catalog again: %w", err)
+	}
+	if _, err := v.vectors.Refresh(func(reading index.Reading) error {
+		return v.searchFrom(reading.Entries)
+	}); err != nil {
+		return fmt.Errorf("read the search index again: %w", err)
+	}
+	if v.packer == nil {
+		return nil
+	}
+	if err := v.packer.Refresh(); err != nil {
+		return fmt.Errorf("read what is queued again: %w", err)
+	}
+	return nil
 }
 
 func (v *Vault) connect(ctx context.Context) error {

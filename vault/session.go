@@ -224,6 +224,11 @@ func (v *Vault) discardChunk(id record.ID) error {
 	if _, err := v.packer.Withdraw(id); err != nil {
 		return fmt.Errorf("take back chunk %s: %w", id, err)
 	}
+	// A flush in another process may have catalogued it since this process
+	// last read the catalog. See Forget.
+	if _, err := v.manifest.Refresh(); err != nil {
+		return fmt.Errorf("take back chunk %s: %w", id, err)
+	}
 	if err := v.manifest.Remove(id); err != nil && !errors.Is(err, manifest.ErrNotFound) {
 		return fmt.Errorf("take back chunk %s: %w", id, err)
 	}
@@ -697,7 +702,8 @@ func (v *Vault) chunk(ctx context.Context, id record.ID) (*record.Chunk, error) 
 // entry, and that is nothing to remove rather than a reason to stop.
 //
 // The vector leaves the searchable index as well as the disk. The index is
-// loaded once, when the vault opens, and a vector left in it goes on ranking a
+// loaded when the vault opens, and read again only for a change another
+// process makes, so a vector this process leaves in it goes on ranking a
 // conversation this process can no longer read, which fails the recall that
 // ranks it.
 //
@@ -725,6 +731,11 @@ func (v *Vault) ForgetSession(id record.ID) error {
 			return fmt.Errorf("forget %s: part of its transcript: %w, so nothing was removed: "+
 				"forget it again once that flush has finished", id, local.ErrClaimed)
 		}
+		return err
+	}
+	// A flush in another process may have catalogued part of the transcript
+	// since this process last read the catalog. See Forget.
+	if _, err := v.manifest.Refresh(); err != nil {
 		return err
 	}
 	for _, chunk := range chunks {

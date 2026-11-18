@@ -55,8 +55,8 @@ func Unopened(err error) *Server {
 	return build(&Server{openErr: fmt.Errorf("%w: %w", ErrNotOnboarded, err)})
 }
 
-// ready reports whether there is a vault to work with.
-func (s *Server) ready() error {
+// opened reports whether there is a vault to work with.
+func (s *Server) opened() error {
 	if s.vault == nil {
 		if s.openErr != nil {
 			return s.openErr
@@ -64,6 +64,22 @@ func (s *Server) ready() error {
 		return ErrNotOnboarded
 	}
 	return nil
+}
+
+// ready reports whether there is a vault to work with, and first brings what
+// this server holds of it up to date with what other processes on the device
+// have done to it since.
+//
+// Every tool, resource and prompt that reads the vault asks this before it
+// does, so each answers from the vault as it is: what a hydrate run in a
+// terminal restored is searched, and what a second agent's server forgot is
+// neither ranked nor read back from the network. Nobody else having written
+// costs four stats of the vault's files and one read of the queue's size.
+func (s *Server) ready() error {
+	if err := s.opened(); err != nil {
+		return err
+	}
+	return s.vault.Refresh()
 }
 
 // Run serves one client over a transport until the context ends.

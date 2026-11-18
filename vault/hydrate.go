@@ -366,15 +366,17 @@ type Restoration struct {
 func (r Restoration) Complete() bool { return r.Memories == 0 && r.Chunks == 0 }
 
 // Restoration reports how much of what its catalog names this device has
-// restored. It reads the catalog as this process loaded it and the device's own
-// store, and nothing on the network.
+// restored. It reads the catalog as this process last read it, when the vault
+// opened or at the last Refresh, and the device's own store, and nothing on the
+// network.
 func (v *Vault) Restoration() (Restoration, error) {
 	if v.manifest.Named() == 0 {
 		// The ledger is asked as well because every process over this device
-		// shares it, where the catalog is read once, when a process opens the
-		// vault. A hydrate run by another process since then is invisible to
-		// this catalog and not to the ledger, and a device it restored to must
-		// not be told that it has restored nothing.
+		// shares it, where this process reads the catalog only as the vault
+		// opens and when it is refreshed. A hydrate run by another process since
+		// then is invisible to this copy of the catalog and not to the ledger,
+		// and a device it restored to must not be told that it has restored
+		// nothing.
 		slabs, err := v.local.TrackedSlabs()
 		if err != nil {
 			return Restoration{}, err

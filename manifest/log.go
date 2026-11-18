@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/steven3002/sennit/internal/filelock"
+	"github.com/steven3002/sennit/internal/filestat"
 	"github.com/steven3002/sennit/internal/private"
 	"github.com/steven3002/sennit/record"
 	"github.com/steven3002/sennit/seal"
@@ -57,6 +58,25 @@ type Log struct {
 	// dropped counts the lines found cut off at the end of the log and taken
 	// off it since it was opened.
 	dropped int
+	// seen is what of the two files the copy of the catalog read from them
+	// accounts for, which is what tells a change another process made from
+	// one this process made. See Changed. Only a holder of mu writes it, and
+	// seenMu guards it as well, because Changed reads it without mu.
+	seen   seenFiles
+	seenMu sync.Mutex
+}
+
+// seenFiles is what of the catalog's files a copy of the catalog accounts for:
+// how long the log was, and which snapshot was in place.
+//
+// The two are enough to see any change. The log only grows, but for the
+// compaction that empties it, and only a compaction replaces the snapshot, so
+// another process has written to the files exactly when the log is not the
+// length this process last left or read it at, or the snapshot is not the one
+// it last read or wrote.
+type seenFiles struct {
+	log      int64
+	snapshot *filestat.Info
 }
 
 // A Sealer encrypts catalog entries.
@@ -68,7 +88,8 @@ func OpenLog(dir string, sealer *Sealer) (*Log, error) {
 	if _, err := private.Folder(dir); err != nil {
 		return nil, fmt.Errorf("prepare manifest directory %s: %w", dir, err)
 	}
-	log := &Log{dir: dir, sealer: sealer}
+	// Nothing has been read yet, so nothing is accounted for.
+	log := &Log{dir: dir, sealer: sealer, seen: seenFiles{log: -1}}
 
 	file, err := os.OpenFile(log.path(LogName), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o600)
 	if err != nil {
@@ -128,6 +149,11 @@ func (l *Log) Append(entry Entry) (err error) {
 	if err != nil {
 		return err
 	}
+	// Whatever lies between the length this process accounts for and the end
+	// of the log was written by another process, and this line does not make
+	// it accounted for. So the line is counted as seen only when nothing lies
+	// there, and otherwise Changed goes on saying the files have changed.
+	ours := end == l.seen.log
 	if _, err := l.file.Write(line); err != nil {
 		// Whatever part of the line reached the file comes back off, so that
 		// the next append does not start part way through it.
@@ -138,6 +164,11 @@ func (l *Log) Append(entry Entry) (err error) {
 	}
 	l.logBytes += int64(len(line))
 	l.written += int64(len(line))
+	if ours {
+		l.seenMu.Lock()
+		l.seen.log = end + int64(len(line))
+		l.seenMu.Unlock()
+	}
 	return nil
 }
 
@@ -157,6 +188,9 @@ func (l *Log) Append(entry Entry) (err error) {
 // never one another process is still writing, nothing another process appends
 // after the replay has looked can be cut, and no compaction can replace the
 // snapshot between the reading of the one file and of the other.
+//
+// What it returns is what the caller's copy of the catalog is taken to account
+// for from then on. See Changed.
 func (l *Log) Replay() (entries map[record.ID]Entry, order []record.ID, err error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -164,7 +198,102 @@ func (l *Log) Replay() (entries map[record.ID]Entry, order []record.ID, err erro
 		return nil, nil, err
 	}
 	defer func() { err = errors.Join(err, l.lock.Unlock()) }()
-	return l.replay()
+	if entries, order, err = l.replay(); err != nil {
+		return nil, nil, err
+	}
+	// A stat that fails leaves the files counted as changed, which costs the
+	// next look a read of them and loses nothing.
+	if files, err := l.stat(); err == nil {
+		l.saw(files)
+	}
+	return entries, order, nil
+}
+
+// Changed reports whether another process has written to the catalog's files
+// since this process last read them, so that the copy read from them no longer
+// holds everything they do.
+//
+// A change this process made is not one. Every append and compaction made here
+// is made to the copy as well, and is counted as seen when it is written, as
+// long as nothing another process wrote lies under it.
+//
+// It costs a look at each of the two files and reads neither of them, so it can
+// be asked before every answer. Outside Windows it does not take the file lock
+// either: a change another process is part way through making already shows in
+// a stat, and the read that follows waits for it under the lock.
+//
+// On Windows it does. Which file the snapshot is can be learned there only by
+// opening it, and a compaction in another process cannot rename a new snapshot
+// over one that is open, so the look is taken under the lock every compaction
+// holds. A failure to take or release the lock reports a change, and the read
+// that follows takes the lock itself and returns the failure.
+func (l *Log) Changed() bool {
+	if !filestat.LookOpens && l.unchanged() {
+		return false
+	}
+	// This process may be part way through a change of its own, written to the
+	// files and not yet counted as seen. It holds mu until it has been, so
+	// the files are looked at again once mu is free.
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if !filestat.LookOpens {
+		return !l.unchanged()
+	}
+	if err := l.lock.Lock(); err != nil {
+		return true
+	}
+	unchanged := l.unchanged()
+	if err := l.lock.Unlock(); err != nil {
+		return true
+	}
+	return !unchanged
+}
+
+// unchanged reports whether the files are as this process's copy of the
+// catalog accounts for them. A stat that fails reports them changed, which
+// costs a read of them and never a change missed.
+func (l *Log) unchanged() bool {
+	files, err := l.stat()
+	if err != nil {
+		return false
+	}
+	l.seenMu.Lock()
+	defer l.seenMu.Unlock()
+	return l.accounts(files)
+}
+
+// accounts reports whether what is seen accounts for the files as they are.
+// The caller holds mu or seenMu.
+func (l *Log) accounts(files seenFiles) bool {
+	return files.log == l.seen.log && filestat.Same(l.seen.snapshot, files.snapshot)
+}
+
+// stat reads how long the log is and which snapshot is in place, nil when none
+// is. The log is read through the handle appends go through, since it is never
+// replaced, and the snapshot through its path, since a compaction replaces it.
+// Where filestat.LookOpens, its caller holds the file lock.
+func (l *Log) stat() (seenFiles, error) {
+	info, err := l.file.Stat()
+	if err != nil {
+		return seenFiles{}, fmt.Errorf("size manifest log: %w", err)
+	}
+	snapshot, err := filestat.Look(l.path(SnapshotName))
+	if os.IsNotExist(err) {
+		return seenFiles{log: info.Size()}, nil
+	}
+	if err != nil {
+		return seenFiles{}, fmt.Errorf("look at the manifest snapshot: %w", err)
+	}
+	return seenFiles{log: info.Size(), snapshot: snapshot}, nil
+}
+
+// saw records the files as what this process's copy of the catalog accounts
+// for. Its caller holds mu and the file lock, and has just read the files into
+// that copy or written them from it.
+func (l *Log) saw(files seenFiles) {
+	l.seenMu.Lock()
+	defer l.seenMu.Unlock()
+	l.seen = files
 }
 
 // replay is Replay for a caller that already holds the log and the file lock.

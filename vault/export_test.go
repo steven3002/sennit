@@ -35,6 +35,16 @@ func OpenWithLedgerForTest(t *testing.T, home string) *Vault {
 	return v
 }
 
+// CompactCatalogForTest folds the vault's catalog into a new snapshot, as an
+// append does once the log has outgrown the snapshot, which replaces the
+// snapshot and empties the log.
+func CompactCatalogForTest(t *testing.T, v *Vault) {
+	t.Helper()
+	if err := v.manifest.Compact(); err != nil {
+		t.Fatalf("compact the catalog: %v", err)
+	}
+}
+
 // FlushToNetworkForTest writes everything the writer has queued, with the test
 // standing in for the network, and returns what the network then holds.
 //

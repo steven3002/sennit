@@ -317,6 +317,14 @@ func (v *Vault) Forget(id record.ID) error {
 	if err != nil {
 		return err
 	}
+	// A flush catalogues what it wrote before it takes it out of the queue, in
+	// whichever process it runs, so a record no longer queued may have been
+	// catalogued by another process since this one last read the catalog. A
+	// removal made to a copy that does not name it yet would leave the catalog
+	// on the device naming it as held.
+	if _, err := v.manifest.Refresh(); err != nil {
+		return err
+	}
 	switch err := v.manifest.Remove(id); {
 	case err == nil:
 	case !errors.Is(err, manifest.ErrNotFound):

@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/steven3002/sennit/internal/filelock"
+	"github.com/steven3002/sennit/internal/filestat"
 	"github.com/steven3002/sennit/internal/private"
 	"github.com/steven3002/sennit/internal/rename"
 	"github.com/steven3002/sennit/record"
@@ -105,6 +106,26 @@ type Store struct {
 	// of the delta meets, under the file lock and before anything is done on the
 	// strength of it. See OpenStoreWatched.
 	found func(Damage) error
+	// seen is what of the two files the store's holder has loaded, as Hydrate
+	// or Refresh read them and as this store has written them since, which is
+	// what tells a change another process made from one this process made. See
+	// Changed. Only a holder of mu writes it, and seenMu guards it as well,
+	// because Changed reads it without mu.
+	seen   seenFiles
+	seenMu sync.Mutex
+}
+
+// seenFiles is what of the index's files a holder of the store has loaded: how
+// long the delta was, and which base was in place.
+//
+// The two are enough to see any change. The delta only grows, but for the
+// compaction that empties it and the cut of a record a stopped process left
+// part written, and only a compaction replaces the base, so another process has
+// written to the files exactly when the delta is not the length this process
+// last left or read it at, or the base is not the one it last read or wrote.
+type seenFiles struct {
+	delta int64
+	base  *filestat.Info
 }
 
 // OpenStore opens or creates the persisted index in dir.
@@ -115,7 +136,8 @@ func openStore(dir string, sealer Sealer, found func(Damage) error) (*Store, err
 	if _, err := private.Folder(dir); err != nil {
 		return nil, fmt.Errorf("prepare index directory %s: %w", dir, err)
 	}
-	store := &Store{dir: dir, sealer: sealer, tail: -1, found: found}
+	// Nothing has been loaded yet, so nothing is accounted for.
+	store := &Store{dir: dir, sealer: sealer, tail: -1, found: found, seen: seenFiles{delta: -1}}
 
 	file, err := os.OpenFile(store.path(DeltaName), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o600)
 	if err != nil {
@@ -182,6 +204,11 @@ func (s *Store) Append(entries ...Entry) (err error) {
 	if err != nil {
 		return err
 	}
+	// Whatever lies between the length the holder has loaded and the end of
+	// the delta was written by another process, and these records do not make
+	// it loaded. So they are counted as seen only when nothing lies there, and
+	// otherwise Changed goes on saying the files have changed.
+	ours := end == s.seen.delta
 	for _, entry := range entries {
 		line, err := encodeEntry(s.sealer, entry)
 		if err != nil {
@@ -199,6 +226,11 @@ func (s *Store) Append(entries ...Entry) (err error) {
 	}
 	if err := s.file.Sync(); err != nil {
 		return fmt.Errorf("sync index delta: %w", err)
+	}
+	if ours {
+		s.seenMu.Lock()
+		s.seen.delta = end
+		s.seenMu.Unlock()
 	}
 	return nil
 }
@@ -220,6 +252,9 @@ func (s *Store) Append(entries ...Entry) (err error) {
 //
 // What it cannot read it reads past where it can, and tells the store's watcher
 // of, as readEntries describes.
+//
+// What it returns is what the caller is taken to have loaded from then on. See
+// Changed.
 func (s *Store) Hydrate() (entries []Entry, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -227,7 +262,143 @@ func (s *Store) Hydrate() (entries []Entry, err error) {
 		return nil, err
 	}
 	defer func() { err = errors.Join(err, s.lock.Unlock()) }()
-	return s.hydrate()
+	if entries, err = s.hydrate(); err != nil {
+		return nil, err
+	}
+	s.sawIfStat()
+	return entries, nil
+}
+
+// Changed reports whether another process has written to the index's files
+// since this store's holder last loaded them, so that what it loaded no longer
+// holds everything they do.
+//
+// A change this process made through the store is not one. It is counted as
+// seen when it is written, as long as nothing another process wrote lies under
+// it, and its holder makes the same change to what it loaded.
+//
+// It costs a look at each of the two files and reads neither of them, so it can
+// be asked before every answer. Outside Windows it does not take the file lock
+// either: a change another process is part way through making already shows in
+// a stat, and the read that follows waits for it under the lock.
+//
+// On Windows it does. Which file the base is can be learned there only by
+// opening it, and a compaction in another process cannot rename a new base over
+// one that is open, so the look is taken under the lock every compaction holds.
+// A failure to take or release the lock reports a change, and the read that
+// follows takes the lock itself and returns the failure.
+func (s *Store) Changed() bool {
+	if !filestat.LookOpens && s.unchanged() {
+		return false
+	}
+	// This process may be part way through a write of its own, on the disk and
+	// not yet counted as seen. It holds mu until it has been, so the files are
+	// looked at again once mu is free.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !filestat.LookOpens {
+		return !s.unchanged()
+	}
+	if err := s.lock.Lock(); err != nil {
+		return true
+	}
+	unchanged := s.unchanged()
+	if err := s.lock.Unlock(); err != nil {
+		return true
+	}
+	return !unchanged
+}
+
+// Refresh reads the two files again, under the index's file lock, when another
+// process has written to them since this store's holder last loaded them, and
+// hands what it read to fn while the lock is still held. It reports whether it
+// read them.
+//
+// fn is where the holder replaces what it loaded. It runs under the store as
+// well as the file lock, and this process holds the store for every write it
+// makes until the write is on the disk, so no write of this process's own falls
+// between the read and the replacement: a holder that changes what it loaded
+// only after the store has written the change finds every one of its writes
+// either in what fn is handed or made to what fn put in place. fn must not call
+// back into the store.
+//
+// An error from fn leaves the files counted as changed.
+func (s *Store) Refresh(fn func(Reading) error) (_ bool, err error) {
+	if !s.Changed() {
+		return false, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.lock.Lock(); err != nil {
+		return false, err
+	}
+	defer func() { err = errors.Join(err, s.lock.Unlock()) }()
+	// Another call may have read them while this one waited for the store. The
+	// look is taken under the file lock, which it needs where filestat.LookOpens.
+	if s.unchanged() {
+		return false, nil
+	}
+	reading, err := s.read()
+	if err != nil {
+		return false, err
+	}
+	if err := fn(reading); err != nil {
+		return false, err
+	}
+	s.sawIfStat()
+	return true, nil
+}
+
+// unchanged reports whether the files are as the holder loaded them. A stat
+// that fails reports them changed, which costs a read of them and never a
+// change missed.
+func (s *Store) unchanged() bool {
+	files, err := s.stat()
+	if err != nil {
+		return false
+	}
+	s.seenMu.Lock()
+	defer s.seenMu.Unlock()
+	return s.accounts(files)
+}
+
+// accounts reports whether what is seen accounts for the files as they are.
+// The caller holds mu or seenMu.
+func (s *Store) accounts(files seenFiles) bool {
+	return files.delta == s.seen.delta && filestat.Same(s.seen.base, files.base)
+}
+
+// stat reads how long the delta is and which base is in place, nil when none
+// is. The delta is read through the handle appends go through, since it is
+// never replaced, and the base through its path, since a compaction replaces
+// it. Where filestat.LookOpens, its caller holds the file lock.
+func (s *Store) stat() (seenFiles, error) {
+	delta, err := s.file.Stat()
+	if err != nil {
+		return seenFiles{}, fmt.Errorf("size index delta: %w", err)
+	}
+	base, err := filestat.Look(s.path(BaseName))
+	if errors.Is(err, os.ErrNotExist) {
+		return seenFiles{delta: delta.Size()}, nil
+	}
+	if err != nil {
+		return seenFiles{}, fmt.Errorf("look at the index base: %w", err)
+	}
+	return seenFiles{delta: delta.Size(), base: base}, nil
+}
+
+// sawIfStat records the files as what the holder has loaded. Its caller holds
+// mu and the file lock, and has just read the files for the holder to load, or
+// written them from what it loaded. A stat that fails leaves the files counted
+// as changed, which costs the next look a read of them and loses nothing.
+func (s *Store) sawIfStat() {
+	files, err := s.stat()
+	if err != nil {
+		return
+	}
+	s.seenMu.Lock()
+	defer s.seenMu.Unlock()
+	s.seen = files
 }
 
 func (s *Store) hydrate() ([]Entry, error) {
@@ -363,7 +534,19 @@ func (s *Store) fold() (err error) {
 	if err != nil {
 		return err
 	}
-	return s.compact(entries)
+	// The base is written from the files, so the holder has loaded it only when
+	// it had loaded the files. When another process has written to them since,
+	// the new base holds what that process wrote and the holder does not, and it
+	// is left for Changed to report.
+	before, err := s.stat()
+	ours := err == nil && s.accounts(before)
+	if err := s.compact(entries); err != nil {
+		return err
+	}
+	if ours {
+		s.sawIfStat()
+	}
+	return nil
 }
 
 // Compact folds the deltas into a fresh base holding one entry per record.
