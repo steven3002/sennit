@@ -1,23 +1,23 @@
 package filestat
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/steven3002/sennit/internal/rename"
 )
 
-// stat reads what is at path now, nil when nothing is.
-func stat(t *testing.T, path string) os.FileInfo {
+// lookAt reads what is at path now, nil when nothing is.
+func lookAt(t *testing.T, path string) *Info {
 	t.Helper()
-	info, err := os.Stat(path)
-	if os.IsNotExist(err) {
+	info, err := Look(path)
+	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
 	if err != nil {
-		t.Fatalf("stat %s: %v", path, err)
+		t.Fatalf("look at %s: %v", path, err)
 	}
 	return info
 }
@@ -46,16 +46,16 @@ func TestSameTellsAFileLeftAloneFromOneThatChanged(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "base")
 
-	if !Same(stat(t, path), stat(t, path)) {
+	if !Same(lookAt(t, path), lookAt(t, path)) {
 		t.Error("nothing there both times reads as a change")
 	}
 	write(t, path, "the first base")
-	if Same(nil, stat(t, path)) {
+	if Same(nil, lookAt(t, path)) {
 		t.Error("a file made since reads as the same as nothing")
 	}
 
-	was := stat(t, path)
-	if !Same(was, stat(t, path)) {
+	was := lookAt(t, path)
+	if !Same(was, lookAt(t, path)) {
 		t.Error("a file left alone reads as changed")
 	}
 
@@ -67,33 +67,65 @@ func TestSameTellsAFileLeftAloneFromOneThatChanged(t *testing.T) {
 		t.Fatalf("append: %v", err)
 	}
 	file.Close()
-	if Same(was, stat(t, path)) {
+	if Same(was, lookAt(t, path)) {
 		t.Error("a file appended to reads as the same")
 	}
 
-	// A rename puts another file in place, as a compaction does. One of the
-	// same size, written at once, can carry the time the one it replaced was
-	// last written at, so it is told apart by being another file, which is
-	// asked everywhere but Windows.
-	if runtime.GOOS != "windows" {
-		was = stat(t, path)
-		replace(t, path, "the other base, and more")
-		if now := stat(t, path); now.Size() != was.Size() || Same(was, now) {
-			t.Errorf("a file of %d bytes renamed over one of %d reads as the same %v, want a change",
-				now.Size(), was.Size(), Same(was, now))
-		}
-	}
-	was = stat(t, path)
+	was = lookAt(t, path)
 	replace(t, path, "a longer base, written in its place")
-	if Same(was, stat(t, path)) {
+	if Same(was, lookAt(t, path)) {
 		t.Error("a longer file renamed over another reads as the same")
 	}
 
-	was = stat(t, path)
+	was = lookAt(t, path)
 	if err := os.Remove(path); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
-	if Same(was, stat(t, path)) {
+	if Same(was, lookAt(t, path)) {
 		t.Error("a file taken away reads as the same")
+	}
+}
+
+// A file renamed over another of the same size, last written at the same
+// moment, is still told apart, because it is another file.
+//
+// That is the replacement a compaction can make: a snapshot that holds a record
+// at a new place in place of its old one is as long as the snapshot before it,
+// and one written within a tick of the clock of the one it replaces carries the
+// same moment. The moment is set here rather than waited for, so the test holds
+// on every system and every run.
+func TestSameTellsAFileOfTheSameSizeAndMomentRenamedIntoPlace(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "snapshot")
+	write(t, path, "the record is in object-qz")
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	was := lookAt(t, path)
+
+	replace(t, path, "the record is in object-zq")
+	if err := os.Chtimes(path, before.ModTime(), before.ModTime()); err != nil {
+		t.Fatalf("give the new file the old one's moment: %v", err)
+	}
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if after.Size() != before.Size() || !after.ModTime().Equal(before.ModTime()) {
+		t.Fatalf("the replacement is %d bytes at %v and the file it replaced %d bytes at %v, so this checks nothing",
+			after.Size(), after.ModTime(), before.Size(), before.ModTime())
+	}
+
+	if Same(was, lookAt(t, path)) {
+		t.Error("a file of the same size and moment renamed into place reads as the same file")
+	}
+}
+
+// A look at a path with nothing there says so in the way callers test for.
+func TestLookAtNothingIsNotExist(t *testing.T) {
+	_, err := Look(filepath.Join(t.TempDir(), "nothing"))
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a look at nothing returned %v, want an error that is os.ErrNotExist", err)
 	}
 }

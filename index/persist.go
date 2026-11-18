@@ -125,7 +125,7 @@ type Store struct {
 // last left or read it at, or the base is not the one it last read or wrote.
 type seenFiles struct {
 	delta int64
-	base  os.FileInfo
+	base  *filestat.Info
 }
 
 // OpenStore opens or creates the persisted index in dir.
@@ -277,12 +277,18 @@ func (s *Store) Hydrate() (entries []Entry, err error) {
 // seen when it is written, as long as nothing another process wrote lies under
 // it, and its holder makes the same change to what it loaded.
 //
-// It costs a stat of each of the two files and reads neither of them, so it can
-// be asked before every answer. It does not take the file lock either: a change
-// another process is part way through making already shows in a stat, and the
-// read that follows waits for it under the lock.
+// It costs a look at each of the two files and reads neither of them, so it can
+// be asked before every answer. Outside Windows it does not take the file lock
+// either: a change another process is part way through making already shows in
+// a stat, and the read that follows waits for it under the lock.
+//
+// On Windows it does. Which file the base is can be learned there only by
+// opening it, and a compaction in another process cannot rename a new base over
+// one that is open, so the look is taken under the lock every compaction holds.
+// A failure to take or release the lock reports a change, and the read that
+// follows takes the lock itself and returns the failure.
 func (s *Store) Changed() bool {
-	if s.unchanged() {
+	if !filestat.LookOpens && s.unchanged() {
 		return false
 	}
 	// This process may be part way through a write of its own, on the disk and
@@ -290,7 +296,17 @@ func (s *Store) Changed() bool {
 	// looked at again once mu is free.
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return !s.unchanged()
+	if !filestat.LookOpens {
+		return !s.unchanged()
+	}
+	if err := s.lock.Lock(); err != nil {
+		return true
+	}
+	unchanged := s.unchanged()
+	if err := s.lock.Unlock(); err != nil {
+		return true
+	}
+	return !unchanged
 }
 
 // Refresh reads the two files again, under the index's file lock, when another
@@ -313,14 +329,15 @@ func (s *Store) Refresh(fn func(Reading) error) (_ bool, err error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	// Another call may have read them while this one waited for the store.
-	if s.unchanged() {
-		return false, nil
-	}
 	if err := s.lock.Lock(); err != nil {
 		return false, err
 	}
 	defer func() { err = errors.Join(err, s.lock.Unlock()) }()
+	// Another call may have read them while this one waited for the store. The
+	// look is taken under the file lock, which it needs where filestat.LookOpens.
+	if s.unchanged() {
+		return false, nil
+	}
 	reading, err := s.read()
 	if err != nil {
 		return false, err
@@ -354,13 +371,13 @@ func (s *Store) accounts(files seenFiles) bool {
 // stat reads how long the delta is and which base is in place, nil when none
 // is. The delta is read through the handle appends go through, since it is
 // never replaced, and the base through its path, since a compaction replaces
-// it.
+// it. Where filestat.LookOpens, its caller holds the file lock.
 func (s *Store) stat() (seenFiles, error) {
 	delta, err := s.file.Stat()
 	if err != nil {
 		return seenFiles{}, fmt.Errorf("size index delta: %w", err)
 	}
-	base, err := os.Stat(s.path(BaseName))
+	base, err := filestat.Look(s.path(BaseName))
 	if errors.Is(err, os.ErrNotExist) {
 		return seenFiles{delta: delta.Size()}, nil
 	}

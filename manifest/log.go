@@ -76,7 +76,7 @@ type Log struct {
 // it last read or wrote.
 type seenFiles struct {
 	log      int64
-	snapshot os.FileInfo
+	snapshot *filestat.Info
 }
 
 // A Sealer encrypts catalog entries.
@@ -217,12 +217,18 @@ func (l *Log) Replay() (entries map[record.ID]Entry, order []record.ID, err erro
 // is made to the copy as well, and is counted as seen when it is written, as
 // long as nothing another process wrote lies under it.
 //
-// It costs a stat of each of the two files and reads neither of them, so it can
-// be asked before every answer. It does not take the file lock either: a change
-// another process is part way through making already shows in a stat, and the
-// read that follows waits for it under the lock.
+// It costs a look at each of the two files and reads neither of them, so it can
+// be asked before every answer. Outside Windows it does not take the file lock
+// either: a change another process is part way through making already shows in
+// a stat, and the read that follows waits for it under the lock.
+//
+// On Windows it does. Which file the snapshot is can be learned there only by
+// opening it, and a compaction in another process cannot rename a new snapshot
+// over one that is open, so the look is taken under the lock every compaction
+// holds. A failure to take or release the lock reports a change, and the read
+// that follows takes the lock itself and returns the failure.
 func (l *Log) Changed() bool {
-	if l.unchanged() {
+	if !filestat.LookOpens && l.unchanged() {
 		return false
 	}
 	// This process may be part way through a change of its own, written to the
@@ -230,7 +236,17 @@ func (l *Log) Changed() bool {
 	// the files are looked at again once mu is free.
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return !l.unchanged()
+	if !filestat.LookOpens {
+		return !l.unchanged()
+	}
+	if err := l.lock.Lock(); err != nil {
+		return true
+	}
+	unchanged := l.unchanged()
+	if err := l.lock.Unlock(); err != nil {
+		return true
+	}
+	return !unchanged
 }
 
 // unchanged reports whether the files are as this process's copy of the
@@ -255,12 +271,13 @@ func (l *Log) accounts(files seenFiles) bool {
 // stat reads how long the log is and which snapshot is in place, nil when none
 // is. The log is read through the handle appends go through, since it is never
 // replaced, and the snapshot through its path, since a compaction replaces it.
+// Where filestat.LookOpens, its caller holds the file lock.
 func (l *Log) stat() (seenFiles, error) {
 	info, err := l.file.Stat()
 	if err != nil {
 		return seenFiles{}, fmt.Errorf("size manifest log: %w", err)
 	}
-	snapshot, err := os.Stat(l.path(SnapshotName))
+	snapshot, err := filestat.Look(l.path(SnapshotName))
 	if os.IsNotExist(err) {
 		return seenFiles{log: info.Size()}, nil
 	}
