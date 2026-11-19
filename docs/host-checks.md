@@ -264,10 +264,17 @@ body.
 print mode. Each tool call was read from the host's own record of the session.
 
 **Claude Code's own memory comes first.** With its built-in memory on, which is the default, all
-ten "Remember ..." statements went into Claude Code's memory files and none reached Sennit, and
-most questions were answered from those files. The column above is a second run with
+ten statements of step 1 went into Claude Code's memory files and none reached Sennit, and most
+questions were answered from those files. The column above is a second run with
 `autoMemoryEnabled` off. Someone using Sennit from Claude Code needs that setting off, or has to
 say "in Sennit" when asking it to remember.
+
+**Run 2026-11-19**, with Claude Code 2.1.328 in print mode, one fresh session per request, against
+an offline vault. With its memory on, all 4 requests that named Sennit reached the vault: "Remember in
+Sennit that the staging database is reset every Monday.", and statements 4, 5 and 9 of step 1
+reworded to name Sennit. Of statements 1, 2, 3 and 10 as written, 1 and 10 reached the vault, and
+2 and 3 went into Claude Code's memory files. With `autoMemoryEnabled` off, statements 1 and 2 both
+reached the vault.
 
 **Both hosts fetch tool descriptions on demand.** Claude Code finds the tools through its tool
 search before the first call, and Antigravity reads each tool's schema from a file it writes for
