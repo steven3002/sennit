@@ -51,11 +51,11 @@ func TestTheFirstRunFailures(t *testing.T) {
 	}
 }
 
-// The two refusals --phrase-stdin can meet: a phrase in the environment as
-// well, and no phrase on stdin.
+// The three refusals --phrase-stdin can meet: a phrase in the environment as
+// well, no phrase on stdin, and a first line there too long to be one.
 func TestThePhraseStdinRefusals(t *testing.T) {
 	s := terminal(t, 80)
-	for i, p := range []*problem{twoPhrases(), nothingOnStdin()} {
+	for i, p := range []*problem{twoPhrases(), nothingOnStdin(), firstLineTooLong()} {
 		if i > 0 {
 			s.out.stderr.Write([]byte("\n"))
 		}

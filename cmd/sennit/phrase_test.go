@@ -247,6 +247,31 @@ func TestTheFlagWithNoPhraseOnStdinIsRefused(t *testing.T) {
 	}
 }
 
+// Asked for stdin, a run whose first line there runs on past 64 KiB refuses in
+// words, not with the reader's error, and as with no phrase on stdin it does
+// not fall back on the stored profile or the prompt.
+func TestTheFlagWithAFirstLineTooLongIsRefused(t *testing.T) {
+	stdin := strings.NewReader(strings.Repeat("a", 70000) + "\ntwelve words from a pipe\n")
+	s, asks := asked(t, stdin, true, "a typed phrase", nil)
+	withStoredProfile(t, s, sia.DefaultIndexer)
+
+	phrase, err := s.out.readPhrase(true)
+	var p *problem
+	if !errors.As(err, &p) || p.message.Text != firstLineTooLong().message.Text {
+		t.Fatalf("read %d bytes from %q (%v), want the refusal of a first line too long to be a phrase",
+			len(phrase), s.out.sources.phrase, err)
+	}
+	if !errors.Is(err, keys.ErrPhraseTooLong) {
+		t.Errorf("the refusal does not carry %v", keys.ErrPhraseTooLong)
+	}
+	if *asks != 0 || s.stderr.Len() != 0 {
+		t.Errorf("a run asked for stdin asked %d time(s) and wrote %q", *asks, s.stderr.String())
+	}
+	if s.out.sources.phrase != "" {
+		t.Errorf("a refused run says its phrase came from %q", s.out.sources.phrase)
+	}
+}
+
 // Every command that reads a phrase takes --phrase-stdin and hands it to the
 // read: given SENNIT_PHRASE as well, each one refuses before it opens a vault
 // or asks an indexer for anything, and leaves stdin as it was.

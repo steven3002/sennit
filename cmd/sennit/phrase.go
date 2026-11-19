@@ -68,8 +68,10 @@ func bindPhraseStdin(fs *flag.FlagSet, asked *bool) {
 // of whatever was being fed in would be taken for the phrase, and the rest of it
 // swallowed. That was found on a server, where `ssh host 'bash -s' < script`
 // lost every line after the first sennit command. So no pipe is read on the
-// chance that it holds a phrase, whether or not one is stored, which is the
-// rule gh, docker and the AWS CLI keep for a secret on stdin as well.
+// chance that it holds a phrase, whether or not one is stored. gh, docker and
+// sudo keep the same rule for a secret on stdin: `gh auth login --with-token`,
+// `docker login --password-stdin` and `sudo -S` read a piped one only when a
+// flag asks for it.
 //
 // The flag and the environment together are refused rather than ranked: that
 // is two phrases, and taking either would be a guess about which one was meant.
@@ -97,6 +99,8 @@ func (s *session) readPhrase(phraseStdin bool) (string, error) {
 		switch {
 		case errors.Is(err, keys.ErrNoPhrase):
 			return "", nothingOnStdin()
+		case errors.Is(err, keys.ErrPhraseTooLong):
+			return "", firstLineTooLong()
 		case err != nil:
 			return "", err
 		}
@@ -142,8 +146,10 @@ func (s *session) readPhrase(phraseStdin bool) (string, error) {
 // Neither is picked by an order. Either could be the one meant: the variable
 // may be left over from earlier, or the flag added with the variable forgotten,
 // and a run that guessed wrong would go on to open, or connect, the wrong vault.
-// gh refuses GH_TOKEN with --with-token, and docker refuses --password with
-// --password-stdin, for the same reason.
+// docker refuses --password with --password-stdin as conflicting options. gh
+// refuses every `gh auth login`, with or without --with-token, while a variable
+// such as GH_TOKEN supplies the token, since that variable takes precedence over
+// any token gh would store.
 func twoPhrases() *problem {
 	return refuse(keys.PhraseEnv+" is set, and --phrase-stdin was given too").
 		because("That is two recovery phrases, and taking either would be a guess about which one was meant.").
@@ -157,10 +163,23 @@ func twoPhrases() *problem {
 func nothingOnStdin() *problem {
 	return refuse("--phrase-stdin was given, and no phrase arrived on stdin").
 		because("With the flag the phrase is read from the first line of stdin and from nowhere else. "+
-			"That line was empty, or stdin is a terminal rather than a pipe or a file.").
+			"That line was empty, or stdin is a terminal or another device rather than a pipe or a file.").
 		try("pipe the phrase in, or redirect a file that holds it",
 			"or leave out `--phrase-stdin` to use "+keys.PhraseEnv+", the stored profile or the prompt").
 		from(keys.ErrNoPhrase)
+}
+
+// firstLineTooLong is the refusal of a run told to read the phrase from stdin
+// whose first line there runs on past 64 KiB, which no phrase does. Like a
+// stdin with no phrase on it, it is not made up for from the stored profile or
+// the prompt.
+func firstLineTooLong() *problem {
+	return refuse("the first line on stdin is too long to be a phrase").
+		because("With `--phrase-stdin` the phrase is read from the first line of stdin and from nowhere "+
+			"else. That line runs on past 64 KiB, and a recovery phrase is twelve words.").
+		try("pipe in the phrase alone, or redirect a file that holds it on its first line",
+			"or leave out `--phrase-stdin` to use "+keys.PhraseEnv+", the stored profile or the prompt").
+		from(keys.ErrPhraseTooLong)
 }
 
 // askAtTheTerminal reads one line from the terminal with its echo turned off.

@@ -55,9 +55,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - **The recovery phrase can be typed when a command asks for it.** A command that finds no phrase
   and has a terminal to ask at now prompts, with the terminal's echo turned off, so the words do
   not reach the screen, the scrollback, the shell's history or the process table. `SENNIT_PHRASE`
-  and a piped phrase both still work and both still come first, and a run with no terminal to ask
-  at refuses exactly as it did before, so nothing scripted behaves differently. ctrl+c at the
-  prompt ends the command and leaves the terminal as it found it.
+  still comes before the prompt, and so does a phrase piped in with `--phrase-stdin`, which a piped
+  phrase now needs (see Changed). A run with no phrase and no terminal to ask at refuses rather
+  than waiting for an answer. ctrl+c at the prompt ends the command and leaves the terminal as it
+  found it.
 - **Progress events on the Go SDK surface**: an optional `OnProgress` on `vault.Options` reports
   the phase an operation is in and, for an upload, how many shards of how many are written. A nil
   callback is exactly the behaviour of a vault opened before it existed.
@@ -172,6 +173,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   taken for one a crash cut off, and the operating system lets go of it if the process dies. A
   filesystem that cannot take the lock refuses to open the vault rather than running without it. A
   server started from an earlier build takes no lock, so restart it after upgrading.
+- **A phrase on stdin is read only when `--phrase-stdin` asks for it.** A command read stdin for the
+  phrase whenever nothing else supplied one, so a `sennit` command inside a script, or in
+  `ssh host 'bash -s' < script`, took the script's next line for its phrase and swallowed the lines
+  after it. Every command that reads a phrase (`connect`, `init`, `remember`, `recall`, `hydrate`,
+  `flush`, `status`, `reclaim` and `recover`) now takes `--phrase-stdin`, and without it stdin is
+  never read for a phrase. With it, the phrase is the first line of stdin and nothing after that
+  line is read, so whatever reads stdin next finds the rest. The flag comes before a stored phrase.
+  A stdin with no phrase on its first line, or with a first line over 64 KiB, is refused rather
+  than made up for from the stored profile or the prompt, and `SENNIT_PHRASE` set as well is
+  refused as two phrases. The refusal of a run with no phrase names `sennit connect`,
+  `SENNIT_PHRASE` and `--phrase-stdin`, and `sennit-mcp`'s no longer suggests piping one in, since
+  its stdin is the protocol. **For scripts:** one that pipes the phrase in needs `--phrase-stdin`
+  added. Without it the pipe is left unread, and with no phrase set or stored the command refuses
+  with `no recovery phrase`.
 
 ### Fixed
 

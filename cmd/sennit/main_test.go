@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -95,5 +96,57 @@ func TestAScriptKeepsItsLinesAfterASennitCommand(t *testing.T) {
 	}
 	if string(left) != rest {
 		t.Errorf("sennit took the script's lines: %d of %d bytes left, %q", len(left), len(rest), left)
+	}
+}
+
+// Told to read the phrase from stdin, a sennit command takes the phrase's line
+// and nothing after it, from a pipe or from a file, so whatever reads stdin next
+// finds every line that followed. The line here is not a phrase, so the command
+// stops as soon as it has read it, before any vault is opened.
+func TestThePhraseStdinFlagTakesOnlyThePhraseLine(t *testing.T) {
+	const line = "eleven words that are not a recovery phrase and open nothing\n"
+	const rest = "echo the line after it\necho and the last one\n"
+	for name, stdin := range map[string]func(*testing.T) *os.File{
+		"a pipe": func(t *testing.T) *os.File {
+			r, w, err := os.Pipe()
+			if err != nil {
+				t.Fatalf("pipe: %v", err)
+			}
+			t.Cleanup(func() { r.Close() })
+			if _, err := w.WriteString(line + rest); err != nil {
+				t.Fatalf("write to the pipe: %v", err)
+			}
+			w.Close()
+			return r
+		},
+		"a file": func(t *testing.T) *os.File {
+			path := filepath.Join(t.TempDir(), "phrase-then-script.txt")
+			if err := os.WriteFile(path, []byte(line+rest), 0o600); err != nil {
+				t.Fatalf("write %s: %v", path, err)
+			}
+			f, err := os.Open(path)
+			if err != nil {
+				t.Fatalf("open %s: %v", path, err)
+			}
+			t.Cleanup(func() { f.Close() })
+			return f
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := stdin(t)
+			stderr, code := program(t, f, "status", "-offline", "--phrase-stdin")
+			// Refused as a recovery phrase, so the line was read, and read as the
+			// phrase.
+			if code != 1 || !strings.Contains(stderr, keys.ErrPhrase.Error()+":") {
+				t.Errorf("a line that is not a phrase ended with %d, want 1 and the phrase refused:\n%s", code, stderr)
+			}
+			left, err := io.ReadAll(f)
+			if err != nil {
+				t.Fatalf("read what is left of stdin: %v", err)
+			}
+			if string(left) != rest {
+				t.Errorf("sennit took more than the phrase's line: %d of %d bytes left, %q", len(left), len(rest), left)
+			}
+		})
 	}
 }
