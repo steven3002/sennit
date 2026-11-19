@@ -32,19 +32,39 @@ func TestTheFirstRunFailures(t *testing.T) {
 	if got, want := shown(t, 80, keys.AppKey(make([]byte, 4)).Check()), fixture(t, "error-app-key-length.txt"); got != want {
 		t.Errorf("a damaged key:\n got %q\nwant %q", got, want)
 	}
+	// Each way a phrase can be given has a hint of its own, the flag that reads
+	// stdin among them, since a pipe is left unread without it.
 	got := shown(t, 80, keys.ErrNoPhrase)
 	want := uitest.Lines(
 		" ERROR  no recovery phrase",
-		"  Nothing supplied one: SENNIT_PHRASE is not set, nothing came",
-		"  in on stdin, and no profile is stored.",
+		"  Nothing supplied one: SENNIT_PHRASE is not set, no profile is",
+		"  stored, and stdin is left unread without `--phrase-stdin`.",
 		"",
 		" HINT   `sennit connect` stores it with the app key for every",
 		"        later run",
-		" HINT   or set SENNIT_PHRASE, or pipe the phrase in on stdin",
+		" HINT   or set SENNIT_PHRASE",
+		" HINT   or pipe it in with `--phrase-stdin`",
 		" HINT   no phrase yet? `sennit init --new-phrase` prints one",
 	)
 	if got != want {
 		t.Errorf("no phrase:\n got %q\nwant %q", got, want)
+	}
+}
+
+// The three refusals --phrase-stdin can meet: a phrase in the environment as
+// well, no phrase on stdin, and a first line there too long to be one.
+func TestThePhraseStdinRefusals(t *testing.T) {
+	s := terminal(t, 80)
+	for i, p := range []*problem{twoPhrases(), nothingOnStdin(), firstLineTooLong()} {
+		if i > 0 {
+			s.out.stderr.Write([]byte("\n"))
+		}
+		for _, line := range s.out.messageLines(p.message) {
+			fmt.Fprintln(s.out.stderr, line)
+		}
+	}
+	if got, want := s.text(), fixture(t, "phrase-stdin-refusals.txt"); got != want {
+		t.Errorf("the refusals:\n got %q\nwant %q", got, want)
 	}
 }
 

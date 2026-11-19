@@ -1,0 +1,26 @@
+ ERROR  SENNIT_PHRASE is set, and --phrase-stdin was given too
+  That is two recovery phrases, and taking either would be a
+  guess about which one was meant.
+
+ HINT   remove SENNIT_PHRASE from the environment to read the
+        phrase from stdin
+ HINT   or leave out `--phrase-stdin` to use SENNIT_PHRASE
+
+ ERROR  --phrase-stdin was given, and no phrase arrived on stdin
+  With the flag the phrase is read from the first line of stdin
+  and from nowhere else. That line was empty, or stdin is a
+  terminal or another device rather than a pipe or a file.
+
+ HINT   pipe the phrase in, or redirect a file that holds it
+ HINT   or leave out `--phrase-stdin` to use SENNIT_PHRASE, the
+        stored profile or the prompt
+
+ ERROR  the first line on stdin is too long to be a phrase
+  With `--phrase-stdin` the phrase is read from the first line
+  of stdin and from nowhere else. That line runs on past 64 KiB,
+  and a recovery phrase is twelve words.
+
+ HINT   pipe in the phrase alone, or redirect a file that holds
+        it on its first line
+ HINT   or leave out `--phrase-stdin` to use SENNIT_PHRASE, the
+        stored profile or the prompt

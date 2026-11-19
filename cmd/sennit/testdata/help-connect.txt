@@ -13,6 +13,7 @@ FLAGS
                       30m)
   --ready duration    How long to wait for the account to become usable
                       (default 90s)
+  --phrase-stdin      Read the recovery phrase from stdin
 
 OUTPUT FLAGS
   --color when        When to colour output: auto, always or never (default

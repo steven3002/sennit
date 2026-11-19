@@ -123,3 +123,22 @@ func TestWithNothingStoredTheServerExplainsWhatItNeeds(t *testing.T) {
 		}
 	}
 }
+
+// Nothing the server says about a missing phrase suggests piping one in. Its
+// stdin is the protocol, so the advice could only be followed by breaking it.
+// The log line and every tool's error carry the error's own text, and the log
+// adds the explanation.
+func TestTheServerNeverSuggestsPipingAPhrase(t *testing.T) {
+	storedFor(t, profile.Profile{})
+	_, err := credentialsFor(&strings.Builder{})
+	if !errors.Is(err, keys.ErrNoPhrase) {
+		t.Fatalf("nothing stored and nothing set: %v, want ErrNoPhrase", err)
+	}
+	var log strings.Builder
+	notOpened(&log, t.Context(), err)
+	for name, said := range map[string]string{"the error": err.Error(), "the log": log.String()} {
+		if strings.Contains(strings.ToLower(said), "pipe") {
+			t.Errorf("%s suggests piping the phrase to a server whose stdin is the protocol: %q", name, said)
+		}
+	}
+}

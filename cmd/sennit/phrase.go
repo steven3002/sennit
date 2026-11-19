@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -19,9 +20,9 @@ import (
 const phrasePrompt = "Recovery phrase: "
 
 // A phraseSource is where a recovery phrase can come from beyond the
-// environment: the stream a piped one arrives on, whether there is anybody at
-// the other end of it, and how to read from that person without putting what
-// they type on the screen.
+// environment: the stream one arrives on when --phrase-stdin asks for it,
+// whether there is anybody at the other end of it, and how to read from that
+// person without putting what they type on the screen.
 //
 // It is described here rather than read from the operating system where it is
 // used, because a test process has no terminal and this is the one piece of
@@ -51,23 +52,62 @@ func terminalPhrases(interrupted <-chan struct{}) phraseSource {
 	}
 }
 
-// readPhrase takes the recovery phrase from the environment, then from the
-// profile sennit connect stored, then from a pipe, and asks for it when none of
-// them supplied one and there is somebody to ask.
+// bindPhraseStdin defines --phrase-stdin, which every command that reads a
+// phrase takes, and which means the same on each of them.
+func bindPhraseStdin(fs *flag.FlagSet, asked *bool) {
+	fs.BoolVar(asked, "phrase-stdin", false, "read the recovery phrase from stdin")
+}
+
+// readPhrase takes the recovery phrase from the environment, or from stdin when
+// --phrase-stdin asks for it, and otherwise from the profile sennit connect
+// stored, and asks for it when none of them supplied one and there is somebody
+// to ask.
 //
-// The order is the point. The environment comes first, something this run was
-// handed on purpose. The stored profile comes before stdin, because a command
-// run inside a script, or over ssh, inherits a stdin that was never meant for
-// it: read first, the next line of whatever was being fed in would be taken for
-// the phrase, and the rest of it swallowed. So once a phrase is stored, stdin
-// is left alone. With nothing stored a pipe is read as it always was, and a
-// question is asked only when everything was silent, so a run with no phrase
-// anywhere and no terminal still refuses, with the message it always gave.
-func (s *session) readPhrase() (string, error) {
-	if phrase := strings.TrimSpace(os.Getenv(keys.PhraseEnv)); phrase != "" {
+// Stdin is read only when the flag asks. A command run inside a script, or over
+// ssh, inherits a stdin that was never meant for it: read unasked, the next line
+// of whatever was being fed in would be taken for the phrase, and the rest of it
+// swallowed. That was found on a server, where `ssh host 'bash -s' < script`
+// lost every line after the first sennit command. So no pipe is read on the
+// chance that it holds a phrase, whether or not one is stored. gh, docker and
+// sudo keep the same rule for a secret on stdin: `gh auth login --with-token`,
+// `docker login --password-stdin` and `sudo -S` read a piped one only when a
+// flag asks for it.
+//
+// The flag and the environment together are refused rather than ranked: that
+// is two phrases, and taking either would be a guess about which one was meant.
+// The flag alone comes before the stored profile, because with a phrase stored
+// the only reason to pass it is to use another one. Asked for, stdin is the only
+// place looked, so a stdin with no phrase on it is refused rather than made up
+// for from the profile or the prompt. A phrase that came in on stdin is from
+// then on what one from the environment is: the key can still come from the
+// profile, and connect still keeps a different stored phrase unless told to
+// replace it.
+//
+// With neither, a question is asked only when the profile was silent too, so a
+// run with no phrase anywhere and no terminal refuses, and says each way a
+// phrase can be given.
+func (s *session) readPhrase(phraseStdin bool) (string, error) {
+	env := strings.TrimSpace(os.Getenv(keys.PhraseEnv))
+	switch {
+	case env != "" && phraseStdin:
+		return "", twoPhrases()
+	case env != "":
 		s.sources.phrase = keys.PhraseEnv
+		return env, nil
+	case phraseStdin:
+		phrase, err := keys.ReadPhraseFrom(s.phrases.stdin)
+		switch {
+		case errors.Is(err, keys.ErrNoPhrase):
+			return "", nothingOnStdin()
+		case errors.Is(err, keys.ErrPhraseTooLong):
+			return "", firstLineTooLong()
+		case err != nil:
+			return "", err
+		}
+		s.sources.phrase = fromStdin
 		return phrase, nil
 	}
+
 	stored, _, found, err := s.savedProfile()
 	if err != nil {
 		return "", err
@@ -76,13 +116,8 @@ func (s *session) readPhrase() (string, error) {
 		s.sources.phrase = fromProfile
 		return stored.Phrase, nil
 	}
-	phrase, err := keys.ReadPhrase(s.phrases.stdin)
-	if err == nil {
-		s.sources.phrase = fromStdin
-		return phrase, nil
-	}
-	if !errors.Is(err, keys.ErrNoPhrase) || !s.phrases.interactive {
-		return "", err
+	if !s.phrases.interactive {
+		return "", keys.ErrNoPhrase
 	}
 
 	fmt.Fprint(s.stderr, phrasePrompt)
@@ -103,6 +138,48 @@ func (s *session) readPhrase() (string, error) {
 	}
 	s.sources.phrase = fromPrompt
 	return typed, nil
+}
+
+// twoPhrases is the refusal of a run given a phrase in the environment and told
+// to read one from stdin as well.
+//
+// Neither is picked by an order. Either could be the one meant: the variable
+// may be left over from earlier, or the flag added with the variable forgotten,
+// and a run that guessed wrong would go on to open, or connect, the wrong vault.
+// docker refuses --password with --password-stdin as conflicting options. gh
+// refuses every `gh auth login`, with or without --with-token, while a variable
+// such as GH_TOKEN supplies the token, since that variable takes precedence over
+// any token gh would store.
+func twoPhrases() *problem {
+	return refuse(keys.PhraseEnv+" is set, and --phrase-stdin was given too").
+		because("That is two recovery phrases, and taking either would be a guess about which one was meant.").
+		try("remove "+keys.PhraseEnv+" from the environment to read the phrase from stdin",
+			"or leave out `--phrase-stdin` to use "+keys.PhraseEnv)
+}
+
+// nothingOnStdin is the refusal of a run told to read the phrase from stdin
+// that found none there. The person asked for stdin, so the stored profile and
+// the prompt are not tried in its place.
+func nothingOnStdin() *problem {
+	return refuse("--phrase-stdin was given, and no phrase arrived on stdin").
+		because("With the flag the phrase is read from the first line of stdin and from nowhere else. "+
+			"That line was empty, or stdin is a terminal or another device rather than a pipe or a file.").
+		try("pipe the phrase in, or redirect a file that holds it",
+			"or leave out `--phrase-stdin` to use "+keys.PhraseEnv+", the stored profile or the prompt").
+		from(keys.ErrNoPhrase)
+}
+
+// firstLineTooLong is the refusal of a run told to read the phrase from stdin
+// whose first line there runs on past 64 KiB, which no phrase does. Like a
+// stdin with no phrase on it, it is not made up for from the stored profile or
+// the prompt.
+func firstLineTooLong() *problem {
+	return refuse("the first line on stdin is too long to be a phrase").
+		because("With `--phrase-stdin` the phrase is read from the first line of stdin and from nowhere "+
+			"else. That line runs on past 64 KiB, and a recovery phrase is twelve words.").
+		try("pipe in the phrase alone, or redirect a file that holds it on its first line",
+			"or leave out `--phrase-stdin` to use "+keys.PhraseEnv+", the stored profile or the prompt").
+		from(keys.ErrPhraseTooLong)
 }
 
 // askAtTheTerminal reads one line from the terminal with its echo turned off.
