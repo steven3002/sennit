@@ -354,18 +354,21 @@ claude mcp add sennit -- "$(command -v sennit-mcp)"
 claude mcp add sennit -- (Get-Command sennit-mcp).Source
 ```
 
-**In Claude Code, its own memory takes "remember" before Sennit does.** Claude Code keeps a memory
-of its own, on by default, and its [documentation](https://code.claude.com/docs/en/memory) says
-that when you ask it to remember something, it saves it there. In our check with Claude Code
-2.1.325, ten requests beginning "Remember" all went to that memory and none reached the vault
-([host checks](host-checks.md)). Sennit does not change Claude Code's settings, so the choice is
-yours:
+**In Claude Code, its own memory can take "remember" before Sennit does.** Claude Code keeps a
+memory of its own, on by default, and its [documentation](https://code.claude.com/docs/en/memory)
+says that when you ask it to remember something, it saves it there. In our checks with that memory
+on ([host checks](host-checks.md)), ten requests to remember something in one Claude Code 2.1.325
+session all went to it, and none reached the vault. With 2.1.328 and a fresh session for each
+request, 2 of 4 requests that did not name Sennit reached the vault, and all 4 that named it did.
+Sennit does not change Claude Code's settings, so the choice is yours:
 
 - **Turn Claude Code's memory off**, and "remember" goes to Sennit: encrypted on this device before
   it is stored on Sia, and there for any other MCP client you connect to the vault. Claude Code's
   own memory stays on the machine it was written on. To turn it off, open `/memory` in a Claude
-  Code session and use its auto memory toggle. To turn it off for one project only, set
-  `"autoMemoryEnabled": false` in that project's Claude Code settings.
+  Code session and use its auto memory toggle, which "saves `autoMemoryEnabled` to your user
+  settings", and [user settings](https://code.claude.com/docs/en/settings) apply in every project
+  on this machine. To turn it off for one project only, set `"autoMemoryEnabled": false` in that
+  project's Claude Code settings.
 - **Or keep it on, and name Sennit when you ask**, as in "remember in Sennit that the staging
   database is reset every Monday".
 
