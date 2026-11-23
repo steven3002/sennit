@@ -193,7 +193,7 @@ type connectOptions struct {
 
 func connectFlags(cmd *invocation) connectOptions {
 	options := connectOptions{
-		keyFile:     cmd.set.String("out", "", "file to write the issued app key to, created 0600, instead of storing it"),
+		keyFile:     cmd.set.String("out", "", "file to write the issued app key to, open to this account alone, instead of storing it"),
 		replace:     cmd.set.Bool("replace", false, "replace a stored profile whose recovery phrase is different"),
 		indexer:     cmd.set.String("indexer", vault.DefaultIndexer(), "indexer URL"),
 		budget:      cmd.set.Duration("wait", sia.ApprovalBudget, "how long to keep a live approval link available"),

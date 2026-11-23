@@ -7,11 +7,15 @@ something crashing. **Include the output of `sennit version`**, because a bug re
 a build cannot be reproduced:
 
 ```
-sennit 0.1.0-beta-mvp (3615850, 2026-09-04)
+sennit 0.2.0-beta-mvp (<commit>, <date>)
 ```
 
+A release names the commit and the date it was built from. A binary you built yourself says
+`built from source` in their place.
+
 ⚠️ **Never paste your recovery phrase into an issue.** It is the key to every memory in the vault.
-Nothing in this project ever needs it in order to help you, and no output here prints it.
+Nothing in this project ever needs it in order to help you, and no command prints it except
+`sennit init --new-phrase`, which makes one.
 
 **Two checks are worth more than any bug report**, because they cover the two things automated tests
 cannot reach. Both are scripted in [`docs/host-checks.md`](host-checks.md) and take about ten

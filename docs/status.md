@@ -26,8 +26,9 @@
   back from the transcript itself**, and where the rest land depends on the rebuild rather than on
   the schema: a rebuild at index depth with no memory linking back to the conversation reconstructs
   **4** and loses **11**, the summary, tags, project and lineage among them. A linked memory restores
-  `links.memories` through the other record's edge, and a catalog-depth rebuild leaves the embedding
-  unset, so **do not read those two numbers as fixed.** Measured on a live two-machine run,
+  `links.memories` through the other record's edge, and a rebuild at metadata depth, the default of
+  `sennit hydrate`, leaves the embedding unset, so **do not read those two numbers as fixed.** A
+  hydrate at catalog depth rebuilds no conversation at all. Measured on a live two-machine run,
   2026-09-04. **The vault reports the origin of every field it returns**, rather than handing back a
   rebuilt head as though it were the original.
 - **Opening a vault on a second machine needs the phrase *and* one browser approval.** The phrase

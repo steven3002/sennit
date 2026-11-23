@@ -61,7 +61,7 @@ func (f *vaultFlags) bind(fs *flag.FlagSet) {
 	f.set = fs
 	fs.StringVar(&f.home, "home", vault.DefaultHome(), "vault directory")
 	fs.StringVar(&f.indexer, "indexer", vault.DefaultIndexer(), "indexer URL")
-	fs.BoolVar(&f.offline, "offline", false, "work from this device only, without contacting the indexer")
+	fs.BoolVar(&f.offline, "offline", false, "work without contacting the indexer; a missing embedding model is still downloaded")
 	bindPhraseStdin(fs, &f.phraseStdin)
 }
 

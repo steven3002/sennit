@@ -73,13 +73,13 @@ summary as though someone else will read it to decide whether to open the conver
 Give a turn a `created` time only from your own record of when it was said, and leave it out when
 you have none rather than invent one. A resume gives these times as when the conversation happened.
 
-Appending is cheap: pass the session's address and only the new turns. Nothing already stored is
-rewritten.
+Appending is cheap: pass the session's address and only the new turns. No turn already stored is
+written again.
 
 ## What this vault will not do
 
-It runs no model of its own. It will not summarise, infer importance, or decide that two records are
-the same thing, it reports the evidence and leaves the judgement to you. When a write lands near an
+It runs no language model of its own. It will not summarise, infer importance, or decide that two
+records are the same thing, it reports the evidence and leaves the judgement to you. When a write lands near an
 existing record, the response says so and it is yours to decide whether you have added a fact,
 restated one, or contradicted one.
 

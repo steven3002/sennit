@@ -104,9 +104,18 @@ func TestHelpOnWindowsIsNotWrittenForAPOSIXShell(t *testing.T) {
 	}
 	for name, screen := range screens {
 		for _, line := range strings.Split(screen, "\n") {
-			if strings.HasPrefix(line, "  $ ") || strings.Contains(line, "export ") || strings.Contains(line, "$(") {
+			if strings.HasPrefix(line, "  $ ") || strings.Contains(line, "export ") || strings.Contains(line, "$(") ||
+				strings.Contains(line, "~/") {
 				t.Errorf("%s on Windows shows a POSIX line: %q", name, line)
 			}
+		}
+	}
+	// The vault's default directory is under the profile folder there, which
+	// is what os.UserHomeDir returns on Windows, whatever HOME a shell sets.
+	for _, name := range []string{"sennit --help", "sennit status --help", "sennit recall --help"} {
+		if !strings.Contains(screens[name], `(default %USERPROFILE%\.sennit)`) {
+			t.Errorf("%s on Windows does not give the vault's default directory as Windows writes it:\n%s",
+				name, screens[name])
 		}
 	}
 	got := uitest.Strip(rendered(s, commandHelpLines("windows", "connect", flagsOf(t, "connect"))))

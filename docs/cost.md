@@ -21,9 +21,9 @@ much you have pinned and how much remains.
 | | Records that fit in the free tier |
 |---|---|
 | Sennit, packed and reclaimed | **~57,000,000** |
-| The same data written one record per object | **1,250** |
+| The same data written one record per object | **1,192** |
 
-That 45,000× gap is the whole reason this project has a packer and a repack command. See §4.
+That 48,000× gap is the whole reason this project has a packer and a repack command. See §4.
 
 ## 2. If you outgrow it, the hosted tiers
 
@@ -83,13 +83,13 @@ fit in one.
 
 That is still trivially cheap in absolute terms, but it is the only cost lever in the system, and it
 is why Sennit batches writes rather than sending them one at a time, and why `sennit reclaim
--repack` exists. On the free tier it is the difference between 57 million records and 1,250.
+-repack` exists. On the free tier it is the difference between 57 million records and 1,192.
 
 ## 5. Stopping costs nothing, and nothing is locked in
 
 Storage is metered, not prepaid. Sia's RHP4 protocol has an explicit release mechanism, and the
 indexer runs it automatically on a maintenance loop. Freeing a 30-sector slab costs **$0.000000058**
-against **$0.000133 per month** to keep it, so it pays for itself in about thirty seconds.
+against **$0.000133 per month** to keep it, so it pays for itself in about twenty minutes.
 
 **Your cost at any moment is what you currently have pinned.** There is no reusable storage
 allocation to hand back and no term to run out. Delete records and the meter stops.

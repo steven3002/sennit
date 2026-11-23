@@ -5,12 +5,14 @@ USAGE
 
 FLAGS
   --embed           Regenerate search vectors as records are recovered, so they
-                    are findable by meaning and not only by id (default true)
+                    are findable by meaning and not only by their words
+                    (default true)
 
 VAULT FLAGS
   --home dir        Vault directory (default ~/.sennit)
   --indexer url     Indexer URL (default https://sia.storage)
-  --offline         Work from this device only, without contacting the indexer
+  --offline         Work without contacting the indexer; a missing embedding
+                    model is still downloaded
   --phrase-stdin    Read the recovery phrase from stdin
 
 OUTPUT FLAGS

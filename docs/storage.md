@@ -80,6 +80,7 @@ than leaving you to find out when a write fails:
 ✓ Checked this vault and its Sia account (9.8s)
 
 Vault    ~/.sennit
+Secrets  phrase and app key from the default profile, in the Secret Service keyring
 Records  1,281 stored on Sia, 3 queued on this device
 Search   1,284 indexed with bge-small-en-v1.5-fp32
 Quota    80.00 MiB of 46.57 GiB used, 46.49 GiB free
@@ -91,6 +92,6 @@ everything the vault holds, an empty keep-set means the computation is wrong, no
 dead.
 
 **This is also the only thing that costs money.** Reclaimed, the free tier holds around **57 million
-records**; written one record per object it holds **1,250**. Beyond the free tier, storing 100,000
+records**; written one record per object it holds **1,192**. Beyond the free tier, storing 100,000
 memories for a year is about a third of a cent. The arithmetic, both price sources, and a plain
 statement of what has and has not actually been paid for are in [`docs/cost.md`](cost.md).

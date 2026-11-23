@@ -1,6 +1,6 @@
 # Contributing to Sennit
 
-Thanks for your interest. Sennit is in beta: the architecture is settled and validated, and releases have shipped since 2026-09-04. That makes this a good moment for **bug reports and design discussion**, and a poor moment for large speculative pull requests.
+Thanks for your interest. Sennit is in beta: the architecture is settled and validated, and prebuilt releases have shipped since 2026-09-04. That makes this a good moment for **bug reports and design discussion**, and a poor moment for large speculative pull requests.
 
 ## Before you start
 
@@ -29,7 +29,7 @@ If you think one of these is wrong, that's a genuinely useful issue, open it wit
 ## Pull requests
 
 - Branch from `main`, keep the change focused, and explain **why**, not just what.
-- **Go code**: `gofmt`, and it must build with `CGO_ENABLED=0` unless it lives behind an explicit build tag. The default build is dependency-free.
+- **Go code**: `gofmt`, and it must build with `CGO_ENABLED=0` unless it lives behind an explicit build tag. The default build needs no C toolchain and no system library.
 - **Tests** for behaviour changes. Retrieval-quality changes must be run against the recall evaluation harness, a change that improves one metric while quietly degrading another will be caught, so please check first.
 - **No new dependencies** without discussion. The dependency surface is deliberately small.
 - **Never commit secrets**, recovery phrases, app keys, `.env` files. See `.gitignore`.

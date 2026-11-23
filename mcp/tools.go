@@ -305,7 +305,7 @@ WHAT DECIDES WHETHER IT IS EVER FOUND AGAIN:
   back exactly as it went in.
 
 APPENDING. To add turns to a conversation already stored, pass its address as "session" and ONLY the
-new turns. Nothing already stored is rewritten, so the cost of an append is the size of the append.
+new turns. No turn already stored is written again, so the cost of an append is the size of the append.
 The title, summary and tags are updated only if you supply them, so you can add turns without
 restating what you already said, but do refresh the summary when the conversation has moved on, or
 it will be found by what it used to be about.

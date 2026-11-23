@@ -675,7 +675,7 @@ func reclaimFlags(cmd *invocation) (repack, orphans, unreadable, takeOwnership, 
 // recoverFlags is what sennit recover takes.
 func recoverFlags(cmd *invocation) *bool {
 	return cmd.set.Bool("embed", true,
-		"regenerate search vectors as records are recovered, so they are findable by meaning and not only by id")
+		"regenerate search vectors as records are recovered, so they are findable by meaning and not only by their words")
 }
 
 // verb picks the form of a verb that agrees with a count.

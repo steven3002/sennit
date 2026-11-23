@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -55,12 +56,24 @@ var groups = []struct {
 
 // environment lists the variables a reader has to set, and only those: the
 // ones a person never sets by hand belong in the documentation.
-var environment = [][2]string{
-	{keys.PhraseEnv, "Recovery phrase, used before the one sennit connect stored"},
-	{keys.AppKeyEnv, "Sia app key, used before the one sennit connect stored"},
-	{vault.HomeEnv, "Vault directory (default ~/.sennit)"},
-	{vault.IndexerEnv, "Indexer URL (default https://sia.storage)"},
-	{vault.ModelDirEnv, "Where embedding models are kept"},
+func environment(goos string) [][2]string {
+	return [][2]string{
+		{keys.PhraseEnv, "Recovery phrase, used before the one sennit connect stored"},
+		{keys.AppKeyEnv, "Sia app key, used before the one sennit connect stored"},
+		{vault.HomeEnv, "Vault directory " + homeDefault(goos)},
+		{vault.IndexerEnv, "Indexer URL (default https://sia.storage)"},
+		{vault.ModelDirEnv, "Where embedding models are kept"},
+	}
+}
+
+// homeDefault is the default vault directory as a reader on goos writes it:
+// .sennit in the home directory, which on Windows is the profile folder,
+// %USERPROFILE%, whatever HOME a POSIX shell there sets.
+func homeDefault(goos string) string {
+	if goos == "windows" {
+		return `(default %USERPROFILE%\.sennit)`
+	}
+	return "(default ~/.sennit)"
 }
 
 // topLevelHelp is everything sennit does, grouped by what a reader is trying to
@@ -81,7 +94,7 @@ func topLevelHelp(goos string) []ui.Line {
 		example(goos, `sennit remember --context "why it matters" "the statement"`),
 		example(goos, `sennit recall "what did we decide about packing"`),
 		ui.Line{}, heading("ENVIRONMENT"))
-	for _, variable := range environment {
+	for _, variable := range environment(goos) {
 		out = append(out, text("  "+width.Pad(variable[0], 19)+variable[1]))
 	}
 	return append(out, ui.Line{}, heading("LEARN MORE"),
@@ -152,7 +165,8 @@ type commandHelp struct {
 // same thing everywhere.
 var (
 	vaultFlagHelp = []flagHelp{
-		{"home", "--home dir", "(default ~/.sennit)"},
+		// The default is written for the reader's system: see vaultFlagsFor.
+		{"home", "--home dir", ""},
 		{"indexer", "--indexer url", "(default https://sia.storage)"},
 		{"offline", "--offline", ""},
 		phraseStdinFlagHelp,
@@ -163,6 +177,18 @@ var (
 	// own, since connect reads a phrase and opens no vault.
 	phraseStdinFlagHelp = flagHelp{"phrase-stdin", "--phrase-stdin", ""}
 )
+
+// vaultFlagsFor is the vault flags as a reader on goos is shown them, with the
+// default vault directory written the way that system writes it.
+func vaultFlagsFor(goos string) []flagHelp {
+	flags := slices.Clone(vaultFlagHelp)
+	for i := range flags {
+		if flags[i].flag == "home" {
+			flags[i].defaultText = homeDefault(goos)
+		}
+	}
+	return flags
+}
 
 var commandHelps = map[string]commandHelp{
 	"init": {
@@ -281,7 +307,7 @@ func commandHelpLines(goos, name string, fs *flag.FlagSet) []ui.Line {
 		groups = append(groups, struct {
 			title string
 			flags []flagHelp
-		}{"VAULT FLAGS", vaultFlagHelp})
+		}{"VAULT FLAGS", vaultFlagsFor(goos)})
 	}
 	output := []flagHelp{colorFlagHelp}
 	if spec.verbose {

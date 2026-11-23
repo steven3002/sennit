@@ -25,21 +25,28 @@ tool argument:
 |---|---|
 | `SENNIT_PHRASE` | Your BIP-39 recovery phrase. Optional once `sennit connect` has stored it for the account the host runs the server as. |
 | `SENNIT_APP_KEY` | The Sia app key issued when you approved this installation with your indexer. Optional once `sennit connect` has stored it. |
-| `SENNIT_HOME` | Optional. The vault directory (default `~/.sennit`). |
+| `SENNIT_HOME` | Optional. The vault directory (default `~/.sennit`, and `%USERPROFILE%\.sennit` on Windows). |
 | `SENNIT_MODEL_DIR` | Optional. Where the embedding model is kept. |
 
 > The phrase cannot be piped in here, unlike the `sennit` command line. **stdin carries the
 > protocol**, so a phrase on stdin would be read as the client's first message.
 
-Check it runs before involving a host. This writes nothing and spends no storage:
+Check it runs before involving a host. This stores no record and spends no storage:
 
 ```bash
-printf '%s\n' \
-  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","clientInfo":{"name":"probe","version":"1"},"capabilities":{}}}' \
-  '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
-  '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' \
-| ~/bin/sennit-mcp | head -2
+{ printf '%s\n' \
+    '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","clientInfo":{"name":"probe","version":"1"},"capabilities":{}}}' \
+    '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+    '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
+  sleep 20
+} | ~/bin/sennit-mcp | head -2
 ```
+
+The `sleep` keeps the server's input open while it answers, as a host does. The server stops when
+its input closes, so lines piped in and closed straight away get no answer, or only the first. It
+reads its input only once the vault is open, which online takes about ten seconds while it checks
+the key and reaches the hosts, so give it the full wait. Run `sennit status` once first, so the
+embedding model is already in place and the server does not start by downloading it.
 
 A working server prints one line naming the negotiated protocol version and one listing six tools,
 and writes `sennit-mcp: serving a vault on …` to stderr. If it reports having no vault, it will
@@ -48,8 +55,9 @@ server explains itself instead of failing to launch.
 
 ### Adding it to a host
 
-Every host below launches a **stdio** server: a command, no arguments, and two environment
-variables. The mechanism differs per host and each one's own documentation is authoritative.
+Every host below launches a **stdio** server: a command with no arguments, and the two secrets in
+its environment where no profile is stored for the account the host runs it as. The mechanism
+differs per host and each one's own documentation is authoritative.
 
 **Claude Code**. With a profile stored by `sennit connect`, the server needs no secret in its
 configuration. This form has not yet been run against a host:
@@ -71,7 +79,18 @@ claude mcp get sennit  # health-checks it
 ```
 
 **Claude Desktop, Cursor, VS Code**, each takes a JSON entry of the same shape. Use the host's own
-current documentation for the file's location and exact key names; the entry itself is:
+current documentation for the file's location and exact key names. With a profile stored by
+`sennit connect` for the account the host runs the server as, the entry holds no secret:
+
+```json
+{
+  "command": "/absolute/path/to/sennit-mcp",
+  "args": []
+}
+```
+
+Without one, or to give the server other credentials, the entry carries both secrets in its
+environment, which comes before the profile:
 
 ```json
 {
@@ -87,8 +106,8 @@ current documentation for the file's location and exact key names; the entry its
 ⚠️ Use an **absolute path**. A host does not launch the server from your shell, so `~` and anything
 on your `PATH` may not resolve.
 
-⚠️ This file will contain your recovery phrase. It is the key to everything in the vault. Do not
-commit it, and do not put it in a repository-level config that gets shared.
+⚠️ An entry with an `env` block holds your recovery phrase. It is the key to everything in the
+vault. Do not commit it, and do not put it in a repository-level config that gets shared.
 
 ---
 

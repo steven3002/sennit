@@ -6,12 +6,13 @@ client reading what the first one wrote.
 
 ```sh
 export SENNIT_PHRASE=...      # your recovery phrase; never a flag, never on screen
-export SENNIT_APP_KEY=...     # issued by `sennit connect`
+export SENNIT_APP_KEY=...     # written by `sennit connect --out sennit.key`
 ./demo/two-machines.sh
 ```
 
-The demo is a bash script, so the lines above are written for bash. On Windows that means Git Bash
-or WSL, and it has not been tried in either.
+The script stops unless both are set in its environment, even where `sennit connect` has stored a
+profile. The demo is a bash script, so the lines above are written for bash. On Windows that means
+Git Bash or WSL, and it has not been tried in either.
 
 **Measured end to end on 2026-09-25: 69 s**, 23 s to write and put on Sia, 37 s to rebuild in a
 directory that has never held the vault, 9 s to read it back with a different client. The rebuild
@@ -24,7 +25,7 @@ one-time.
 | Step | What is being demonstrated |
 |---|---|
 | **A**, an MCP client stores a memory and a four-turn conversation, then flushes | Ordinary use. The transcript carries a tool call correlated to its result by id, and a provider field this build has never heard of. |
-| **B**, a directory that has never existed runs `sennit hydrate` | Everything B has is the recovery phrase. No catalog, no index, no record bodies, no session heads. |
+| **B**, a directory that has never existed runs `sennit hydrate` | Everything B has is the recovery phrase and the app key. No catalog, no index, no record bodies, no session heads. |
 | **B**, a *second, different* MCP client reads the vault | The TypeScript MCP SDK, against the same stdio server the Go client used. The memory is not bound to the tool that wrote it. |
 
 ## What it does not show, and says so on screen
@@ -46,8 +47,9 @@ that named them is not on Sia at all, so B reconstructs it from the transcript.
 
 ⚠️ **The four groups below are not fixed sizes.** Two fields move between them depending on the run,
 not on the schema: `links.memories` is restored through the other record's edge **if some memory
-links back**, and the embedding is invented **only if the rebuild embeds**, which a catalog-depth
-hydrate does not. The live run on 2026-09-04 was index depth with no backlink and scored
+links back**, and the embedding is invented **only if the rebuild embeds**, which a hydrate at
+metadata depth, the default, does not; one at catalog depth rebuilds no head at all. The demo
+hydrates at index depth. The live run on 2026-09-04 was index depth with no backlink and scored
 **11 restored, 4 invented, 11 gone**. Quote the grouping with the conditions attached.
 
 - **comes back exactly**, the record id, the schema, the chunk list, the message and chunk counts,
@@ -58,7 +60,7 @@ hydrate does not. The live run on 2026-09-04 was index depth with no backlink an
 - **gone**, the summary, the tags, the project, the archived flag, the agent that wrote it, the
   token counts, the duration, the lineage, the preserved tail
 
-`vault.RebuildHead` reports the origin of every field it returns, and
+`vault.RebuildSessions` reports the origin of every field of each head it rebuilds, and
 `TestAHeadRebuiltFromChunksIsMeasuredFieldByField` asserts the whole verdict, so a change that moves
 a field between those four groups has to change the test.
 

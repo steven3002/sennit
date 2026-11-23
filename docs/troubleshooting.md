@@ -72,8 +72,10 @@ filed under `sennit`:
 - **macOS:** in Keychain Access, the two items named `sennit`. Or `security delete-generic-password
   -s sennit -a default/phrase`, and the same with `-a default/app-key`.
 - **Linux:** in your desktop's keyring manager, or `secret-tool clear service sennit username
-  default/phrase`, and the same for `default/app-key`. Where they were kept in a file, delete
-  `~/.config/sennit/secrets.json`.
+  default/phrase`, and the same for `default/app-key`. Where they were kept in a file, delete both
+  `secrets.json` and `profiles.json` in `~/.config/sennit`: with `profiles.json` left, a command
+  that looks for the profile stops on the missing `secrets.json` and says to run `sennit connect`
+  again.
 
 With both gone, Sennit treats the profile as removed and asks for the phrase again.
 
@@ -107,8 +109,9 @@ gives.
 
 ## An error about hosts, or "not enough hosts"
 
-The indexer has not finished funding host accounts. `sennit connect` waits for this; if you
-skipped it, wait a minute and retry. The first write of any process waits for readiness on its own.
+The indexer has not finished funding host accounts. `sennit connect` waits for this; if it was
+stopped before it finished, wait a minute and retry. `sennit flush` waits up to 90 seconds for it
+on its own before it uploads.
 
 ## "not found" or a 502 from the indexer
 
@@ -124,7 +127,7 @@ access. Sennit leaves a folder it did not make as it was set, since it may be sh
 
 To make it yours alone, on Linux or macOS run `chmod 700` on the folder. On Windows, open the
 folder's Properties, and under Security remove every account but yours. A folder Sennit makes itself,
-such as the default `~/.sennit`, is yours alone from the start.
+such as the default `.sennit` in your home folder, is yours alone from the start.
 
 ## "the search index on this device was damaged, and has been rebuilt"
 

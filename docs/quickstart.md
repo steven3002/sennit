@@ -241,8 +241,9 @@ The file is a secret: it is written for your account alone, and it belongs in `.
 - **The link expires after about ten minutes.** If you go and find a browser and the link is dead,
   `connect` has already issued a fresh one, use the newest link it printed.
 - **Approval is not readiness.** After you approve, the indexer funds host accounts, which took
-  **~16 s** when we measured it. `connect` waits for that on your behalf. If you skip `connect` and
-  write immediately, the write fails with an error about *hosts*, which says nothing about waiting.
+  **~16 s** when we measured it. `connect` waits for that on your behalf. If it is stopped before
+  then, an upload can fail with an error about *hosts*, which says nothing about waiting;
+  `sennit flush` waits up to 90 seconds for the account before it uploads.
 
 ## 4. Prepare the vault
 
@@ -255,7 +256,7 @@ sennit init
 
 Vault    /home/you/.sennit
 Indexer  https://sia.storage
-Quota    80.00 MiB used of 46.57 GiB (46.49 GiB free)
+Quota    40.00 MiB used of 46.57 GiB (46.53 GiB free)
 ```
 
 While it works it shows one line saying what it is waiting on, which is worth watching the first
@@ -308,8 +309,8 @@ ends with the only wording that means the record is on Sia:
 > **`--context` is required, and flags come before the text.** The context is what makes a statement
 > findable once it is separated from the conversation it came from; leaving it out measurably costs
 > retrieval quality, and records are immutable, so it cannot be added later. And because Go's flag
-> parsing stops at the first plain word, `remember "..." --offline` reads `--offline` as part of your
-> sentence.
+> parsing stops at the first plain word, `remember "..." --offline` would read `--offline` as part of
+> your sentence, so `remember` refuses it and stores nothing.
 
 ## 6. Recall it by meaning
 
@@ -383,11 +384,12 @@ not launch the server from your shell and will not resolve `~` or search your `P
 `command -v sennit-mcp` prints the full path, which is what to paste anywhere a config wants one. In
 PowerShell that is `(Get-Command sennit-mcp).Source`.
 
-Other hosts take a JSON config naming the same binary and the same two environment variables. We
-have verified the registration command above on Claude Code 2.1.223 with both secrets passed
-in its environment; the form without them has not yet been run against a host.
+Other hosts take a JSON config naming the same binary, with the same two environment variables only
+where the server is to use other credentials; [Host checks](host-checks.md#adding-it-to-a-host)
+shows both forms. We have verified the registration command above on Claude Code 2.1.223 with both
+secrets passed in its environment; the form without them has not yet been run against a host.
 **We have not verified the config file locations for Cursor, VS Code or Claude Desktop**, so this
-README does not guess at them.
+page does not guess at them.
 
 The server exposes `remember`, `recall`, `browse`, `open`, `save_session` and `forget`, plus a
 `/resume` prompt. Two clients can run against one vault at once, each in its own process.
@@ -403,6 +405,10 @@ sennit init --offline
 sennit remember --offline --context "..." "..."
 sennit recall --offline "..."
 ```
+
+It still needs the embedding model. The first command to open a vault downloads it into that
+vault's folder (~130 MB, once per vault folder), with `--offline` too, and without a network it
+stops there.
 
 Records written offline stay on the device until a connected run flushes them. The commands that
 move data to or from Sia need the indexer.

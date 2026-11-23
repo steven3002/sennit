@@ -53,9 +53,9 @@ pull request is now tested on Linux, Windows and macOS.
   agent read the same fields.
 - **Errors, warnings and hints as badges**, short and lowercase, with the problem and the fix kept
   apart. Off a terminal they fall back to `error:`, `warning:` and `hint:` labels.
-- **Grouped help**, to stdout, exiting 0: `sennit`, `sennit help`, `sennit --help` and every
-  `sennit <command> --help`. An unknown command suggests what was probably meant instead of
-  printing the whole usage.
+- **Grouped help**, to stdout, exiting 0: `sennit help`, `sennit --help` and every
+  `sennit <command> --help`, and a short screen for `sennit` alone. An unknown command suggests what
+  was probably meant instead of printing the whole usage.
 - **`--color=auto|always|never` on every command, and `--verbose`** on every command that opens a
   vault. `NO_COLOR`, `FORCE_COLOR` and `TERM=dumb` are honoured, `NO_COLOR` wins over
   `FORCE_COLOR`, and **`SENNIT_NO_PROGRESS=1`** turns the live line into plain lines.
@@ -416,7 +416,9 @@ pull request is now tested on Linux, Windows and macOS.
 - **Windows shells are shown their own commands.** `sennit connect --out` ended with a line for
   loading the key that neither PowerShell nor cmd can run. On Windows it now gives the PowerShell
   and the cmd form, and a POSIX shell running on Windows gets a third line, with a file name quoted
-  the way each shell quotes. The help and the docs show the PowerShell form beside each POSIX one.
+  the way each shell quotes. On Windows the help prompts its examples with `>`, shows none that only
+  a POSIX shell runs, and gives the vault's default directory as `%USERPROFILE%\.sennit`, and the
+  quickstart shows the PowerShell form beside each POSIX one.
 - **A phrase piped in on Windows is read whatever it was written as.** A file made with `>` in
   Windows PowerShell is UTF-16, and a PowerShell session set to UTF-8 puts a byte order mark in front
   of what it pipes, and both were refused as a wrong phrase when the phrase was right. The phrase is

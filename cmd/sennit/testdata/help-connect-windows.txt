@@ -4,8 +4,8 @@ USAGE
   sennit connect [flags]
 
 FLAGS
-  --out file          File to write the issued app key to, created 0600,
-                      instead of storing it
+  --out file          File to write the issued app key to, open to this account
+                      alone, instead of storing it
   --replace           Replace a stored profile whose recovery phrase is
                       different
   --indexer url       Indexer URL (default https://sia.storage)
