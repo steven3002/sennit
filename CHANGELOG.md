@@ -6,13 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
-## [0.2.0-beta-mvp], 2026-11-21
+## [0.2.0-beta-mvp], 2026-11-23
 
 **The first release people are asked to use.** The same substrate as 0.1.0-beta-mvp, with a
 first run that needs less typing, a vault that is private to its account on every system, and the
 defects found since September fixed. `sennit connect` now keeps the phrase and the app key, so a
-shell needs nothing set and an MCP host's configuration holds no secret. Every pull request is now
-tested on Linux, Windows and macOS.
+shell needs nothing set and an MCP host's configuration holds no secret. A phrase on stdin is read
+only when `--phrase-stdin` asks for it, so a script that pipes the phrase in needs that flag. Every
+pull request is now tested on Linux, Windows and macOS.
 
 ### Verified end to end against live Sia
 
@@ -443,8 +444,11 @@ tested on Linux, Windows and macOS.
 - The binaries are unsigned. macOS quarantines a download until the flag is cleared by hand, as the
   quickstart shows, and whether Windows warns about one downloaded in a browser has not been
   checked.
-- In Claude Code, its own memory takes "remember" before Sennit does, unless it is turned off or the
-  request names Sennit. The quickstart says how.
+- In Claude Code, its own memory can take "remember" before Sennit does, unless it is turned off or
+  the request names Sennit. The quickstart says how.
+- Do not run a 0.1.0-beta-mvp `sennit` or `sennit-mcp` against a vault while a 0.2.0-beta-mvp one
+  has it open. 0.1.0-beta-mvp takes no lock on the catalog or the search index, so the two can
+  interleave their writes. Upgrade both programs together, and restart any running server.
 - `/resume` is checked in Claude Code. Antigravity offers no MCP prompts, so there a conversation is
   brought back by asking for it.
 - Recall quality figures come from synthetic corpora, not a real personal vault.
